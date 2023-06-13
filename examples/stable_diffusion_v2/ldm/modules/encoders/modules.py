@@ -17,15 +17,15 @@ import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
 from mindspore import Tensor
-from ldm.models.clip_zh.simple_tokenizer import WordpieceTokenizer, BpeTokenizer, get_tokenizer
+from ldm.models.clip.simple_tokenizer import WordpieceTokenizer, BpeTokenizer, get_tokenizer
 from .text_encoder import TextEncoder
 
 
 SD_VERSION = os.getenv('SD_VERSION', default='2.0')
 
-class FrozenCLIPEmbedder_ZH(nn.Cell):
+class FrozenCLIPEmbedder(nn.Cell):
     def __init__(self, max_length=77, use_fp16=False):
-        super(FrozenCLIPEmbedder_ZH, self).__init__()
+        super(FrozenCLIPEmbedder, self).__init__()
         self.dtype = ms.float16 if use_fp16 else ms.float32
         self.max_length = max_length
 

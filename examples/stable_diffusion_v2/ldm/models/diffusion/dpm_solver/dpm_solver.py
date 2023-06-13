@@ -214,7 +214,7 @@ def model_wrapper(
             ``
                 classifier_fn(x, t_input, cond, **classifier_kwargs) -> logits(x, t_input, cond)
             ``
-            [3] P. Dhariwal and A. Q. Nichol, "Diffusion models beat GANs on image synthesis,"
+            [3] ops. Dhariwal and A. Q. Nichol, "Diffusion models beat GANs on image synthesis,"
                 in Advances in Neural Information Processing Systems, vol. 34, 2021, pp. 8780-8794.
         3. "classifier-free": classifier-free guidance sampling by conditional DPMs.
             The input `model` has the following format:
@@ -237,7 +237,7 @@ def model_wrapper(
     ===============================================================
     Args:
         model: A diffusion model with the corresponding format described above.
-        noise_schedule: A noise schedule object, such as NoiseScheduleVP.
+        noise_schedule: A noise schedule object, such as NoiseScheduleVops.
         model_type: A `str`. The parameterization type of the diffusion model.
                     "noise" or "x_start" or "v" or "score".
         model_kwargs: A `dict`. A dict for the other inputs of the model function.
@@ -351,7 +351,7 @@ class DPM_Solver:
                 def model_fn(x, t_continuous):
                     return noise
                 ``
-            noise_schedule: A noise schedule object, such as NoiseScheduleVP.
+            noise_schedule: A noise schedule object, such as NoiseScheduleVops.
             predict_x0: A `bool`. If true, use the data prediction model; else, use the noise prediction model.
             thresholding: A `bool`. Valid when `predict_x0` is True. Whether to use the "dynamic thresholding" in [1].
             max_val: A `float`. Valid when both `predict_x0` and `thresholding` are True. The max value for thresholding.
