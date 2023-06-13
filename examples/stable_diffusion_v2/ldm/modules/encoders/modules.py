@@ -34,7 +34,9 @@ class FrozenCLIPEmbedder(nn.Cell):
         if SD_VERSION.startswith('1.'):
             self.transformer = TextEncoder(context_length=77, vocab_size=49408, output_dim=768, width=768, layers=12, heads=12, dtype=self.dtype)
         else:
+            # TODO: in original implementation, layers=24. But it seems the weights in the last layer are not converted yet and leads to worse generalization result.
             self.transformer = TextEncoder(context_length=77, vocab_size=49408, output_dim=1024, width=1024, layers=23, heads=16, dtype=self.dtype)
+            #self.transformer = TextEncoder(context_length=77, vocab_size=49408, output_dim=1024, width=1024, layers=24, heads=16, dtype=self.dtype)
 
 
     def tokenize(self, texts):
