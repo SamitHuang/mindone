@@ -44,10 +44,11 @@ def load_model_from_config(config, ckpt, verbose=False):
     print(f"Loading model from {ckpt}")
     model = instantiate_from_config(config.model)
     if os.path.exists(ckpt):
-        param_dict = ms.load_checkpoint(ckpt)
-        if param_dict:
-            param_not_load = ms.load_param_into_net(model, param_dict)
-            print("param not load:", param_not_load)
+        #param_dict = ms.load_checkpoint(ckpt)
+        #if param_dict:
+        #    param_not_load = ms.load_param_into_net(model, param_dict)
+        #    print("param not load:", param_not_load)
+        print('==> skip ckpt loading for debug')
     else:
         print(f"!!!Warning!!!: {ckpt} doesn't exist")
 
@@ -209,6 +210,7 @@ def main():
     print(f"WORK DIR:{work_dir}")
     
     device_id = int(os.getenv("DEVICE_ID", 0))
+
     ms.context.set_context(
         mode=ms.context.GRAPH_MODE,
         device_target="Ascend",
@@ -273,6 +275,7 @@ def main():
                                             eta=opt.ddim_eta,
                                             x_T=start_code
                                             )
+            samples_ddim = ms.Tensor(samples_ddim)
             x_samples_ddim = model.decode_first_stage(samples_ddim)
             x_samples_ddim = ms.ops.clip_by_value((x_samples_ddim + 1.0) / 2.0, 
                                                   clip_value_min=0.0, clip_value_max=1.0)

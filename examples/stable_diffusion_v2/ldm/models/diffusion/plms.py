@@ -15,6 +15,7 @@
 from packaging import version
 import mindspore as ms
 from mindspore import ops
+import numpy as np
 
 from ldm.modules.diffusionmodules.util import (
     make_ddim_sampling_parameters,
@@ -43,11 +44,11 @@ class PLMSSampler():
         self.alphas_cumprod_prev = self.model.alphas_cumprod_prev
         
         # calculations for diffusion q(x_t | x_{t-1}) and others
-        self.sqrt_alphas_cumprod = ops.sqrt(alphas_cumprod)
-        self.sqrt_one_minus_alphas_cumprod = ops.sqrt(1. - alphas_cumprod)
-        self.log_one_minus_alphas_cumprod = ops.log(1. - alphas_cumprod)
-        self.sqrt_recip_alphas_cumprod = ops.sqrt(1. / alphas_cumprod)
-        self.sqrt_recipm1_alphas_cumprod = ops.sqrt(1. / alphas_cumprod - 1)
+        self.sqrt_alphas_cumprod = np.sqrt(alphas_cumprod)
+        self.sqrt_one_minus_alphas_cumprod = np.sqrt(1. - alphas_cumprod)
+        self.log_one_minus_alphas_cumprod = np.log(1. - alphas_cumprod)
+        self.sqrt_recip_alphas_cumprod = np.sqrt(1. / alphas_cumprod)
+        self.sqrt_recipm1_alphas_cumprod = np.sqrt(1. / alphas_cumprod - 1)
         
         # ddim sampling parameters
         ddim_sigmas, ddim_alphas, ddim_alphas_prev = make_ddim_sampling_parameters(alphacums=alphas_cumprod,
@@ -56,8 +57,8 @@ class PLMSSampler():
         self.ddim_sigmas = ddim_sigmas
         self.ddim_alphas = ddim_alphas
         self.ddim_alphas_prev = ddim_alphas_prev
-        self.ddim_sqrt_one_minus_alphas = ops.sqrt(1. - ddim_alphas)
-        sigmas_for_original_sampling_steps = ddim_eta * ops.sqrt(
+        self.ddim_sqrt_one_minus_alphas = np.sqrt(1. - ddim_alphas)
+        sigmas_for_original_sampling_steps = ddim_eta * np.sqrt(
             (1 - self.alphas_cumprod_prev) / (1 - self.alphas_cumprod) * (
                         1 - self.alphas_cumprod / self.alphas_cumprod_prev))
         self.ddim_sigmas_for_original_num_steps = sigmas_for_original_sampling_steps
@@ -127,7 +128,7 @@ class PLMSSampler():
                       unconditional_guidance_scale=1., unconditional_conditioning=None,):
         b = shape[0]
         if x_T is None:
-            img = ops.standard_normal(shape)
+            img = np.random.standard_normal(shape)
         else:
             img = x_T
             
@@ -187,23 +188,23 @@ class PLMSSampler():
             if unconditional_conditioning is None or unconditional_guidance_scale == 1.:
                 e_t = self.model.apply_model(x, t, c_crossattn=c)
             else:
-                x_in = ops.concat((x, x), axis=0)
-                t_in = ops.concat((t, t), axis=0)
+                x_in = np.concat((x, x), axis=0)
+                t_in = np.concat((t, t), axis=0)
                 if isinstance(c, dict):
                     assert isinstance(unconditional_conditioning, dict)
                     c_in = dict()
                     for k in c:
                         if isinstance(c[k], list):
                             c_in[k] = [
-                                ops.concat([unconditional_conditioning[k][i], c[k][i]], axis=0) for i in range(len(c[k]))
+                                np.concatenate([unconditional_conditioning[k][i], c[k][i]], axis=0) for i in range(len(c[k]))
                             ]
                         else:
-                            c_in[k] = ops.concat([unconditional_conditioning[k], c[k]], axis=0)
+                            c_in[k] = np.concatenate([unconditional_conditioning[k], c[k]], axis=0)
                     ldm_output = self.model.apply_model(x_in, t_in, **c_in)
                 else:
-                    c_in = ops.concat((unconditional_conditioning, c), axis=0)
+                    c_in = np.concatenate((unconditional_conditioning, c), axis=0)
                     ldm_output = self.model.apply_model(x_in, t_in, c_crossattn=c_in)
-
+                '''
                 if version.parse(ms.__version__) < version.parse("1.10"): 
                     e_t_uncond, e_t = ops.split(ldm_output, axis=0, output_num=2)
                 else:
@@ -211,6 +212,12 @@ class PLMSSampler():
                                     ldm_output, 
                                     split_size_or_sections=ldm_output.shape[0]//2, 
                                     axis=0)
+                '''
+                    
+                e_t_uncond, e_t = np.split(
+                                ldm_output, 
+                                2, 
+                                axis=0)
 
                 e_t = e_t_uncond + unconditional_guidance_scale * (e_t - e_t_uncond)
 

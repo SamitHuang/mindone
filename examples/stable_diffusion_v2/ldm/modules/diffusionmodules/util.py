@@ -170,6 +170,22 @@ def noise_like(shape, repeat=False):
 
 
 def make_beta_schedule(schedule="linear", n_timestep=1000, linear_start=1e-4, linear_end=2e-2, cosine_s=8e-3):
+    #linspase = ops.LinSpace().add_prim_attr('primitive_target', 'CPU')
+    
+    if schedule == "linear":
+        start = np.array((linear_start ** 0.5), dtype=np.float32)
+        stop = np.array((linear_end ** 0.5), dtype=np.float32)
+        num = n_timestep
+        betas = (
+                np.linspace(start, stop, num) ** 2
+        )
+    else:
+        raise ValueError(f"schedule '{schedule}' unknown.")
+
+    return betas
+
+'''
+def make_beta_schedule(schedule="linear", n_timestep=1000, linear_start=1e-4, linear_end=2e-2, cosine_s=8e-3):
     linspase = ops.LinSpace().add_prim_attr('primitive_target', 'CPU')
     
     if schedule == "linear":
@@ -183,3 +199,4 @@ def make_beta_schedule(schedule="linear", n_timestep=1000, linear_start=1e-4, li
         raise ValueError(f"schedule '{schedule}' unknown.")
 
     return betas.asnumpy()
+'''

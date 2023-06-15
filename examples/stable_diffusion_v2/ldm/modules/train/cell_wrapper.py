@@ -190,7 +190,7 @@ class ParallelTrainOneStepWithLossScaleCell(TrainOneStepWithLossScaleCell):
         # Check whether overflow
         cond = self.get_overflow_status(status, grads)
         overflow = self.process_loss_scale(cond)
-        
+        print('--D: overflow: ', overflow) 
         # if there is no overflow, do optimize
         if not overflow:
             loss = F.depend(loss, self.optimizer(grads))
