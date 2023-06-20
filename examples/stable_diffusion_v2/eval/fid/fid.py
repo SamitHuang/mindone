@@ -1,6 +1,8 @@
 import numpy as np
 from PIL import Image
+import mindspore as ms
 from mindspore import dataset as ds
+from mindspore import ops
 from mindspore.dataset import vision
 from mindspore import Tensor
 from mindspore.ops import adaptive_avg_pool2d
@@ -23,9 +25,17 @@ class ImagePathDataset:
     def __getitem__(self, i):
         path = self.files[i]
         img = Image.open(path).convert('RGB')
-        if self.transforms is not None:
-            img = self.transforms(img)
-        return (img,)
+        #if self.transforms is not None:
+        #    img = self.transforms(img)
+        #return (img,)
+        img = vision.ToTensor()(img)
+
+        # TODO: use other numpy resize ops, used in torchmetrics
+        img = ms.Tensor(img).expand_dims(0)
+        img = ops.ResizeBilinearV2()(img, (299, 299)) # it gives smaller error than vision.Resize or ops.interpolate
+        img = img.squeeze()
+
+        return img
 
 
 def get_activations(files, model, batch_size=50, dims=2048):
@@ -50,8 +60,15 @@ def get_activations(files, model, batch_size=50, dims=2048):
         print(('Warning: batch size is bigger than the data size. '
                'Setting batch size to data size'))
         batch_size = len(files)
-    dataset = ImagePathDataset(files, transforms=vision.ToTensor())
+    #dataset = ImagePathDataset(files, transforms=vision.ToTensor())
+    dataset = ImagePathDataset(files)
     dataloader = ds.GeneratorDataset(dataset, ['image'], shuffle=False)
+    '''
+    transforms = [vision.Resize(size=(299, 299), interpolation=vision.Inter.BILINEAR),
+                  vision.ToTensor(),
+                  ]
+    dataloader = dataloader.map(operations=transforms, input_columns="image")
+    '''
 
     dataloader = dataloader.batch(batch_size, drop_remainder=False)
     pred_arr = np.empty((len(files), dims))

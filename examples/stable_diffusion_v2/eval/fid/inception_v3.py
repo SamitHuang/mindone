@@ -290,14 +290,20 @@ class InceptionV3_FID(nn.Cell):
         self.include_top = include_top
         if self.include_top:
             self.logits = Logits(num_classes, dropout_keep_prob)
-        self.resize = nn.ResizeBilinear()
+        #self.resize = nn.ResizeBilinear()
         self.reduceMean = ops.ReduceMean(keep_dims=True)
         self.squeeze_2 = ops.Squeeze(2)
         self.squeeze_3 = ops.Squeeze(3)
 
     def construct(self, x):
         """cell construct"""
-        x = self.resize(x, size=(299, 299))
+        #x = self.resize(x, size=(299, 299))
+
+        #x = ops.ResizeBilinearV2()(x, (299, 299)) # it is better.
+
+        # computation error is large compared to torch
+        #x = ops.interpolate(x, size=(299, 299), mode='bilinear', align_corners=True)
+
         x = 2 * x - 1
         x = self.Conv2d_1a(x)
         # print(x[0,:,0,0])
