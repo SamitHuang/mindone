@@ -8,7 +8,7 @@ from scipy import linalg
 from tqdm import tqdm
 
 
-from inception_v3 import inception_v3_fid
+from .inception_v3 import inception_v3_fid
 
 
 class ImagePathDataset:
@@ -71,7 +71,11 @@ class FrechetInceptionDistance():
     def __init__(self, ckpt_path=None):
 
         # TODO: set context
-        self.model = inception_v3_fid(ckpt_path=ckpt_path)
+        if ckpt_path is not None:
+            self.model = inception_v3_fid(pretrained=False, ckpt_path=ckpt_path)
+        else:
+            self.model = inception_v3_fid(pretrained=True)
+
         self.model.set_train(False)
 
     def calculate_activation_stat(self, act):
@@ -162,48 +166,13 @@ class FrechetInceptionDistance():
 
 
 if __name__ == '__main__':
-    #
     gen_imgs = ['/Users/Samit/Data/datasets/ic15/det/test/ch4_test_images/img_1.jpg',
                 '/Users/Samit/Data/datasets/ic15/det/test/ch4_test_images/img_2.jpg']
     gt_imgs = ['/Users/Samit/Data/datasets/ic15/det/test/ch4_test_images/img_10.jpg',
                '/Users/Samit/Data/datasets/ic15/det/test/ch4_test_images/img_11.jpg',
                ]
 
-    fid_scorer = FrechetInceptionDistance(ckpt_path='./inception_v3_fid.ckpt')
+    #fid_scorer = FrechetInceptionDistance("./inception_v3_fid.ckpt")
+    fid_scorer = FrechetInceptionDistance()
     score = fid_scorer.compute(gen_imgs, gt_imgs)
     print('ms FID: ', score)
-
-
-    # torch:
-    #from torchmetrics.image.fid import FrechetInceptionDistance
-    from PIL import Image
-    import os
-
-    real_images = [np.array(Image.open(path).convert("RGB")) for path in gt_imgs]
-    fake_images = [np.array(Image.open(path).convert("RGB")) for path in gen_imgs]
-
-    import torch
-    import torchmetrics as tm
-    from torchvision.transforms import functional as F
-    #from torchmetrics.image.fid import FrechetInceptionDistance
-
-    def preprocess_image(image):
-        image = torch.tensor(image).unsqueeze(0)
-        image = image.permute(0, 3, 1, 2) / 255.0
-        #return F.center_crop(image, (256, 256))
-        return image
-
-    real_images = torch.cat([preprocess_image(image) for image in real_images])
-    print(real_images.shape)
-    fake_images = torch.cat([preprocess_image(image) for image in fake_images])
-    print(fake_images.shape)
-
-    # torch
-    fid = tm.image.fid.FrechetInceptionDistance(normalize=True)
-    #fid = FrechetInceptionDistance(normalize=True)
-
-
-    fid.update(real_images, real=True)
-    fid.update(fake_images, real=False)
-
-    print(f"pt FID: {float(fid.compute())}")

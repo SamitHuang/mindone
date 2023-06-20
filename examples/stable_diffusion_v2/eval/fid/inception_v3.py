@@ -9,9 +9,8 @@ import numpy as np
 import mindspore as ms
 import mindspore.common.initializer as init
 from mindspore import Tensor, nn, ops
-from mindspore.ops import operations as P
 from mindspore.common.initializer import XavierUniform
-from utils import Download
+from .utils import load_model
 
 
 __all__ = [
@@ -20,7 +19,7 @@ __all__ = [
 ]
 
 
-MS_FID_WEIGHTS_URL = "" #TODO: upload and set url
+MS_FID_WEIGHTS_URL = "https://download.mindspore.cn/toolkits/mindone/stable_diffusion/fid/inception_v3_fid-9ec6dfe4.ckpt" #TODO: upload and set url
 
 class BasicConv2d(nn.Cell):
     """
@@ -46,7 +45,7 @@ class InceptionA(nn.Cell):
     """
     def __init__(self, in_channels, pool_features, has_bias=False):
         super(InceptionA, self).__init__()
-        self.concat = P.Concat(axis=1)
+        #self.concat = P.Concat(axis=1)
         self.branch0 = BasicConv2d(in_channels, 64, kernel_size=1, has_bias=has_bias)
         self.branch1 = nn.SequentialCell([
             BasicConv2d(in_channels, 48, kernel_size=1, has_bias=has_bias),
@@ -68,7 +67,7 @@ class InceptionA(nn.Cell):
         x1 = self.branch1(x)
         x2 = self.branch2(x)
         branch_pool = self.branch_pool(x)
-        out = self.concat((x0, x1, x2, branch_pool))
+        out = ops.concat((x0, x1, x2, branch_pool), axis=1)
         return out
 
 
@@ -78,7 +77,7 @@ class InceptionB(nn.Cell):
     """
     def __init__(self, in_channels, has_bias=False):
         super(InceptionB, self).__init__()
-        self.concat = P.Concat(axis=1)
+        #self.concat = P.Concat(axis=1)
         self.branch0 = BasicConv2d(in_channels, 384, kernel_size=3, stride=2, pad_mode='valid', has_bias=has_bias)
         self.branch1 = nn.SequentialCell([
             BasicConv2d(in_channels, 64, kernel_size=1, has_bias=has_bias),
@@ -92,7 +91,7 @@ class InceptionB(nn.Cell):
         x0 = self.branch0(x)
         x1 = self.branch1(x)
         branch_pool = self.branch_pool(x)
-        out = self.concat((x0, x1, branch_pool))
+        out = ops.concat((x0, x1, branch_pool), axis=1)
         return out
 
 
@@ -102,7 +101,7 @@ class InceptionC(nn.Cell):
     """
     def __init__(self, in_channels, channels_7x7, has_bias=False):
         super(InceptionC, self).__init__()
-        self.concat = P.Concat(axis=1)
+        #self.concat = P.Concat(axis=1)
         self.branch0 = BasicConv2d(in_channels, 192, kernel_size=1, has_bias=has_bias)
         self.branch1 = nn.SequentialCell([
             BasicConv2d(in_channels, channels_7x7, kernel_size=1, has_bias=has_bias),
@@ -126,7 +125,7 @@ class InceptionC(nn.Cell):
         x1 = self.branch1(x)
         x2 = self.branch2(x)
         branch_pool = self.branch_pool(x)
-        out = self.concat((x0, x1, x2, branch_pool))
+        out = ops.concat((x0, x1, x2, branch_pool), axis=1)
         return out
 
 
@@ -136,7 +135,7 @@ class InceptionD(nn.Cell):
     """
     def __init__(self, in_channels, has_bias=False):
         super(InceptionD, self).__init__()
-        self.concat = P.Concat(axis=1)
+        #self.concat = P.Concat(axis=1)
         self.branch0 = nn.SequentialCell([
             BasicConv2d(in_channels, 192, kernel_size=1, has_bias=has_bias),
             BasicConv2d(192, 320, kernel_size=3, stride=2, pad_mode='valid', has_bias=has_bias)
@@ -153,7 +152,7 @@ class InceptionD(nn.Cell):
         x0 = self.branch0(x)
         x1 = self.branch1(x)
         branch_pool = self.branch_pool(x)
-        out = self.concat((x0, x1, branch_pool))
+        out = ops.concat((x0, x1, branch_pool), axis=1)
         return out
 
 
@@ -163,7 +162,7 @@ class InceptionEA(nn.Cell):
     """
     def __init__(self, in_channels, has_bias=False):
         super(InceptionEA, self).__init__()
-        self.concat = P.Concat(axis=1)
+        #self.concat = P.Concat(axis=1)
         self.branch0 = BasicConv2d(in_channels, 320, kernel_size=1, has_bias=has_bias)
         self.branch1 = BasicConv2d(in_channels, 384, kernel_size=1, has_bias=has_bias)
         self.branch1_a = BasicConv2d(384, 384, kernel_size=(1, 3), has_bias=has_bias)
@@ -182,11 +181,11 @@ class InceptionEA(nn.Cell):
     def construct(self, x):
         x0 = self.branch0(x)
         x1 = self.branch1(x)
-        x1 = self.concat((self.branch1_a(x1), self.branch1_b(x1)))
+        x1 = ops.concat((self.branch1_a(x1), self.branch1_b(x1)), axis=1)
         x2 = self.branch2(x)
-        x2 = self.concat((self.branch2_a(x2), self.branch2_b(x2)))
+        x2 = ops.concat((self.branch2_a(x2), self.branch2_b(x2)), axis=1)
         branch_pool = self.branch_pool(x)
-        out = self.concat((x0, x1, x2, branch_pool))
+        out = ops.concat((x0, x1, x2, branch_pool), axis=1)
         return out
 
 class InceptionEB(nn.Cell):
@@ -195,7 +194,7 @@ class InceptionEB(nn.Cell):
     """
     def __init__(self, in_channels, has_bias=False):
         super(InceptionEB, self).__init__()
-        self.concat = P.Concat(axis=1)
+        #self.concat = P.Concat(axis=1)
         self.branch0 = BasicConv2d(in_channels, 320, kernel_size=1, has_bias=has_bias)
         self.branch1 = BasicConv2d(in_channels, 384, kernel_size=1, has_bias=has_bias)
         self.branch1_a = BasicConv2d(384, 384, kernel_size=(1, 3), has_bias=has_bias)
@@ -214,11 +213,11 @@ class InceptionEB(nn.Cell):
     def construct(self, x):
         x0 = self.branch0(x)
         x1 = self.branch1(x)
-        x1 = self.concat((self.branch1_a(x1), self.branch1_b(x1)))
+        x1 = ops.concat((self.branch1_a(x1), self.branch1_b(x1)), axis=1)
         x2 = self.branch2(x)
-        x2 = self.concat((self.branch2_a(x2), self.branch2_b(x2)))
+        x2 = ops.concat((self.branch2_a(x2), self.branch2_b(x2)), axis=1)
         branch_pool = self.branch_pool(x)
-        out = self.concat((x0, x1, x2, branch_pool))
+        out = ops.concat((x0, x1, x2, branch_pool), axis=1)
         return out
 
 class Logits(nn.Cell):
@@ -332,32 +331,35 @@ class InceptionV3_FID(nn.Cell):
             return logits, aux_logits
         return logits
 
-def load_from_ckpt(net, ckpt_path):
-    if ckpt_path is None:
-        assert MS_FID_WEIGHTS_URL, "Either ckpt_path or MS_FID_WEIGHTS_URL MUST be set to load inception v3 model weights for FID calculation."
-        DownLoad().download_url(url=MS_FID_WEIGHTS_URL)
-        ckpt_path = os.path.basename(MS_FID_WEIGHTS_URL)
 
-    param_dict = ms.load_checkpoint(ckpt_path)
-    ms.load_param_into_net(net, param_dict)
-
-
-def inception_v3_fid(dims=2048, ckpt_path=None):
+def inception_v3_fid(dims=2048, pretrained=True, ckpt_path=None):
     """Build pretrained Inception model for FID computation
 
     The Inception model for FID computation uses a different set of weights
     and has a slightly different structure than original Inception.
+
+    Args:
+        pretrained: if True, downalod and load the checkpoint defined in `MS_FID_WEIGHTS_URL`. Otherwise, require ckpt_path to load a local checkpoint. Default is True.
+        ckpt_path: checkpoint path to inception v3 model weights. Default is None.
     """
 
     net = InceptionV3_FID()
-    load_from_ckpt(net, ckpt_path)
+
+    if pretrained:
+        load_from = MS_FID_WEIGHTS_URL
+    else:
+        assert ckpt_path, "Either ckpt_path or MS_FID_WEIGHTS_URL MUST be set to load inception v3 model weights for FID calculation."
+        load_from = ckpt_path
+    load_model(net, load_from)
+
+    print(f"Finish loading inception v3 fid checkpoint from {load_from}.")
 
     return net
 
 
 if __name__=="__main__":
     # simple test
-    net = inception_v3_fid(ckpt_path='./inception_v3_fid.ckpt')
+    net = inception_v3_fid(pretrained=False, ckpt_path='./inception_v3_fid.ckpt')
 
     bs = 2
     input_size = (bs, 3, 224, 224)

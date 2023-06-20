@@ -76,9 +76,7 @@ def torch_to_mindspore(pt_ckpt, save=True, save_fp='./inception_v3_fid.ckpt'):
 
 def main():
     # download torch checkpoint
-    Download().download_url(url=PT_FID_WEIGHTS_URL)
-    filename = os.path.basename(PT_FID_WEIGHTS_URL)
-    pt_fp = os.path.join(_DEFAULT_DOWNLOAD_ROOT, filename)
+    pt_fp = download_model(PT_FID_WEIGHTS_URL)
 
     # convert to ms checkpoint
     __dir__ = os.path.dirname(os.path.abspath(__file__))
