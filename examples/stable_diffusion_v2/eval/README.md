@@ -11,10 +11,10 @@ Note that all these metrics are neural network-based thus the parameters used ar
 
 ### FID
 
-To compute the FID between real images and generated images, please run 
+To compute the FID between the real images and the generated images, please run 
 
 ```
-python eval_fid.py --real_dir {dir_to_real_images}  --gen_dir {dir_to_generated_images}
+python eval/eval_fid.py --real_dir {dir_to_real_images}  --gen_dir {dir_to_generated_images}
 ```
 
 By default, we use the mindspore backend to run inception v3 model inference for FID computing. You may swich to `torchmetrics` backend  by setting `--backend=pt`. The computational difference between these two backend is usually lower than 0.1%, which is neglectable. 
