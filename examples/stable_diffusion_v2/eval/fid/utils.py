@@ -74,7 +74,7 @@ def detect_file_type(filename: str):  # pylint: disable=inconsistent-return-stat
                 return suffix2 + suffix, suffix2, suffix
         return suffix, None, suffix
 
-class DownLoad:
+class Download:
     """Base utility class for downloading."""
 
     USER_AGENT: str = (

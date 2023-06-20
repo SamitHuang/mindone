@@ -1,21 +1,24 @@
 """
 Convert pytorch checkpoint to mindspore checkpoint for inception v3.
+The converted model `inception_v3_fid.ckpt` will be saved in the same directory as this file belonging to.
 
-Require to install both pytorch and mindspore before running this script. 
+Require to install both pytorch and mindspore before running this script.
 """
+import os
 import torch
 import mindspore as ms
 from mindspore.train.serialization import save_checkpoint
-from .utils import Download
+from utils import Download, _DEFAULT_DOWNLOAD_ROOT
+from tqdm import tqdm
 
 PT_FID_WEIGHTS_URL = 'https://github.com/mseitzer/pytorch-fid/releases/download/fid_weights/pt_inception-2015-12-05-6726825d.pth'  # noqa: E501
 
-def torch_to_mindspore(pt_ckpt, save=True, save_fp='./inception_fid.ckpt'):
+def torch_to_mindspore(pt_ckpt, save=True, save_fp='./inception_v3_fid.ckpt'):
 
     state_dict = torch.load(pt_ckpt, map_location=torch.device('cpu'))
 
     ms_params = []
-    for k, v in state_dict.items():
+    for k, v in tqdm(state_dict.items()):
         if 'fc' in k:
             k = k.replace('fc', 'classifier')
         if 'num_batches_tracked' in k:
@@ -120,17 +123,25 @@ def torch_to_mindspore(pt_ckpt, save=True, save_fp='./inception_fid.ckpt'):
             if 'branch3x3dbl_3b' in k:
                 k = k.replace('branch3x3dbl_3b', 'branch2b')
         ms_params.append({'name': k, 'data': ms.Tensor(v.numpy())})
-    
+
     if save:
         save_checkpoint(ms_params, save_fp)
 
     return ms_params
 
+def main():
+    # download torch checkpoint
+    Download().download_url(url=PT_FID_WEIGHTS_URL)
+    filename = os.path.basename(PT_FID_WEIGHTS_URL)
+    pt_fp = os.path.join(_DEFAULT_DOWNLOAD_ROOT, filename)
+
+    # convert to ms checkpoint
+    __dir__ = os.path.dirname(os.path.abspath(__file__))
+    ckpt_save_fp = os.path.join(__dir__, 'inception_v3_fid.ckpt')
+    print('Converting...')
+    torch_to_mindspore(pt_fp, save=True, save_fp=ckpt_save_fp)
+    print('Done! Checkpoint saved in ', ckpt_save_fp)
 
 if __name__=='__main__':
-    # download pytorch checkpoint
-    DownLoad().download_url(url=PT_FID_WEIGHTS_URL)
-    pt_filename = os.path.basename(PT_FID_WEIGHTS_URL)
+    main()
 
-    # convert
-    torch_to_mindspore(pt_filename, save=True)

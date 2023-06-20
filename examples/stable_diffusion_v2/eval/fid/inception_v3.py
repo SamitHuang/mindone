@@ -1,47 +1,24 @@
 """
-Based on MindCV Inception V3, it creates inception v3 FID variant. 
+Based on MindCV Inception V3, it creates inception v3 FID variant.
 """
 
+from packaging import version
 from typing import Tuple, Union
 
+import numpy as np
+import mindspore as ms
 import mindspore.common.initializer as init
 from mindspore import Tensor, nn, ops
-from .utils import Download
+from utils import Download
 
 
 __all__ = [
+    "InceptionV3_FID",
     "inception_v3_fid",
 ]
 
 
 MS_FID_WEIGHTS_URL = "" #TODO: upload and set url
-
-
-class Dropout(nn.Dropout):
-    def __init__(self, p=0.5, dtype=ms.float32):
-        sig = inspect.signature(super().__init__)
-        if "keep_prob" in sig.parameters and "p" not in sig.parameters:
-            super().__init__(keep_prob=1.0-p, dtype=dtype)
-        elif "p" in sig.parameters:
-            super().__init__(p=p, dtype=dtype)
-        else:
-            raise NotImplementedError(
-                f"'keep_prob' or 'p' must be the parameter of `mindspore.nn.Dropout`, but got signature of it: {sig}."
-            )
-
-
-class GlobalAvgPooling(nn.Cell):
-    """
-    GlobalAvgPooling, same as torch.nn.AdaptiveAvgPool2d when output shape is 1
-    """
-
-    def __init__(self, keep_dims: bool = False) -> None:
-        super().__init__()
-        self.keep_dims = keep_dims
-
-    def construct(self, x):
-        x = ops.mean(x, axis=(2, 3), keep_dims=self.keep_dims)
-        return x
 
 
 class BasicConv2d(nn.Cell):
@@ -206,134 +183,6 @@ class InceptionE(nn.Cell):
         out = ops.concat((x0, x1, x2, branch_pool), axis=1)
         return out
 
-
-class InceptionAux(nn.Cell):
-    """Inception module for the aux classifier head"""
-
-    def __init__(
-        self,
-        in_channels: int,
-        num_classes: int,
-    ) -> None:
-        super().__init__()
-        self.avg_pool = nn.AvgPool2d(5, stride=3, pad_mode="valid")
-        self.conv0 = BasicConv2d(in_channels, 128, kernel_size=1)
-        self.conv1 = BasicConv2d(128, 768, kernel_size=5, pad_mode="valid")
-        self.flatten = nn.Flatten()
-        self.fc = nn.Dense(in_channels, num_classes)
-
-    def construct(self, x: Tensor) -> Tensor:
-        x = self.avg_pool(x)
-        x = self.conv0(x)
-        x = self.conv1(x)
-        x = self.flatten(x)
-        x = self.fc(x)
-        return x
-
-
-class InceptionV3(nn.Cell):
-    r"""Inception v3 model architecture from
-    `"Rethinking the Inception Architecture for Computer Vision" <https://arxiv.org/abs/1512.00567>`_.
-
-    .. note::
-        **Important**: In contrast to the other models the inception_v3 expects tensors with a size of
-        N x 3 x 299 x 299, so ensure your images are sized accordingly.
-
-    Args:
-        num_classes: number of classification classes. Default: 1000.
-        aux_logits: use auxiliary classifier or not. Default: False.
-        in_channels: number the channels of the input. Default: 3.
-        drop_rate: dropout rate of the layer before main classifier. Default: 0.2.
-    """
-
-    def __init__(
-        self,
-        num_classes: int = 1000,
-        aux_logits: bool = True,
-        in_channels: int = 3,
-        drop_rate: float = 0.2,
-    ) -> None:
-        super().__init__()
-        self.aux_logits = aux_logits
-        self.conv1a = BasicConv2d(in_channels, 32, kernel_size=3, stride=2, pad_mode="valid")
-        self.conv2a = BasicConv2d(32, 32, kernel_size=3, stride=1, pad_mode="valid")
-        self.conv2b = BasicConv2d(32, 64, kernel_size=3, stride=1)
-        self.maxpool1 = nn.MaxPool2d(kernel_size=3, stride=2)
-        self.conv3b = BasicConv2d(64, 80, kernel_size=1)
-        self.conv4a = BasicConv2d(80, 192, kernel_size=3, pad_mode="valid")
-        self.maxpool2 = nn.MaxPool2d(kernel_size=3, stride=2)
-        self.inception5b = InceptionA(192, pool_features=32)
-        self.inception5c = InceptionA(256, pool_features=64)
-        self.inception5d = InceptionA(288, pool_features=64)
-        self.inception6a = InceptionB(288)
-        self.inception6b = InceptionC(768, channels_7x7=128)
-        self.inception6c = InceptionC(768, channels_7x7=160)
-        self.inception6d = InceptionC(768, channels_7x7=160)
-        self.inception6e = InceptionC(768, channels_7x7=192)
-        if self.aux_logits:
-            self.aux = InceptionAux(768, num_classes)
-        self.inception7a = InceptionD(768)
-        self.inception7b = InceptionE(1280)
-        self.inception7c = InceptionE(2048)
-
-        self.pool = GlobalAvgPooling()
-        self.dropout = Dropout(p=drop_rate)
-        self.num_features = 2048
-        self.classifier = nn.Dense(self.num_features, num_classes)
-        self._initialize_weights()
-
-    def _initialize_weights(self) -> None:
-        """Initialize weights for cells."""
-        for _, cell in self.cells_and_names():
-            if isinstance(cell, nn.Conv2d):
-                cell.weight.set_data(
-                    init.initializer(init.XavierUniform(), cell.weight.shape, cell.weight.dtype))
-
-    def forward_preaux(self, x: Tensor) -> Tensor:
-        x = self.conv1a(x)
-        x = self.conv2a(x)
-        x = self.conv2b(x)
-        x = self.maxpool1(x)
-        x = self.conv3b(x)
-        x = self.conv4a(x)
-        x = self.maxpool2(x)
-        x = self.inception5b(x)
-        x = self.inception5c(x)
-        x = self.inception5d(x)
-        x = self.inception6a(x)
-        x = self.inception6b(x)
-        x = self.inception6c(x)
-        x = self.inception6d(x)
-        x = self.inception6e(x)
-        return x
-
-    def forward_postaux(self, x: Tensor) -> Tensor:
-        x = self.inception7a(x)
-        x = self.inception7b(x)
-        x = self.inception7c(x)
-        return x
-
-    def forward_features(self, x: Tensor) -> Tensor:
-        x = self.forward_preaux(x)
-        x = self.forward_postaux(x)
-        return x
-
-    def construct(self, x: Tensor) -> Union[Tensor, Tuple[Tensor, Tensor]]:
-        x = self.forward_preaux(x)
-        if self.training and self.aux_logits:
-            aux = self.aux(x)
-        else:
-            aux = None
-        x = self.forward_postaux(x)
-
-        x = self.pool(x)
-        x = self.dropout(x)
-        x = self.classifier(x)
-
-        if self.training and self.aux_logits:
-            return x, aux
-        return x
-
 # adaopt mindcv inception for feature extraction in fid
 class FIDInceptionA(InceptionA):
     """InceptionA block patched for FID computation"""
@@ -412,44 +261,234 @@ class FIDInceptionE_2(InceptionE):
         return ops.concat(outputs, 1)
 
 
-def _inception_v3(pretrained: bool = False, num_classes: int = 1000, in_channels=3, **kwargs) -> InceptionV3:
-    """Get InceptionV3 model.
-    Refer to the base class `models.InceptionV3` for more details."""
-    model = InceptionV3(num_classes=num_classes, aux_logits=True, in_channels=in_channels, **kwargs)
-
-    return model
-
-
-def inception_v3_fid(ckpt_path=None):
-    """Build pretrained Inception model for FID computation
-
-    The Inception model for FID computation uses a different set of weights
-    and has a slightly different structure than torchvision's Inception.
-
-    This method first constructs Inception based on MindCV and then patches the
-    necessary parts that are different in the FID Inception model.
+class InceptionV3(nn.Cell):
     """
-    inception = _inception_v3(pretrained=False)
+    Original InceptionV3 network adopted from MindCV
+    """
+    def __init__(
+        self,
+        num_classes: int = 1000,
+        in_channels: int = 3,
+    ) -> None:
+        super().__init__()
+        self.conv1a = BasicConv2d(in_channels, 32, kernel_size=3, stride=2, pad_mode="valid")
+        self.conv2a = BasicConv2d(32, 32, kernel_size=3, stride=1, pad_mode="valid")
+        self.conv2b = BasicConv2d(32, 64, kernel_size=3, stride=1)
+        self.maxpool1 = nn.MaxPool2d(kernel_size=3, stride=2)
+        self.conv3b = BasicConv2d(64, 80, kernel_size=1)
+        self.conv4a = BasicConv2d(80, 192, kernel_size=3, pad_mode="valid")
+        self.maxpool2 = nn.MaxPool2d(kernel_size=3, stride=2)
+        self.inception5b = InceptionA(192, pool_features=32)
+        self.inception5c = InceptionA(256, pool_features=64)
+        self.inception5d = InceptionA(288, pool_features=64)
+        self.inception6a = InceptionB(288)
+        self.inception6b = InceptionC(768, channels_7x7=128)
+        self.inception6c = InceptionC(768, channels_7x7=160)
+        self.inception6d = InceptionC(768, channels_7x7=160)
+        self.inception6e = InceptionC(768, channels_7x7=192)
 
-    inception.inception5b = FIDInceptionA(192, pool_features=32)
-    inception.inception5c = FIDInceptionA(256, pool_features=64)
-    inception.inception5d = FIDInceptionA(288, pool_features=64)
-    inception.inception6b = FIDInceptionC(768, channels_7x7=128)
-    inception.inception6d = FIDInceptionC(768, channels_7x7=128)
-    inception.inception6c = FIDInceptionC(768, channels_7x7=160)
-    inception.inception6d = FIDInceptionC(768, channels_7x7=160)
-    inception.inception6e = FIDInceptionC(768, channels_7x7=192)
-    inception.inception7b = FIDInceptionE_1(1280)
-    inception.inception7c = FIDInceptionE_2(2048)
-        
-    # load model weights
+        self.inception7a = InceptionD(768)
+        self.inception7b = InceptionE(1280)
+        self.inception7c = InceptionE(2048)
+
+        self._initialize_weights()
+
+    def _initialize_weights(self) -> None:
+        """Initialize weights for cells."""
+        for _, cell in self.cells_and_names():
+            if isinstance(cell, nn.Conv2d):
+                cell.weight.set_data(
+                    init.initializer(init.XavierUniform(), cell.weight.shape, cell.weight.dtype))
+
+
+def load_from_ckpt(net, ckpt_path):
     if ckpt_path is None:
-        assert MS_FID_WEIGHTS_URL, "Either ckpt_path or MS_FID_WEIGHTS_URL MUST be set to load inception v3 model weights for FID calculation." 
+        assert MS_FID_WEIGHTS_URL, "Either ckpt_path or MS_FID_WEIGHTS_URL MUST be set to load inception v3 model weights for FID calculation."
         DownLoad().download_url(url=MS_FID_WEIGHTS_URL)
         ckpt_path = os.path.basename(MS_FID_WEIGHTS_URL)
 
     param_dict = ms.load_checkpoint(ckpt_path)
-    ms.load_param_into_net(inception, param_dict)
+    ms.load_param_into_net(net, param_dict)
 
-    return inception
 
+class InceptionV3_FID(nn.Cell):
+    """InceptionV3 for FID variant, returning feature maps."""
+
+    # Index of default block of inception to return,
+    # corresponds to output of final average pooling
+    DEFAULT_BLOCK_INDEX = 3
+
+    # Maps feature dimensionality to their output blocks indices
+    BLOCK_INDEX_BY_DIM = {
+        64: 0,  # First max pooling features
+        192: 1,  # Second max pooling featurs
+        768: 2,  # Pre-aux classifier features
+        2048: 3  # Final average pooling features
+    }
+
+    def __init__(self,
+                 output_blocks=(DEFAULT_BLOCK_INDEX,),
+                 resize_input=True,
+                 normalize_input=True,
+                 requires_grad=False,
+                 ckpt_path=None,
+                 ):
+        """Build pretrained InceptionV3 FID
+
+        Parameters
+        ----------
+        output_blocks : list of int
+            Indices of blocks to return features of. Possible values are:
+                - 0: corresponds to output of first max pooling
+                - 1: corresponds to output of second max pooling
+                - 2: corresponds to output which is fed to aux classifier
+                - 3: corresponds to output of final average pooling
+        resize_input : bool
+            If true, bilinearly resizes input to width and height 299 before
+            feeding input to model. As the network without fully connected
+            layers is fully convolutional, it should be able to handle inputs
+            of arbitrary size, so resizing might not be strictly needed
+        normalize_input : bool
+            If true, scales the input from range (0, 1) to the range the
+            pretrained Inception network expects, namely (-1, 1)
+        requires_grad : bool
+            If true, parameters of the model require gradients. Possibly useful
+            for finetuning the network
+        """
+        super().__init__()
+
+        self.resize_input = resize_input
+        self.normalize_input = normalize_input
+        self.output_blocks = sorted(output_blocks)
+        self.last_needed_block = max(output_blocks)
+
+        assert self.last_needed_block <= 3, \
+            'Last possible output block index is 3'
+
+        self.blocks = nn.CellList()
+
+        # define network layers
+        inception = InceptionV3() # original Inception V3
+
+        # modify arch for FID
+        inception.inception5b = FIDInceptionA(192, pool_features=32)
+        inception.inception5c = FIDInceptionA(256, pool_features=64)
+        inception.inception5d = FIDInceptionA(288, pool_features=64)
+        inception.inception6b = FIDInceptionC(768, channels_7x7=128)
+        inception.inception6d = FIDInceptionC(768, channels_7x7=128)
+        inception.inception6c = FIDInceptionC(768, channels_7x7=160)
+        inception.inception6d = FIDInceptionC(768, channels_7x7=160)
+        inception.inception6e = FIDInceptionC(768, channels_7x7=192)
+        inception.inception7b = FIDInceptionE_1(1280)
+        inception.inception7c = FIDInceptionE_2(2048)
+
+        self.num_features = 2048
+
+        # load weights from pretrained checkpoint
+        load_from_ckpt(inception, ckpt_path)
+
+        # organize network layers according to pt definition
+        # Block 0: input to maxpool1
+        block0 = [
+            inception.conv1a,
+            inception.conv2a,
+            inception.conv2b,
+            nn.MaxPool2d(kernel_size=3, stride=2)
+        ]
+        self.blocks.append(nn.SequentialCell(*block0))
+
+        # Block 1: maxpool1 to maxpool2
+        if self.last_needed_block >= 1:
+            block1 = [
+                inception.conv3b,
+                inception.conv4a,
+                nn.MaxPool2d(kernel_size=3, stride=2)
+            ]
+            self.blocks.append(nn.SequentialCell(*block1))
+
+        # Block 2: maxpool2 to aux classifier
+        if self.last_needed_block >= 2:
+            block2 = [
+                inception.inception5b,
+                inception.inception5c,
+                inception.inception5d,
+                inception.inception6a,
+                inception.inception6b,
+                inception.inception6c,
+                inception.inception6d,
+                inception.inception6e,
+            ]
+            self.blocks.append(nn.SequentialCell(*block2))
+
+        # Block 3: aux classifier to final avgpool
+        if self.last_needed_block >= 3:
+            block3 = [
+                inception.inception7a,
+                inception.inception7b,
+                inception.inception7c,
+                nn.AdaptiveAvgPool2d(output_size=(1, 1))
+            ]
+            self.blocks.append(nn.SequentialCell(*block3))
+
+        for param in self.get_parameters():
+            param.requires_grad = requires_grad
+
+    def construct(self, x):
+        """Get Inception feature maps
+        """
+        outp = []
+
+        if self.resize_input:
+            # TODO: interpolate arg differs in version. ms2.0: size, ms2.0alpha, 1.10, and eailer: sizes
+            if version.parse(ms.__version__) >= version.parse('2.0'):
+                x = ops.interpolate(x,
+                                    size=(299, 299),
+                                    mode='bilinear',
+                                    align_corners=False)
+            else:
+                # TODO: this setting (bilinear and half_pixel) does not support CPU.
+                x = ops.interpolate(x,
+                                    sizes=(299, 299),
+                                    mode='bilinear',
+                                    coordinate_transformation_mode='half_pixel')
+
+
+        if self.normalize_input:
+            x = 2 * x - 1  # Scale from range (0, 1) to range (-1, 1)
+
+        for idx, block in enumerate(self.blocks):
+            x = block(x)
+            if idx in self.output_blocks:
+                outp.append(x)
+
+            if idx == self.last_needed_block:
+                break
+
+        return outp
+
+
+def inception_v3_fid(dims=2048, ckpt_path=None):
+    """Build pretrained Inception model for FID computation
+
+    The Inception model for FID computation uses a different set of weights
+    and has a slightly different structure than original Inception.
+    """
+
+    block_idx = InceptionV3_FID.BLOCK_INDEX_BY_DIM[dims]
+    net = InceptionV3_FID(output_blocks=[block_idx], ckpt_path=ckpt_path)
+
+    return net
+
+
+if __name__=="__main__":
+    # simple test
+    net = inception_v3_fid(ckpt_path='./inception_v3_fid.ckpt')
+
+    bs = 2
+    input_size = (bs, 3, 224, 224)
+    #dummy_input = ms.Tensor(np.random.rand(*input_size), dtype=ms.float32)
+    dummy_input = ms.Tensor(np.ones(input_size)*0.6, dtype=ms.float32)
+
+    y = net(dummy_input)
+    for i, feat in enumerate(y):
+        print('Output: ', i, feat.shape, feat.sum())
