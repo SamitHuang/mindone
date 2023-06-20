@@ -2,58 +2,68 @@ import numpy as np
 from PIL import Image
 from mindspore import dataset as ds
 from mindspore.dataset import vision
+from mindspore import Tensor
 from mindspore.ops import adaptive_avg_pool2d
 from scipy import linalg
 from tqdm import tqdm
 
+
 from inception_v3 import inception_v3_fid
 
-class ImagePathDatasetGenerator:
-    '''
-    Simple data loader for image files
-    '''
-    def __init__(self, img_paths, transforms=None):
-        self.img_paths = img_paths
+
+class ImagePathDataset:
+    """Image files dataload."""
+    def __init__(self, files, transforms=None):
+        self.files = files
         self.transforms = transforms
 
     def __len__(self):
-        return len(self.img_paths)
+        return len(self.files)
 
     def __getitem__(self, i):
-        path = self.img_paths[i]
+        path = self.files[i]
         img = Image.open(path).convert('RGB')
         if self.transforms is not None:
             img = self.transforms(img)
-        return img
+        return (img,)
 
-def get_activations(img_paths, model, batch_size=50, dims=2048, num_workers=1):
-    '''
-    Extract inception v3 features from images
 
-    Args:
-        img_list
-    '''
-    # vision ToTensor will norm the input to [0, 1]
-    dataset_generator = ImagePathDatasetGenerator(img_paths, transforms=vision.ToTensor())
-    dataset = ds.GeneratorDataset(dataset_generator, ["data"], shuffle=False, num_parallel_workers=num_workers)
-    dataset = dataset.batch(batch_size=batch_size, drop_remainder=False)
+def get_activations(files, model, batch_size=50, dims=2048):
+    """Calculates the activations of the pool_3 layer for all images.
 
-    pred_arr = np.empty((len(img_paths), dims))
+    Params:
+    -- files       : List of image files paths
+    -- model       : Instance of inception model
+    -- batch_size  : Batch size of images for the model to process at once.
+                     Make sure that the number of samples is a multiple of
+                     the batch size, otherwise some samples are ignored. This
+                     behavior is retained to match the original FID score
+                     implementation.
+    -- dims        : Dimensionality of features returned by Inception
 
+    Returns:
+    -- A numpy array of dimension (num images, dims) that contains the
+       activations of the given tensor when feeding inception with the
+       query tensor.
+    """
+    if batch_size > len(files):
+        print(('Warning: batch size is bigger than the data size. '
+               'Setting batch size to data size'))
+        batch_size = len(files)
+    dataset = ImagePathDataset(files, transforms=vision.ToTensor())
+    dataloader = ds.GeneratorDataset(dataset, ['image'], shuffle=False)
+
+    dataloader = dataloader.batch(batch_size, drop_remainder=False)
+    pred_arr = np.empty((len(files), dims))
     start_idx = 0
-    ds_iter = dataset.create_dict_iterator()
-    for batch in tqdm(ds_iter):
-        # TODO: simplify, just output the feature of last black and squeeze.
-        pred = model(batch["data"])[0]
-        if pred.shape[2] != 1 or pred.shape[3] != 1:
-            pred = adaptive_avg_pool2d(pred, output_size=(1, 1))
+    with tqdm(total=dataloader.get_dataset_size()) as p_bar:
+        for batch in dataloader:
+            batch = Tensor(batch[0])
+            pred = model(batch).asnumpy()
+            pred_arr[start_idx:start_idx + pred.shape[0]] = pred
 
-        pred = pred.squeeze(3).squeeze(2).numpy()
-
-        pred_arr[start_idx:start_idx + pred.shape[0]] = pred
-
-        start_idx = start_idx + pred.shape[0]
-
+            start_idx = start_idx + pred.shape[0]
+            p_bar.update(1)
     return pred_arr
 
 
