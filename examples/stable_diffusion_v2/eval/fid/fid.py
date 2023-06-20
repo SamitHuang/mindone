@@ -38,7 +38,7 @@ class ImagePathDataset:
         return img
 
 
-def get_activations(files, model, batch_size=50, dims=2048):
+def get_activations(files, model, batch_size=64, dims=2048):
     """Calculates the activations of the pool_3 layer for all images.
 
     Params:
@@ -85,7 +85,7 @@ def get_activations(files, model, batch_size=50, dims=2048):
 
 
 class FrechetInceptionDistance():
-    def __init__(self, ckpt_path=None):
+    def __init__(self, ckpt_path=None, batch_size=64):
 
         # TODO: set context
         if ckpt_path is not None:
@@ -94,6 +94,7 @@ class FrechetInceptionDistance():
             self.model = inception_v3_fid(pretrained=True)
 
         self.model.set_train(False)
+        self.batch_size = batch_size
 
     def calculate_activation_stat(self, act):
         mu = np.mean(act, axis=0)
@@ -165,10 +166,10 @@ class FrechetInceptionDistance():
         gen_images = sorted(gen_images)
         gt_images = sorted(gt_images)
 
-        gen_feats = get_activations(gen_images, self.model)
+        gen_feats = get_activations(gen_images, self.model, self.batch_size)
         gen_mu, gen_sigma = self.calculate_activation_stat(gen_feats)
 
-        gt_feats = get_activations(gt_images, self.model)
+        gt_feats = get_activations(gt_images, self.model, self.batch_size)
         gt_mu, gt_sigma = self.calculate_activation_stat(gt_feats)
 
         fid_value = self.calculate_frechet_distance(gen_mu, gen_sigma, gt_mu, gt_sigma)
