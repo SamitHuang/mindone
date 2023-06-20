@@ -1,4 +1,6 @@
+import os
 import argparse
+from mindspore import context
 from fid import FrechetInceptionDistance
 from fid.utils import get_image_paths
 
@@ -13,6 +15,11 @@ def eval_fid(args):
     # compute fid
     print(f'Backend: {args.backend}')
     if args.backend == 'ms':
+        device_id = int(os.getenv('DEVICE_ID', 0))
+        context.set_context(mode=0,
+                        device_id=device_id,
+                        )
+
         fid_scorer = FrechetInceptionDistance()
         fid_score = fid_scorer.compute(gen_imgs, real_imgs)
     elif args.backend == 'pt':
