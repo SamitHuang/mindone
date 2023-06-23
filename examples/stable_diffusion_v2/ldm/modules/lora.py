@@ -190,7 +190,7 @@ def inject_trainable_lora(net: nn.Cell, target_modules=[CrossAttention], rank=4,
         # TODO: don't know why the renaming dows not work in th end trainable_param
         def _update_param_name(param, prefix_module_name):
             # update param name to prefix for lora_up.weight and lora_down.weight
-            if not param.name.startswith(prefix_module_name):
+            if prefix_module_name not in param.name:
                 param.name = prefix_module_name + '.' + param.name
 
         for param in subcell.get_parameters():
@@ -229,7 +229,7 @@ def load_lora_trainable_params_only(net, lora_ckpt_fp):
     '''
     net should have load orignal pretrained params and injected with lora trainable params. Here we only load the lora trainable params.
     '''
-    # TODO: ignore the warning
+    # TODO: ignore the warning. or don't use the load_checkpoint API. Just manually set parameter values for allora params.
     #lora_ckpt_fp = 'test_lora_tp_after_ft.ckpt'
     param_dict = ms.load_checkpoint(lora_ckpt_fp)
     # TODO: ignore the warning

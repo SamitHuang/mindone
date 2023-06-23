@@ -76,6 +76,7 @@ def test_finetune_and_save():
     for _name, _param in injected_trainable_params.items():
         assert getattr(net, _name.split(".")[0]), f'Incorrect name: {_name}'
         assert getattr(net, _param.name.split(".")[0]), f'Incorrect name: {_param.name}'
+    #print('Injected moduels: ', injected_modules)
 
     new_net_stat = {}
     new_net_stat['num_params'] = len(list(net.get_parameters()))
@@ -104,9 +105,12 @@ def test_finetune_and_save():
     new_net_stat['dense.lora_up'] = first_attn.to_q.lora_up.weight.data.sum()
 
     # check param change
-    assert new_net_stat['dense.linear']== ori_net_stat['dense.linear']
-    assert new_net_stat['dense.lora_down'] != ori_net_stat['dense.lora_down']
-    assert new_net_stat['dense.lora_up'] != ori_net_stat['dense.lora_up']
+    print('Ori net stat', ori_net_stat)
+    print('New net stat', new_net_stat)
+    # On Ascend, this equality check can fail, they have neglectable difference on sum. but CPU is ok.
+    assert new_net_stat['dense.linear'].numpy()== ori_net_stat['dense.linear'].numpy(), 'Not equal: {}, {}'.format(new_net_stat['dense.linear'].numpy(), ori_net_stat['dense.linear'].numpy())
+    assert new_net_stat['dense.lora_down'].value != ori_net_stat['dense.lora_down'].value
+    assert new_net_stat['dense.lora_up'].value != ori_net_stat['dense.lora_up'].value
 
     # check forward after finetuning
     output_after_ft = net(test_data)
@@ -395,6 +399,6 @@ def test_finetune_and_save_debug():
 if __name__ == '__main__':
     #test_compare_pt()
     #test_finetune_and_save_debug()
-    #test_finetune_and_save()
+    test_finetune_and_save()
     test_load_and_infer()
 

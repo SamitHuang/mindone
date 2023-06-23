@@ -19,6 +19,7 @@ from ldm.util import instantiate_from_config
 from ldm.models.diffusion.plms import PLMSSampler
 from ldm.models.diffusion.dpm_solver import DPMSolverSampler
 from ldm.modules.lora import inject_trainable_lora
+from ldm.util import str2bool 
 
 
 #SD_VERSION = os.getenv('SD_VERSION', default='2.0')
@@ -41,18 +42,43 @@ def numpy_to_pil(images):
     return pil_images
 
 
-def load_model_from_config(config, ckpt, verbose=False):
+def load_model_from_config(config, ckpt, use_lora=False, use_fp16=False, lora_only_ckpt=None, verbose=False):
     print(f"Loading model from {ckpt}")
     model = instantiate_from_config(config.model)
-    if os.path.exists(ckpt):
-        param_dict = ms.load_checkpoint(ckpt)
-        if param_dict:
-            param_not_load, ckpt_not_load = ms.load_param_into_net(model, param_dict)
-            print("param not load:", [p for p in param_not_load if not p.startswith('adam')])
-            print("ckpt not load:", [p for p in ckpt_not_load if not p.startswith('adam')])
-    else:
-        print(f"!!!Warning!!!: {ckpt} doesn't exist")
 
+    def _load_model(_model, ckpt_fp):
+        if os.path.exists(ckpt_fp):
+            param_dict = ms.load_checkpoint(ckpt_fp)
+            if param_dict:
+                param_not_load, ckpt_not_load = ms.load_param_into_net(_model, param_dict)
+                print("param not load:", [p for p in param_not_load if not p.startswith('adam')])
+                print("ckpt not load:", [p for p in ckpt_not_load if not p.startswith('adam')])
+        else:
+            print(f"!!!Warning!!!: {ckpt} doesn't exist")
+
+    if use_lora:
+        print('Loading lora model...')
+        load_lora_only = True if lora_only_ckpt is not None else False
+        if not load_lora_only:
+            #TODO: dtype. TODO: freeze?
+            #inject lora trainable param 
+            injected_attns, injected_trainable_params = inject_trainable_lora(model.model.diffusion_model, use_fp16=use_fp16)
+            _load_model(model, ckpt)
+            
+        else:
+            # load origin model at first
+            _load_model(model, ckpt)
+
+            # inject and load lora params
+            injected_attns, injected_trainable_params = inject_trainable_lora(model.model.diffusion_model, use_fp16=use_fp16)
+            _load_model(model, lora_only_ckpt)
+    else:
+        _load_model(model, ckpt)
+            
+    model.set_train(False)
+    for param in model.trainable_params():
+        param.requires_grad = False
+    
     return model
 
 
@@ -169,6 +195,7 @@ def main():
         default=None,
         help="path to config which constructs model. If None, select by version",
     )
+    parser.add_argument('--use_lora', default=False, type=str2bool, help='whether the checkpoint used for inference is finetuned from LoRA')
     parser.add_argument(
         "--ckpt_path",
         type=str,
@@ -246,13 +273,13 @@ def main():
     if not os.path.isabs(opt.config):
         opt.config = os.path.join(work_dir, opt.config)
     config = OmegaConf.load(f"{opt.config}")
-    model = load_model_from_config(config, f"{os.path.join(opt.ckpt_path, opt.ckpt_name)}")
+    model = load_model_from_config(
+                        config, 
+                        ckpt=f"{os.path.join(opt.ckpt_path, opt.ckpt_name)}",
+                        use_lora=opt.use_lora,
+                        )
 
-    if opt.use_lora:
-        #TODO: dtype
-        injected_attns, injected_trainable_params = inject_trainable_lora(model.diffusion_model, use_fp16=True)
-
-
+ 
     if opt.dpm_solver:
         sampler = DPMSolverSampler(model)
     else:

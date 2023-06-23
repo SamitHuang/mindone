@@ -7,14 +7,17 @@ export SD_VERSION="2.0" # TODO: parse by args. or fix to 2.0 later
 
 device_id=7
 
-output_path=output/
+output_path=output/lora_pokemon
 task_name=txt2img
 data_path=/home/yx/datasets/diffusion/pokemon
 pretrained_model_path=models/
 pretrained_model_file=stablediffusionv2_512.ckpt
 train_config_file=configs/train_config_v2.json
 image_size=512 
-train_batch_size=3 
+train_batch_size=4  # 4 in diffuser 
+start_learning_rate=1e-4 
+end_learning_rate=1e-8 # it is 0. in diffuser
+
 # uncomment the following two lines to finetune on 768x768 resolution.
 #image_size=768 # v2-base 512, v2.1 768
 #train_batch_size=1  # 1 for 768x768, 30GB memory
@@ -32,4 +35,7 @@ python train_text_to_image.py \
     --pretrained_model_file=$pretrained_model_file \
     --image_size=$image_size \
     --train_batch_size=$train_batch_size \
+    --use_lora=True \
+    --start_learning_rate=$start_learning_rate \
+    --end_learning_rate=$end_learning_rate \
 #    > $output_path/$task_name/log_train_v2 2>&1 &

@@ -26,6 +26,7 @@ from ldm.models.clip.simple_tokenizer import WordpieceTokenizer, get_tokenizer
 from ldm.modules.train.tools import parse_with_config, set_random_seed
 from ldm.modules.train.cell_wrapper import ParallelTrainOneStepWithLossScaleCell
 from ldm.modules.lora import inject_trainable_lora
+from ldm.util import str2bool 
 
 
 
@@ -97,14 +98,6 @@ def instantiate_from_config(config):
     return get_obj_from_str(config["target"])(**config.get("params", dict()))
 
 
-def str2bool(b):
-    if b.lower() not in ["false", "true"]:
-        raise Exception("Invalid Bool Value")
-    if b.lower() in ["false"]:
-        return False
-    return True
-
-
 def get_obj_from_str(string, reload=False):
     module, cls = string.rsplit(".", 1)
     if reload:
@@ -161,21 +154,28 @@ def main(opts):
     dataset, rank_id, device_id, device_num = init_env(opts)
     LatentDiffusionWithLoss = instantiate_from_config(opts.model_config)
     #print('Arch: ', LatentDiffusionWithLoss)
+    #print('Original params: ', "\n".join([p.name+'\t'+f'{p}' for p in LatentDiffusionWithLoss.get_parameters()]))
     pretrained_ckpt = os.path.join(opts.pretrained_model_path, opts.pretrained_model_file)
     load_pretrained_model(pretrained_ckpt, LatentDiffusionWithLoss)
-
+    
     # lora
     if opts.use_lora:
         # freeze all params
         for param in LatentDiffusionWithLoss.model.get_parameters():
             param.requires_grad = False
 
-        # inject into UNet only
-        # TODO: dtype
-       injected_attns, injected_trainable_params = inject_trainable_lora(LatentDiffusionWithLoss.model.diffusion_model, use_fp16=True)
-       assert len(injected_attns)==32, 'Expecting 32 injected attention modules, but got {len(injected_attns)}'
-       assert len(injected_trainable_params)==32*4*2, 'Expecting 256 injected lora trainable params, but got {len(injected_trainable_params)}'
-       print('UNet arch after LoRA injection: ', LatentDiffusionWithLoss.model.diffusion_model)
+        # inject lora 
+        # TODO: dtype.
+        # TODO: limit to UNet
+        injected_attns, injected_trainable_params = inject_trainable_lora(LatentDiffusionWithLoss, use_fp16=True)
+        assert len(injected_attns)==32, 'Expecting 32 injected attention modules, but got {len(injected_attns)}'
+        assert len(injected_trainable_params)==32*4*2, 'Expecting 256 injected lora trainable params, but got {len(injected_trainable_params)}'
+        assert len(LatentDiffusionWithLoss.model.trainable_params())==len(injected_trainable_params), 'Only lora params should be trainable. but got {} trainable params'.format(len(LatentDiffusionWithLoss.model.trainable_params()))
+        #print('UNet arch after LoRA injection: ', LatentDiffusionWithLoss.model.diffusion_model)
+        #print('Trainable params: ', LatentDiffusionWithLoss.model.trainable_params())
+
+    #print('Arch after lora injection: ', LatentDiffusionWithLoss)
+    print('Params after lora injection: ', "\n".join([p.name+'\t'+f'{p}' for p in LatentDiffusionWithLoss.get_parameters()]))
 
     if not opts.decay_steps:
         dataset_size = dataset.get_dataset_size()
