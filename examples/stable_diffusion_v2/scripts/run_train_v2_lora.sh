@@ -13,9 +13,10 @@ data_path=/home/yx/datasets/diffusion/pokemon
 pretrained_model_path=models/
 pretrained_model_file=stablediffusionv2_512.ckpt
 train_config_file=configs/train_config_v2.json
-image_size=512 
-train_batch_size=4  # 4 in diffuser 
-start_learning_rate=1e-4 
+model_config_file=configs/v2-train_lora.json
+image_size=512
+train_batch_size=4  # 4 in diffuser
+start_learning_rate=1e-4
 end_learning_rate=1e-8 # it is 0. in diffuser
 epochs=1 #20
 
@@ -30,6 +31,7 @@ export RANK_SIZE=1;export DEVICE_ID=$device_id;export MS_COMPILER_CACHE_PATH=${o
 python train_text_to_image.py \
     --data_path=$data_path \
     --train_config=$train_config_file \
+    --model_config_file=$model_config_file \
     --output_path=$output_path/$task_name \
     --use_parallel=False \
     --pretrained_model_path=$pretrained_model_path \

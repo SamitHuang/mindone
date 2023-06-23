@@ -18,8 +18,8 @@ sys.path.append(workspace)
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.plms import PLMSSampler
 from ldm.models.diffusion.dpm_solver import DPMSolverSampler
-from ldm.modules.lora import inject_trainable_lora
-from ldm.util import str2bool 
+from ldm.modules.lora import get_lora_params
+from ldm.util import str2bool
 
 
 #SD_VERSION = os.getenv('SD_VERSION', default='2.0')
@@ -58,31 +58,30 @@ def load_model_from_config(config, ckpt, use_lora=False, use_fp16=False, lora_on
 
     if use_lora:
         print('Loading lora model...')
+        lora_params = get_lora_params(model)
+        assert len(lora_params)==0, "No lora param found in the network. Please set `use_lora` as True in the model config yaml file"
+
         load_lora_only = True if lora_only_ckpt is not None else False
         if not load_lora_only:
             #TODO: dtype. TODO: freeze?
-            #inject lora trainable param 
-            injected_attns, injected_trainable_params = inject_trainable_lora(model, use_fp16=use_fp16)
+            # load all ckpt params including lora into model
             _load_model(model, ckpt)
-            
         else:
-            # load origin model at first
+            # load pretrained model at first
             _load_model(model, ckpt)
 
             # inject and load lora params
-            injected_attns, injected_trainable_params = inject_trainable_lora(model, use_fp16=use_fp16)
             _load_model(model, lora_only_ckpt)
 
-        assert len(injected_attns)==32, 'Expecting 32 injected attention modules, but got {len(injected_attns)}'
-        assert len(injected_trainable_params)==32*4*2, 'Expecting 256 injected lora trainable params, but got {len(injected_trainable_params)}'
+        assert len(lora_params)==32*4*2, 'Expecting 256 injected lora trainable params, but got {len(injected_trainable_params)}'
 
     else:
         _load_model(model, ckpt)
-            
+
     model.set_train(False)
     for param in model.trainable_params():
         param.requires_grad = False
-    
+
     return model
 
 
@@ -278,12 +277,12 @@ def main():
         opt.config = os.path.join(work_dir, opt.config)
     config = OmegaConf.load(f"{opt.config}")
     model = load_model_from_config(
-                        config, 
+                        config,
                         ckpt=f"{os.path.join(opt.ckpt_path, opt.ckpt_name)}",
                         use_lora=opt.use_lora,
                         )
 
- 
+
     if opt.dpm_solver:
         sampler = DPMSolverSampler(model)
     else:

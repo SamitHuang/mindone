@@ -18,7 +18,7 @@ import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
 
-from ldm.util import is_old_ms_version 
+from ldm.util import is_old_ms_version
 from ldm.modules.attention import SpatialTransformer
 from ldm.modules.diffusionmodules.util import (
     conv_nd,
@@ -30,7 +30,7 @@ from ldm.modules.diffusionmodules.util import (
     timestep_embedding
 )
 
-        
+
 
 class Upsample(nn.Cell):
     """
@@ -137,7 +137,7 @@ class ResBlock(nn.Cell):
 
         self.in_layers_norm = normalization(channels)
         self.in_layers_silu = nn.SiLU().to_float(self.dtype)
-        self.in_layers_conv = conv_nd(dims, channels, self.out_channels, 3, 
+        self.in_layers_conv = conv_nd(dims, channels, self.out_channels, 3,
                                    padding=1, has_bias=True, pad_mode='pad').to_float(self.dtype)
 
         if up:
@@ -160,14 +160,14 @@ class ResBlock(nn.Cell):
 
         self.out_layers_norm = normalization(self.out_channels)
         self.out_layers_silu = nn.SiLU().to_float(self.dtype)
-        
-        if is_old_ms_version(): 
+
+        if is_old_ms_version():
             self.out_layers_drop = nn.Dropout(keep_prob=self.dropout)
         else:
             self.out_layers_drop = nn.Dropout(p=1.0-self.dropout)
 
         self.out_layers_conv = zero_module(
-                 conv_nd(dims, self.out_channels, self.out_channels, 3, 
+                 conv_nd(dims, self.out_channels, self.out_channels, 3,
                         padding=1, has_bias=True, pad_mode='pad').to_float(self.dtype)
             )
 
@@ -191,7 +191,7 @@ class ResBlock(nn.Cell):
             h = self.in_layers_norm(x)
             h = self.in_layers_silu(h)
             h = self.in_layers_conv(h, emb, context)
-            
+
         emb_out = self.emb_layers(emb)
         while len(emb_out.shape) < len(h.shape):
             emb_out = ops.expand_dims(emb_out, -1)
@@ -202,7 +202,7 @@ class ResBlock(nn.Cell):
             h = self.out_layers_silu(h)
             h = self.out_layers_drop(h)
             h = self.out_layers_conv(h, emb, context)
-            
+
         else:
             h = h + emb_out
             h = self.out_layers_norm(h)
@@ -307,12 +307,13 @@ class UNetModel(nn.Cell):
         n_embed=None,                     # custom support for prediction of discrete ids into codebook of first stage vq model
         legacy=True,
         use_linear_in_transformer=False,
+        use_lora=False,
     ):
         super().__init__()
 
         if use_spatial_transformer:
             assert context_dim is not None, 'Fool!! You forgot to include the dimension of your cross-attention conditioning...'
-        
+
         if context_dim is not None:
             assert use_spatial_transformer, 'Fool!! You forgot to use the spatial transformer for your cross-attention conditioning...'
             from omegaconf.listconfig import ListConfig
@@ -357,9 +358,9 @@ class UNetModel(nn.Cell):
 
 
         self.input_blocks = nn.CellList([
-                nn.CellList([conv_nd(dims, in_channels, model_channels, 3, padding=1, 
+                nn.CellList([conv_nd(dims, in_channels, model_channels, 3, padding=1,
                             has_bias=True, pad_mode='pad').to_float(self.dtype)])
-            ])   
+            ])
         self._feature_size = model_channels
         input_block_chans = [model_channels]
         ch = model_channels
@@ -399,6 +400,7 @@ class UNetModel(nn.Cell):
                             ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
                             use_checkpoint=use_checkpoint, dtype=self.dtype, dropout=self.dropout,
                             use_linear=use_linear_in_transformer,
+                            use_lora=use_lora,
                         )
                     )
                 self.input_blocks.append(layers)
@@ -420,7 +422,7 @@ class UNetModel(nn.Cell):
                             dtype=self.dtype
                         )])
                         if resblock_updown
-                        else nn.CellList([Downsample(ch, conv_resample, 
+                        else nn.CellList([Downsample(ch, conv_resample,
                                             dims=dims, out_channels=out_ch, dtype=self.dtype)])
                 )
                 ch = out_ch
@@ -457,6 +459,7 @@ class UNetModel(nn.Cell):
                                     ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
                                     use_checkpoint=use_checkpoint, dtype=self.dtype, dropout=self.dropout,
                                     use_linear=use_linear_in_transformer,
+                                    use_lora=use_lora,
                                 ),
                     ResBlock(
                         ch,
@@ -507,6 +510,7 @@ class UNetModel(nn.Cell):
                             ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
                             use_checkpoint=use_checkpoint, dtype=self.dtype, dropout=self.dropout,
                             use_linear=use_linear_in_transformer,
+                            use_lora=use_lora,
                         )
                     )
                 if level and i == num_res_blocks:
@@ -533,7 +537,7 @@ class UNetModel(nn.Cell):
         self.out = nn.SequentialCell(
             normalization(ch),
             nn.SiLU().to_float(self.dtype),
-            zero_module(conv_nd(dims, model_channels, out_channels, 3, padding=1, 
+            zero_module(conv_nd(dims, model_channels, out_channels, 3, padding=1,
                                 has_bias=True, pad_mode='pad').to_float(self.dtype)),
         )
 
@@ -554,7 +558,7 @@ class UNetModel(nn.Cell):
         :param y: an [N] Tensor of labels, if class-conditional.
         :return: an [N x C x ...] Tensor of outputs.
         """
-        
+
         assert (y is not None) == (
             self.num_classes is not None
         ), "must specify y if and only if the model is class-conditional"
@@ -571,10 +575,10 @@ class UNetModel(nn.Cell):
             for cell in celllist:
                 h = cell(h, emb, context)
             hs.append(h)
-            
+
         for module in self.middle_block:
             h = module(h, emb, context)
-        
+
         hs_index = -1
         for celllist in self.output_blocks:
             h = self.cat((h, hs[hs_index]))
@@ -586,4 +590,4 @@ class UNetModel(nn.Cell):
             return self.id_predictor(h)
         else:
             return self.out(h)
-        
+

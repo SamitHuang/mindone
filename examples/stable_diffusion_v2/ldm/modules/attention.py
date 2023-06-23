@@ -18,7 +18,8 @@ import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
 from mindspore.common.initializer import initializer
-from ldm.util import is_old_ms_version 
+from ldm.util import is_old_ms_version
+from ldm.modules.lora import LowRankDense
 
 
 def exists(val):
@@ -51,7 +52,7 @@ class GEGLU(nn.Cell):
 
     def construct(self, x):
         x, gate = self.split(self.proj(x))
-        
+
         return x * self.gelu(gate)
 
 
@@ -98,7 +99,7 @@ class LinearAttention(nn.Cell):
 
 
 class CrossAttention(nn.Cell):
-    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=1.0, dtype=ms.float32):
+    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=1.0, dtype=ms.float32, use_lora=False, lora_scale=1., lora_dropout=0., lora_rank=4):
         super().__init__()
         inner_dim = dim_head * heads
         context_dim = default(context_dim, query_dim)
@@ -117,12 +118,29 @@ class CrossAttention(nn.Cell):
             nn.Dropout(dropout) if is_old_ms_version() else nn.Dropout(p=1-dropout)
             )
 
+        if use_lora:
+            self.to_q_lora = LowRankDense(query_dim, inner_dim,
+                                          rank=lora_rank, dropout_p=lora_dropout, scale=lora_scale, dtype=dtype)
+            self.to_k_lora = LowRankDense(context_dim, inner_dim,
+                                          rank=lora_rank, dropout_p=lora_dropout, scale=lora_scale, dtype=dtype)
+            self.to_v_lora = LowRankDense(context_dim, inner_dim,
+                                          rank=lora_rank, dropout_p=lora_dropout, scale=lora_scale, dtype=dtype)
+
+            self.to_out_lora = LowRankDense(inner_dim, query_dim,
+                                            rank=lora_rank, dropout_p=lora_dropout, scale=lora_scale, dtype=dtype)
+            self.to_out_cells = list(self.to_out.cells())
+
+        self.use_lora = use_lora
 
     def construct(self, x, context=None, mask=None):
         q = self.to_q(x)
         context = default(context, x)
         k = self.to_k(context)
         v = self.to_v(context)
+        if self.use_lora:
+            q += self.to_q_lora(x)
+            k += self.to_k_lora(context)
+            v += self.to_v_lora(context)
 
         def rearange_in(x):
             # (b, n, h*d) -> (b*h, n, d)
@@ -154,7 +172,7 @@ class CrossAttention(nn.Cell):
 
         attn = self.softmax(sim)
         out = ops.matmul(attn, v)
-        
+
         def rearange_out(x):
             # (b*h, n, d) -> (b, n, h*d)
             h = self.heads
@@ -167,16 +185,21 @@ class CrossAttention(nn.Cell):
             return x
 
         out = rearange_out(out)
-        return self.to_out(out)
+        if not self.use_lora:
+            ca_out = self.to_out(out)
+        else:
+            tmp_out = self.to_out_cells[0](out) + self.to_out_lora(out)
+            ca_out = self.to_out_cells[1](tmp_out)
 
+        return ca_out
 
 class BasicTransformerBlock(nn.Cell):
-    def __init__(self, dim, n_heads, d_head, dropout=1.0, context_dim=None, gated_ff=True, checkpoint=True, dtype=ms.float32):
+    def __init__(self, dim, n_heads, d_head, dropout=1.0, context_dim=None, gated_ff=True, checkpoint=True, dtype=ms.float32, use_lora=False):
         super().__init__()
-        self.attn1 = CrossAttention(query_dim=dim, heads=n_heads, dim_head=d_head, dropout=dropout, dtype=dtype)  # is a self-attention
+        self.attn1 = CrossAttention(query_dim=dim, heads=n_heads, dim_head=d_head, dropout=dropout, dtype=dtype, use_lora=use_lora)  # is a self-attention
         self.ff = FeedForward(dim, dropout=dropout, glu=gated_ff, dtype=dtype)
         self.attn2 = CrossAttention(query_dim=dim, context_dim=context_dim,
-                                    heads=n_heads, dim_head=d_head, dropout=dropout, dtype=dtype)  # is self-attn if context is none
+                                    heads=n_heads, dim_head=d_head, dropout=dropout, dtype=dtype, use_lora=use_lora)  # is self-attn if context is none
         self.norm1 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
         self.norm2 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
         self.norm3 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
@@ -197,13 +220,13 @@ class SpatialTransformer(nn.Cell):
     Finally, reshape to image
     """
     def __init__(self, in_channels, n_heads, d_head,
-                 depth=1, dropout=1.0, context_dim=None, use_checkpoint=True, use_linear=False, dtype=ms.float32):
+                 depth=1, dropout=1.0, context_dim=None, use_checkpoint=True, use_linear=False, dtype=ms.float32, use_lora=False):
         super().__init__()
         self.in_channels = in_channels
         self.dtype=dtype
         inner_dim = n_heads * d_head
         self.norm = Normalize(in_channels)
-        
+
         if not use_linear:
             self.proj_in = nn.Conv2d(in_channels,
                                      inner_dim,
@@ -218,8 +241,8 @@ class SpatialTransformer(nn.Cell):
 
 
         self.transformer_blocks = nn.CellList(
-            [BasicTransformerBlock(inner_dim, n_heads, d_head, dropout=dropout, context_dim=context_dim, 
-                                   checkpoint=use_checkpoint, dtype=self.dtype)
+            [BasicTransformerBlock(inner_dim, n_heads, d_head, dropout=dropout, context_dim=context_dim,
+                                   checkpoint=use_checkpoint, dtype=self.dtype, use_lora=use_lora)
                 for d in range(depth)]
         )
 
@@ -257,4 +280,4 @@ class SpatialTransformer(nn.Cell):
         x = self.transpose(x, (0, 3, 1, 2))
         if not self.use_linear:
             x = self.proj_out(x)
-        return x + x_in   
+        return x + x_in

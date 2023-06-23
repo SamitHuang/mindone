@@ -7,10 +7,9 @@ from mindspore.ops.primitive import Primitive
 from mindspore.nn.layer.activation import get_activation
 import mindspore.common.initializer as init
 
-from ldm.modules.attention import CrossAttention
 from ldm.util import is_old_ms_version
 
-__all__ = ['LoRADenseLayer', 'inject_trainable_lora']
+__all__ = ['LoRADenseLayer', 'LowRankDense', 'inject_trainable_lora', 'freeze_non_lora_params', 'get_lora_params']
 
 
 class LoRADenseLayer(nn.Cell):
@@ -87,34 +86,61 @@ class LowRankDense(nn.Cell):
     The lora side-path module with low rank matrices
     '''
     def __init__(
-        self, in_features, out_features, rank=4, dtype=ms.float32,
+        self, in_features, out_features, rank=4, dropout_p=0., scale=1., dtype=ms.float32,
         ):
         super().__init__()
+        self.scale = scale
+        self.lora_down = nn.Dense(in_features, rank, has_bias=False).to_float(dtype)
+        self.lora_up = nn.Dense(rank, out_features, has_bias=False).to_float(dtype)
+        if is_old_ms_version():
+            self.dropout = nn.Dropout(keep_prob=1 - dropout_p)
+        else:
+            self.dropout = nn.Dropout(p=dropout_p)
 
-        self.down = nn.Dense(in_features, rank, has_bias=False).to_float(dtype)
-        self.up = nn.Dense(rank, out_features, has_bias=False).to_float(dtype)
-
-        self.down.weight.set_data(
+        self.lora_down.weight.set_data(
             init.initializer(init.Normal(sigma=1.0/rank),
-                                     self.down.weight.shape, self.down.weight.dtype))
-
-        self.up.weight.set_data(
+                                     self.lora_down.weight.shape, self.lora_down.weight.dtype))
+        self.lora_up.weight.set_data(
             init.initializer(init.Zero(),
-                                     self.up.weight.shape, self.up.weight.dtype))
+                                     self.lora_up.weight.shape, self.lora_up.weight.dtype))
     def construct(self, x):
+        z = self.lora_down(x)
+        h_lora = self.lora_up(z)
 
-        z = self.down(x)
-        h_lora = self.up(z)
-
-        return h_lora
+        return self.dropout(h_lora) * self.scale
 
 
-def inject_trainable_lora(net: nn.Cell, target_modules=[CrossAttention], rank=4, dropout_p=0., scale=1.0, use_fp16=False, verbose=0):
+def freeze_non_lora_params(net, filter=None):
+    injected_trainable_params = {}
+    for param in net.get_parameters():
+        if 'lora_down.' in param.name or 'lora_up.' in param.name:
+            param.requires_grad = True
+            injected_trainable_params[param.name] = param
+        else:
+            param.requires_grad = False
+
+    return injected_trainable_params
+
+
+def get_lora_params(net, filter=None):
+    injected_trainable_params = {}
+    for param in net.get_parameters():
+        if 'lora_down.' in param.name or 'lora_up.' in param.name:
+            injected_trainable_params[param.name] = param
+
+    return injected_trainable_params
+
+
+
+def inject_trainable_lora(net: nn.Cell, target_modules=["CrossAttention"], rank=4, dropout_p=0., scale=1.0, use_fp16=False, verbose=0):
     '''
     Currently only support injecting lora to dense layers in attention modules
 
     In order to find the target layers, currently the attention moduel must have the attribute of to_q, to_k, to_v and to_out[0], each of which correpsonds to a dense layer. to_out correspnds to a SquentialCell consisting of a dense layer and a dropout layer.
     '''
+    from ldm.modules.attention import CrossAttention
+    target_modules = [eval(cn) for cn in target_modules]
+
     dtype = ms.float16 if use_fp16 else ms.float32
     ori_net_stat = {}
     ori_net_stat['num_params'] = len(list(net.get_parameters()))
