@@ -36,7 +36,7 @@ class LoRADenseLayer(nn.Cell):
         self.lora_down = nn.Dense(in_features, rank, has_bias=False).to_float(dtype)
         self.lora_up = nn.Dense(rank, out_features, has_bias=False).to_float(dtype)
 
-        if is_old_ms_version:
+        if is_old_ms_version():
             self.dropout = nn.Dropout(keep_prob=1 - dropout_p)
         else:
             self.dropout = nn.Dropout(p=dropout_p)
@@ -109,7 +109,7 @@ class LowRankDense(nn.Cell):
         return h_lora
 
 
-def inject_trainable_lora(net: nn.Cell, target_modules=[CrossAttention], rank=4, dropout_p=0., scale=1.0, use_fp16=False, log_level=1):
+def inject_trainable_lora(net: nn.Cell, target_modules=[CrossAttention], rank=4, dropout_p=0., scale=1.0, use_fp16=False, verbose=0):
     '''
     Currently only support injecting lora to dense layers in attention modules
 
@@ -137,7 +137,8 @@ def inject_trainable_lora(net: nn.Cell, target_modules=[CrossAttention], rank=4,
             #print('===> Cur point to: ', cur)
             #print(subcell.to_q)
 
-    print('Found target modules for lora inject: ', catched_attns)
+    if verbose:
+        print('Found target modules for lora inject: ', catched_attns)
 
     if len(catched_attns) == 0:
         print('There is no target modules in net to inject')
@@ -146,7 +147,7 @@ def inject_trainable_lora(net: nn.Cell, target_modules=[CrossAttention], rank=4,
     for sc_name, subcell in catched_attns.items():
         # 2. find target layers to be injected in the module
         target_dense_layers = [subcell.to_q, subcell.to_k, subcell.to_v, subcell.to_out[0]]
-        print(f'Target dense layers in the {sc_name}: ', target_dense_layers)
+        #print(f'Target dense layers in the {sc_name}: ', target_dense_layers)
 
         # 3. create lora dense layers
         new_lora_dense_layers = []
@@ -175,13 +176,14 @@ def inject_trainable_lora(net: nn.Cell, target_modules=[CrossAttention], rank=4,
             tmp_lora_dense.linear.weight = tar_dense.weight
             if has_bias:
                 tmp_lora_dense.linear.bias= tar_dense.bias
-
-            print(f'Create a lora dense layer.', f'Set its linear weights as pretrained weights in {tar_dense.weight.name}')
+            if verbose:
+                print(f'Create a lora dense layer.', f'Set its linear weights as pretrained weights in {tar_dense.weight.name}')
 
             new_lora_dense_layers.append(tmp_lora_dense)
 
         # replace the 4 dense layers with the created lora layers, mount on
-        print('Replacing target dense layers with the created lora layers...')
+        if verbose:
+            print('Replacing target dense layers with the created lora layers...')
         subcell.to_q = new_lora_dense_layers[0]
         subcell.to_k = new_lora_dense_layers[1]
         subcell.to_v = new_lora_dense_layers[2]
@@ -207,7 +209,8 @@ def inject_trainable_lora(net: nn.Cell, target_modules=[CrossAttention], rank=4,
 
     #print('=> New net after lora injection: ', net)
     #print('\t=> Attn param names: ', '\n'.join([name+'\t'+str(param.requires_grad) for name, param in net.parameters_and_names() if '.to_' in name]))
-    print('Parameters in attention layers after lora injection: ', "\n".join([f"{p.name}\t{p}" for p in net.get_parameters() if 'to_' in p.name]))
+    if verbose:
+        print('Parameters in attention layers after lora injection: ', "\n".join([f"{p.name}\t{p}" for p in net.get_parameters() if 'to_' in p.name]))
 
     new_net_stat = {}
     new_net_stat['num_params'] = len(list(net.get_parameters()))
