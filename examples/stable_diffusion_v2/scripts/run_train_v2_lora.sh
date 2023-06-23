@@ -17,6 +17,7 @@ image_size=512
 train_batch_size=4  # 4 in diffuser 
 start_learning_rate=1e-4 
 end_learning_rate=1e-8 # it is 0. in diffuser
+epochs=1 #20
 
 # uncomment the following two lines to finetune on 768x768 resolution.
 #image_size=768 # v2-base 512, v2.1 768
@@ -35,6 +36,7 @@ python train_text_to_image.py \
     --pretrained_model_file=$pretrained_model_file \
     --image_size=$image_size \
     --train_batch_size=$train_batch_size \
+    --epochs=$epochs \
     --use_lora=True \
     --start_learning_rate=$start_learning_rate \
     --end_learning_rate=$end_learning_rate \

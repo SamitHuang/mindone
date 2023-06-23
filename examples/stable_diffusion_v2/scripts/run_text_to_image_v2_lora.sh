@@ -18,4 +18,4 @@ python text_to_image.py \
     --ddim_steps 50 \
     --use_lora True \
     --ckpt_path output/lora_pokemon/txt2img/ckpt/rank_0 \
-    --ckpt_name sd-20_277.ckpt \
+    --ckpt_name sd-1_208.ckpt \

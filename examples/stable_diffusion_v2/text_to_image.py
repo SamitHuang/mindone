@@ -62,7 +62,7 @@ def load_model_from_config(config, ckpt, use_lora=False, use_fp16=False, lora_on
         if not load_lora_only:
             #TODO: dtype. TODO: freeze?
             #inject lora trainable param 
-            injected_attns, injected_trainable_params = inject_trainable_lora(model.model.diffusion_model, use_fp16=use_fp16)
+            injected_attns, injected_trainable_params = inject_trainable_lora(model, use_fp16=use_fp16)
             _load_model(model, ckpt)
             
         else:
@@ -70,8 +70,12 @@ def load_model_from_config(config, ckpt, use_lora=False, use_fp16=False, lora_on
             _load_model(model, ckpt)
 
             # inject and load lora params
-            injected_attns, injected_trainable_params = inject_trainable_lora(model.model.diffusion_model, use_fp16=use_fp16)
+            injected_attns, injected_trainable_params = inject_trainable_lora(model, use_fp16=use_fp16)
             _load_model(model, lora_only_ckpt)
+
+        assert len(injected_attns)==32, 'Expecting 32 injected attention modules, but got {len(injected_attns)}'
+        assert len(injected_trainable_params)==32*4*2, 'Expecting 256 injected lora trainable params, but got {len(injected_trainable_params)}'
+
     else:
         _load_model(model, ckpt)
             
