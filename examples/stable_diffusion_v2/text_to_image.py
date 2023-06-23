@@ -18,6 +18,7 @@ sys.path.append(workspace)
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.plms import PLMSSampler
 from ldm.models.diffusion.dpm_solver import DPMSolverSampler
+from ldm.modules.lora import inject_trainable_lora
 
 
 #SD_VERSION = os.getenv('SD_VERSION', default='2.0')
@@ -201,7 +202,7 @@ def main():
     if opt.ckpt_name is None:
         opt.ckpt_name = "wukong-huahua-ms.ckpt" if opt.version.startswith('1.') else "stablediffusionv2_512.ckpt"
     if opt.config is None:
-        opt.config = "configs/v1-inference-chinese.yaml" if opt.version.startswith('1.') else "configs/v2-inference.yaml" 
+        opt.config = "configs/v1-inference-chinese.yaml" if opt.version.startswith('1.') else "configs/v2-inference.yaml"
     if opt.scale is None:
         opt.scale = 7.5 if opt.version.startswith('1.') else 9.0
 
@@ -211,7 +212,7 @@ def main():
 
     os.makedirs(opt.output_path, exist_ok=True)
     outpath = opt.output_path
-    
+
     batch_size = opt.n_samples
     if not opt.data_path:
         prompt = opt.prompt
@@ -230,8 +231,8 @@ def main():
     sample_path = os.path.join(outpath, "samples")
     os.makedirs(sample_path, exist_ok=True)
     base_count = len(os.listdir(sample_path))
- 
-    
+
+
     device_id = int(os.getenv("DEVICE_ID", 0))
     ms.context.set_context(
         mode=ms.context.GRAPH_MODE,
@@ -239,7 +240,7 @@ def main():
         device_id=device_id,
         max_device_memory="30GB"
     )
-    
+
     seed_everything(opt.seed)
 
     if not os.path.isabs(opt.config):
@@ -247,11 +248,16 @@ def main():
     config = OmegaConf.load(f"{opt.config}")
     model = load_model_from_config(config, f"{os.path.join(opt.ckpt_path, opt.ckpt_name)}")
 
+    if opt.use_lora:
+        #TODO: dtype
+        injected_attns, injected_trainable_params = inject_trainable_lora(model.diffusion_model, use_fp16=True)
+
+
     if opt.dpm_solver:
         sampler = DPMSolverSampler(model)
     else:
         sampler = PLMSSampler(model)
-   
+
     start_code = None
     if opt.fixed_code:
         stdnormal = ms.ops.StandardNormal()
@@ -281,17 +287,17 @@ def main():
                                             x_T=start_code
                                             )
             x_samples_ddim = model.decode_first_stage(samples_ddim)
-            x_samples_ddim = ms.ops.clip_by_value((x_samples_ddim + 1.0) / 2.0, 
+            x_samples_ddim = ms.ops.clip_by_value((x_samples_ddim + 1.0) / 2.0,
                                                   clip_value_min=0.0, clip_value_max=1.0)
             x_samples_ddim_numpy = x_samples_ddim.asnumpy()
-            
+
             if not opt.skip_save:
                 for x_sample in x_samples_ddim_numpy:
                     x_sample = 255. * x_sample.transpose(1, 2, 0)
                     img = Image.fromarray(x_sample.astype(np.uint8))
                     img.save(os.path.join(sample_path, f"{base_count:05}.png"))
                     base_count += 1
-                    
+
             if not opt.skip_grid:
                 all_samples.append(x_samples_ddim_numpy)
 
@@ -300,6 +306,6 @@ def main():
 
     print(f"Your samples are ready and waiting for you here: \n{outpath} \n"
       f" \nEnjoy.")
-          
+
 if __name__ == "__main__":
     main()

@@ -230,7 +230,7 @@ def load_lora_trainable_params_only(net, lora_ckpt_fp):
     net should have load orignal pretrained params and injected with lora trainable params. Here we only load the lora trainable params.
     '''
     # TODO: ignore the warning
-    lora_ckpt_fp = 'test_lora_tp_after_ft.ckpt'
+    #lora_ckpt_fp = 'test_lora_tp_after_ft.ckpt'
     param_dict = ms.load_checkpoint(lora_ckpt_fp)
     # TODO: ignore the warning
     net_not_load, ckpt_not_load = ms.load_param_into_net(net, param_dict)

@@ -25,6 +25,8 @@ from ldm.modules.train.parallel_config import ParallelConfig
 from ldm.models.clip.simple_tokenizer import WordpieceTokenizer, get_tokenizer
 from ldm.modules.train.tools import parse_with_config, set_random_seed
 from ldm.modules.train.cell_wrapper import ParallelTrainOneStepWithLossScaleCell
+from ldm.modules.lora import inject_trainable_lora
+
 
 
 os.environ['HCCL_CONNECT_TIMEOUT'] = '6000'
@@ -60,7 +62,7 @@ def init_env(opts):
     context.set_context(mode=context.GRAPH_MODE,
                         device_target="Ascend",
                         device_id=device_id,
-                        max_device_memory="30GB", #TODO: why limit? 
+                        max_device_memory="30GB", #TODO: why limit?
                         )
 
     """ create dataset"""
@@ -74,7 +76,7 @@ def init_env(opts):
                 image_size=opts.image_size,
                 image_filter_size=opts.image_filter_size,
                 device_num=device_num,
-                rank_id = rank_id, 
+                rank_id = rank_id,
                 random_crop = opts.random_crop,
                 filter_small_size = opts.filter_small_size,
                 sample_num=-1
@@ -162,6 +164,19 @@ def main(opts):
     pretrained_ckpt = os.path.join(opts.pretrained_model_path, opts.pretrained_model_file)
     load_pretrained_model(pretrained_ckpt, LatentDiffusionWithLoss)
 
+    # lora
+    if opts.use_lora:
+        # freeze all params
+        for param in LatentDiffusionWithLoss.model.get_parameters():
+            param.requires_grad = False
+
+        # inject into UNet only
+        # TODO: dtype
+       injected_attns, injected_trainable_params = inject_trainable_lora(LatentDiffusionWithLoss.model.diffusion_model, use_fp16=True)
+       assert len(injected_attns)==32, 'Expecting 32 injected attention modules, but got {len(injected_attns)}'
+       assert len(injected_trainable_params)==32*4*2, 'Expecting 256 injected lora trainable params, but got {len(injected_trainable_params)}'
+       print('UNet arch after LoRA injection: ', LatentDiffusionWithLoss.model.diffusion_model)
+
     if not opts.decay_steps:
         dataset_size = dataset.get_dataset_size()
         opts.decay_steps = opts.epochs * dataset_size
@@ -172,7 +187,7 @@ def main(opts):
                                              scale_window=opts.scale_window)
 
     if opts.use_parallel:
-        net_with_grads = ParallelTrainOneStepWithLossScaleCell(LatentDiffusionWithLoss, optimizer=optimizer,          
+        net_with_grads = ParallelTrainOneStepWithLossScaleCell(LatentDiffusionWithLoss, optimizer=optimizer,
                                                                scale_sense=update_cell, parallel_config=ParallelConfig)
     else:
         net_with_grads = TrainOneStepWithLossScaleCell(LatentDiffusionWithLoss, optimizer=optimizer,
@@ -189,7 +204,7 @@ def main(opts):
             opts.save_checkpoint_steps = dataset_size
         ckpt_dir = os.path.join(opts.output_path, "ckpt", f"rank_{str(rank_id)}")
         if not os.path.exists(ckpt_dir):
-            os.makedirs(ckpt_dir) 
+            os.makedirs(ckpt_dir)
         config_ck = CheckpointConfig(save_checkpoint_steps=opts.save_checkpoint_steps,
                                      keep_checkpoint_max=10,
                                      integrated_save=False)
@@ -212,7 +227,9 @@ if __name__ == "__main__":
     parser.add_argument('--model_config', default="configs/v1-train-chinese.yaml", type=str, help='model config path')
     parser.add_argument('--pretrained_model_path', default="", type=str, help='pretrained model directory')
     parser.add_argument('--pretrained_model_file', default="", type=str, help='pretrained model file name')
-    
+
+    parser.add_argument('--use_lora', default=False, type=str2bool, help='use lora finetuning')
+
     parser.add_argument('--optim', default="adamw", type=str, help='optimizer')
     parser.add_argument('--seed', default=3407, type=int, help='data path')
     parser.add_argument('--warmup_steps', default=1000, type=int, help='warmup steps')
@@ -230,7 +247,7 @@ if __name__ == "__main__":
     parser.add_argument('--filter_small_size', default=True, type=str2bool, help='filter small images')
     parser.add_argument('--image_size', default=512, type=int, help='images size')
     parser.add_argument('--image_filter_size', default=256, type=int, help='image filter size')
-    
+
     args = parser.parse_args()
     args = parse_with_config(args)
     abs_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ""))

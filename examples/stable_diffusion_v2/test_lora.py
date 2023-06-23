@@ -126,6 +126,7 @@ def test_load_and_infer():
     rank = 4
 
     net = SimpleNet(dtype=dtype)
+    #print(net)
     ori_ckpt_fp = 'test_lora_ori_net.ckpt'
     param_dict = ms.load_checkpoint(ori_ckpt_fp)
     net_not_load, ckpt_not_load = ms.load_param_into_net(net, param_dict)
