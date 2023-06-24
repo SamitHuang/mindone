@@ -153,33 +153,28 @@ def load_pretrained_model_clip_and_vae(pretrained_ckpt, net):
 def main(opts):
     dataset, rank_id, device_id, device_num = init_env(opts)
     LatentDiffusionWithLoss = instantiate_from_config(opts.model_config)
-    #print('Arch: ', LatentDiffusionWithLoss)
-    #print('Original params: ', "\n".join([p.name+'\t'+f'{p}' for p in LatentDiffusionWithLoss.get_parameters()]))
     pretrained_ckpt = os.path.join(opts.pretrained_model_path, opts.pretrained_model_file)
     load_pretrained_model(pretrained_ckpt, LatentDiffusionWithLoss)
     
-    # lora
+    # lora finetune
     if opts.use_lora:
-        # freeze all params
+        # freeze network
         for param in LatentDiffusionWithLoss.model.get_parameters():
             param.requires_grad = False
 
-        # inject lora 
-        # TODO: pass use_fp16 from model config file or cli args 
-        # TODO: limit to UNet
-        injected_attns, injected_trainable_params = inject_trainable_lora(LatentDiffusionWithLoss, use_fp16=True)
+        # inject lora params
+        injected_attns, injected_trainable_params = inject_trainable_lora(
+                                                        LatentDiffusionWithLoss, 
+                                                        use_fp16=(LatentDiffusionWithLoss.model.diffusion_model.dtype==ms.float16),
+                                                        )
         assert len(injected_attns)==32, 'Expecting 32 injected attention modules, but got {len(injected_attns)}'
         assert len(injected_trainable_params)==32*4*2, 'Expecting 256 injected lora trainable params, but got {len(injected_trainable_params)}'
         assert len(LatentDiffusionWithLoss.model.trainable_params())==len(injected_trainable_params), 'Only lora params should be trainable. but got {} trainable params'.format(len(LatentDiffusionWithLoss.model.trainable_params()))
-        #print('UNet arch after LoRA injection: ', LatentDiffusionWithLoss.model.diffusion_model)
         #print('Trainable params: ', LatentDiffusionWithLoss.model.trainable_params())
-
-    #print('Arch after lora injection: ', LatentDiffusionWithLoss)
-    print('Params after lora injection: ', "\n".join([p.name+'\t'+f'{p}' for p in LatentDiffusionWithLoss.get_parameters()]))
 
     if not opts.decay_steps:
         dataset_size = dataset.get_dataset_size()
-        opts.decay_steps = opts.epochs * dataset_size
+        opts.decay_steps = opts.epochs * dataset_size - opts.warmup_steps # fix lr scheduling
     lr = LearningRate(opts.start_learning_rate, opts.end_learning_rate, opts.warmup_steps, opts.decay_steps)
     optimizer = build_optimizer(LatentDiffusionWithLoss, opts, lr)
     update_cell = DynamicLossScaleUpdateCell(loss_scale_value=opts.init_loss_scale,

@@ -22,8 +22,6 @@ from ldm.modules.lora import inject_trainable_lora
 from ldm.util import str2bool 
 
 
-#SD_VERSION = os.getenv('SD_VERSION', default='2.0')
-
 def seed_everything(seed):
     if seed:
         ms.set_seed(seed)
@@ -51,26 +49,30 @@ def load_model_from_config(config, ckpt, use_lora=False, use_fp16=False, lora_on
             param_dict = ms.load_checkpoint(ckpt_fp)
             if param_dict:
                 param_not_load, ckpt_not_load = ms.load_param_into_net(_model, param_dict)
-                print("param not load:", [p for p in param_not_load if not p.startswith('adam')])
-                print("ckpt not load:", [p for p in ckpt_not_load if not p.startswith('adam')])
+                print("Net params not loaded:", [p for p in param_not_load if not p.startswith('adam')])
+                #print("ckpt not load:", [p for p in ckpt_not_load if not p.startswith('adam')])
         else:
             print(f"!!!Warning!!!: {ckpt} doesn't exist")
 
     if use_lora:
-        print('Loading lora model...')
+        print('Loading LoRA model.')
         load_lora_only = True if lora_only_ckpt is not None else False
         if not load_lora_only:
-            #TODO: dtype. TODO: freeze?
-            #inject lora trainable param 
-            injected_attns, injected_trainable_params = inject_trainable_lora(model, use_fp16=use_fp16)
+            injected_attns, injected_trainable_params = inject_trainable_lora(
+                                                            model, 
+                                                            use_fp16=(model.model.diffusion_model.dtype==ms.float16),
+                                                                )
             _load_model(model, ckpt)
             
         else:
-            # load origin model at first
+            # load the main pratrained model 
             _load_model(model, ckpt)
-
-            # inject and load lora params
-            injected_attns, injected_trainable_params = inject_trainable_lora(model, use_fp16=use_fp16)
+            # inject lora params
+            injected_attns, injected_trainable_params = inject_trainable_lora(
+                                                            model, 
+                                                            use_fp16=(model.model.diffusion_model.dtype==ms.float16),
+                                                                )
+            # load finetuned lora params
             _load_model(model, lora_only_ckpt)
 
         assert len(injected_attns)==32, 'Expecting 32 injected attention modules, but got {len(injected_attns)}'
