@@ -48,8 +48,6 @@ class LoRADenseLayer(nn.Cell):
                             f"{type(activation).__name__}.")
         self.activation_flag = self.activation is not None
 
-        self.cast = ops.Cast()
-
         # init
         self._init_weights()
 
@@ -66,7 +64,7 @@ class LoRADenseLayer(nn.Cell):
 
     def construct(self, x):
         #ori_dtype = ops.dtype(x) # x.dtype
-        #x = self.cast(x, self.dtype)
+        #x = ops.cast(x, self.dtype)
 
         h_main = self.linear(x)
 
@@ -109,7 +107,7 @@ class LowRankDense(nn.Cell):
         return h_lora
 
 
-def inject_trainable_lora(net: nn.Cell, target_modules=[CrossAttention], rank=4, dropout_p=0., scale=1.0, use_fp16=False, log_level=1):
+def inject_trainable_lora(net: nn.Cell, target_modules=[CrossAttention], rank=4, dropout_p=0., scale=1.0, use_fp16=True, log_level=1):
     '''
     Currently only support injecting lora to dense layers in attention modules
 

@@ -11,11 +11,12 @@ python text_to_image.py \
     --config configs/v2-inference.yaml \
     --output_path ./output/lora_pokemon/ \
     --seed 42 \
-    --n_iter 4 \
+    --n_iter 2 \
     --n_samples 1 \
     --W 512 \
     --H 512 \
-    --ddim_steps 50 \
+    --dpm_solver \
+    --ddim_steps 15 \
     --use_lora True \
     --ckpt_path output/lora_pokemon/txt2img/ckpt/rank_0 \
     --ckpt_name sd-1_208.ckpt \

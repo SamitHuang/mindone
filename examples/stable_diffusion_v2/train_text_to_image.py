@@ -165,7 +165,7 @@ def main(opts):
             param.requires_grad = False
 
         # inject lora 
-        # TODO: dtype.
+        # TODO: pass use_fp16 from model config file or cli args 
         # TODO: limit to UNet
         injected_attns, injected_trainable_params = inject_trainable_lora(LatentDiffusionWithLoss, use_fp16=True)
         assert len(injected_attns)==32, 'Expecting 32 injected attention modules, but got {len(injected_attns)}'

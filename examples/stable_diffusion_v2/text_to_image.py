@@ -266,7 +266,7 @@ def main():
 
     device_id = int(os.getenv("DEVICE_ID", 0))
     ms.context.set_context(
-        mode=ms.context.GRAPH_MODE,
+        mode=1, #ms.context.GRAPH_MODE,
         device_target="Ascend",
         device_id=device_id,
         max_device_memory="30GB"
@@ -277,10 +277,13 @@ def main():
     if not os.path.isabs(opt.config):
         opt.config = os.path.join(work_dir, opt.config)
     config = OmegaConf.load(f"{opt.config}")
+
+    # TODO: pass use_fp16 from model config file or cli args 
     model = load_model_from_config(
                         config, 
                         ckpt=f"{os.path.join(opt.ckpt_path, opt.ckpt_name)}",
                         use_lora=opt.use_lora,
+                        use_fp16=True,
                         )
 
  
