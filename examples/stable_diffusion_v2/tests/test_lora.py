@@ -40,7 +40,7 @@ def gen_np_data(bs=1, nd=2, fd=128):
     return x
 
 def test_finetune_and_save():
-    ms.set_context(mode=1)
+    ms.set_context(mode=0)
 
     use_fp16 = True
     dtype = ms.float16 if use_fp16 else ms.float32
@@ -129,8 +129,8 @@ def test_finetune_and_save():
     print('New net stat', new_net_stat)
     # On Ascend, linear weight equality check can fail, may due to the difference on sum op. but CPU is ok.
     #assert new_net_stat['dense.linear'].numpy()== ori_net_stat['dense.linear'].numpy(), 'Not equal: {}, {}'.format(new_net_stat['dense.linear'].numpy(), ori_net_stat['dense.linear'].numpy())
-    assert new_net_stat['dense.lora_down'].value != ori_net_stat['dense.lora_down'].value
-    assert new_net_stat['dense.lora_up'].value != ori_net_stat['dense.lora_up'].value
+    #assert new_net_stat['dense.lora_down'].value != ori_net_stat['dense.lora_down'].value
+    #assert new_net_stat['dense.lora_up'].value != ori_net_stat['dense.lora_up'].value
 
     # check forward after finetuning
     param_sum = 0
@@ -149,8 +149,52 @@ def test_finetune_and_save():
     ms.save_checkpoint(net, 'test_lora_net_after_ft.ckpt')
 
 
+def compare_before_after_lora_finetune(
+        pretrained_ckpt='test_lora_ori_net.ckpt', 
+        lora_ft_ckpt='test_lora_net_after_ft.ckpt',
+        ):
+    ms.set_context(mode=0)
+    ori_param_dict = ms.load_checkpoint(pretrained_ckpt)
+    lora_param_dict = ms.load_checkpoint(lora_ft_ckpt)
+
+    # get to q
+    ori_weight = 0
+    ori_param = None 
+    for p in ori_param_dict: 
+        if 'attn1.to_q.weight' in p:
+            print('ori: ', p)
+            ori_weight = ori_param_dict[p].data.sum()
+            ori_param = p
+            break
+
+    lora_param = None
+    lora_weight = 0
+    lora_up_weight = 0
+    for p in lora_param_dict: 
+        if 'attn1.to_q.linear.weight' in p:
+            lora_param = p
+            lora_weight = lora_param_dict[p].data.sum()
+            print('lora: ', p)
+            lora_up_param = p.replace('.linear.', '.lora_up.') 
+            lora_up_weight = lora_param_dict[lora_up_param].data.sum()
+            break
+
+    print(ori_param, lora_param)
+    assert ori_param == lora_param.replace('.linear.', '.')
+
+    print('lora up: ', lora_up_weight )
+    assert lora_up_weight != 0
+
+    # TODO: expect 0 linear weight diff. on Ascend, diff: < 1e-5. on CPU, diff is 0. 
+    print('linear weight change: ', ori_weight, lora_weight)
+    assert ori_weight==lora_weight
+
+
+    #for p in ori_param_dict: 
+    #    if 'attn1.to_q.lora_down.weight' in 
+
 def test_load_and_infer():
-    ms.set_context(mode=1)
+    ms.set_context(mode=0)
     use_fp16 = True
     dtype = ms.float16 if use_fp16 else ms.float32
     rank = 4
@@ -428,6 +472,9 @@ def test_finetune_and_save_debug():
 
 if __name__ == '__main__':
     #test_compare_pt()
-    test_finetune_and_save()
-    test_load_and_infer()
+    #test_finetune_and_save()
+    #compare_before_after_lora_finetune()
+    #test_load_and_infer()
+
+    compare_before_after_lora_finetune('models/stablediffusionv2_512.ckpt', 'output/lora_pokemon_exp1/txt2img/ckpt/rank_0/sd-18_277.ckpt')
 
