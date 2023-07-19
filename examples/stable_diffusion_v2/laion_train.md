@@ -172,6 +172,19 @@ for i in {1..64}; do wget https://huggingface.co/datasets/ChristophSchuhmann/imp
 cd ..
 ```
 
+```text
+{'URL': 'https://img1.etsystatic.com/186/0/5531524/il_340x270.1310915051_5kax.jpg',
+ 'TEXT': 'Vintage Green Glass Swag Hanging Lamp Mid Century',
+ 'WIDTH': 340.0,
+ 'HEIGHT': 270.0,
+ 'similarity': 0.3491742014884949,
+ 'punsafe': 8.991600225272123e-06,
+ 'pwatermark': 0.14151343703269958,
+ 'AESTHETIC_SCORE': 4.751741409301758,
+ 'hash': 6170073934346815248,
+ '__index_level_0__': 0}
+```
+
 ### 2. Filter the Metadata
 
 ```
