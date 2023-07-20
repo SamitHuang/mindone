@@ -43,6 +43,7 @@ def load_data(
     filter_small_size=True,
     rank_id=0,
     sample_num=-1,
+    shuffle=True,
 ):
     if not os.path.exists(data_path):
         raise ValueError(f"Data directory {data_path} does not exist!")
@@ -50,7 +51,7 @@ def load_data(
     if filter_small_size:
         # print(f"Filter small images, filter size: {image_filter_size}")
         all_images, all_captions = filter_small_image(all_images, all_captions, image_filter_size)
-        
+
     _logger.debug(f"The first image path is {all_images[0]}, and the caption is {all_captions[0]}")
     _logger.info(f"Total number of training samples: {len(all_images)}")
     dataloaders = {}
@@ -63,6 +64,7 @@ def load_data(
         image_filter_size,
         random_crop=random_crop,
         filter_small_size=filter_small_size,
+        shuffle=shuffle,
     )
     datalen = dataset.__len__
     loader = build_dataloader_ft(dataset, datalen, t2i_collate, batch_size, device_num, rank_id=rank_id)
@@ -72,7 +74,7 @@ def load_data(
     else:
         batchlen = sample_num
     metaloader = MetaLoader(dataloaders, datalen=batchlen, task_num=len(dataloaders.keys()))
-    dataset = GeneratorDataset(metaloader, column_names=data_column, shuffle=True)
+    dataset = GeneratorDataset(metaloader, column_names=data_column, shuffle=shuffle)
 
     return dataset
 
@@ -370,6 +372,7 @@ def build_dataset(args, rank_id, device_num):
         random_crop=args.random_crop,
         filter_small_size=args.filter_small_size,
         sample_num=-1,
+        shuffle=args.shuffle,
     )
     _logger.info(f"Num batches for rank {rank_id}: {dataset.get_dataset_size()}")
 
