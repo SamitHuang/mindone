@@ -2,8 +2,10 @@
 # To download one part: `sh laion_download_imgs.sh {part_id}`, e.g. `sh laion_download_imgs.sh 1`
 # To download all 64 parts: `sh laion_download_imgs.sh 0`
 
-input_folder="/MyDisk/LAION/2b_en_ae4.5_meta_filtered" # change to your storage path
-output_folder="/MyDisk/LAION/2b_en_ae4.5_filtered" # change to your storage path
+
+input_folder="/MyDisk/laion2b_en/sd2.1_base_train/metadata_filtered" # change to your local path containing the filtered metadata
+output_folder="/MyDisk/laion2b_en/sd2.1_base_train/image_text_data" # change to your local path for saving the downloaded images
+
 part_id=$1 # if set to 0, it will download all images at a time (requiring more than 30TB storage for saving them). If set to a value in {1..64}, it will only download one part of the whole metadata (requiring around 500GB to save one part)
 
 #output_format="files"

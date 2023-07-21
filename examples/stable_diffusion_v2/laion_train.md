@@ -116,30 +116,37 @@ It results in **64 parquet files** with 340,954,340 samples in total, which take
 
 ### Step 3. Download Source Images and Resize 
 
-We will use `img2dataset` to download the image files from URLs in the filtered metadata, and resize, encode them into target format.
+In this step, we will use `img2dataset` to download the image files from URLs in the filtered metadata, and resize, encode them into target format.
 
 #### Option 1: Download by Part to Local Drives
 
-If you have limited storage space (i.e., < 32TB), it is recommend to download the images part by part. We can divide all the images into 64 parts, each corresponding to an input parquet file (the division number also matters for multi-node distributed training) 
+If you prefer to save the data locally but the storage divice is small (<=10TB), please take this option.
+
+Firstly, modify `input_folder` and `output_folder` in the `laion_download_imgs.sh` script as follows.
+```shell
+input_folder="/MyDisk/laion2b_en/sd2.1_base_train/metadata_filtered" # change to your local path containing the filtered metadata
+output_folder="/MyDisk/laion2b_en/sd2.1_base_train/image_text_data" # change to your local path for saving the downloaded images
+```
+
+Then, run
 
 ```shell
 # download a part of the whole dataset, where part_id can be an integer in [1, 64].
 bash laion_download_imgs.sh {part_id}
 ```
-e.g. `bash laion_download_imgs.sh 1`
 
-It takes about 20 hours to download one part with one node.
+, where you need to set `{part_id}` to an integer  in [1, 64], since we will download the large-scale image dataset part by part (64 parts in total). e.g. `bash laion_download_imgs.sh 1`
 
-It results in
+It will take about 20 hours to download one part with one node and will result in
 ``` texts
-532 subfolders, each supposed to have 10,000 images
+532 subfolders, each supposed to contain 10,000 images
 URL download success rate: ~80% (by 20 July 2023)
 Actually downloaded images in each subfolder: ~8,000 images
 Total images actually donwloaded for part 1: 4.26M images (4261204)
 Total size for part 1 (output_format=files): 459GB
 ```
 
-There are 64 parts in total, so they will result in ~272M images and take ~30TB by estimation. 
+There are 64 parts in total, so they will result in ~272M images and take ~30TB for `files` saving format or ~10TB in for `webdataset` format.
 
 #### Option 2: Download at Whole to Large Local Drives 
 
@@ -161,7 +168,7 @@ For detailed instructions, please refer to [distributed_img2dataset_tutorial](ht
 #### Notes on data storage format
 You can alos change the parameters for image resizing, saving format, etc. Please look into the `laion_download_imgs.sh` script and refer to `img2dataset` [API doc](https://github.com/rom1504/img2dataset/tree/main#api).
 
-To change the saving format, please change the `output_format` arg in the `laion_download_imgs.sh` script. We use `webdataset` format by default for its metrits in less storage size (about **4 times** smaller than `files` format) and fast loading speed for sequential access. 
+To change the saving format, please change the `output_format` arg in the `laion_download_imgs.sh` script. We use `webdataset` format by default for its metrits in less storage size (**4+ times** smaller than `files` format on HDD disks) and fast loading speed for sequential access. 
 
 ```shell
 #output_format="files"
