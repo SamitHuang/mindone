@@ -2,12 +2,13 @@
 # To download one part: `sh laion_download_imgs.sh {part_id}`, e.g. `sh laion_download_imgs.sh 1`
 # To download all 64 parts: `sh laion_download_imgs.sh 0`
 
-input_folder=/Volumes/Extreme_SSD/LAION/2b_en_ae4.5_meta_filtered # change to your storage path
-output_folder=/Volumes/Extreme_SSD/LAION/2b_en_ae4.5_filtered # change to your storage path
+input_folder="/MyDisk/LAION/2b_en_ae4.5_meta_filtered" # change to your storage path
+output_folder="/MyDisk/LAION/2b_en_ae4.5_filtered" # change to your storage path
 part_id=$1 # if set to 0, it will download all images at a time (requiring more than 30TB storage for saving them). If set to a value in {1..64}, it will only download one part of the whole metadata (requiring around 500GB to save one part)
 
-output_format="files"
+#output_format="files"
 #output_format="parquet"
+output_format="webdataset"
 # change it to laion_art if training on laion_art dataset
 dataset_name="laion2b_en"
 #dataset_name="laion_art"
