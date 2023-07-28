@@ -227,88 +227,6 @@ class ImageDataset:
         return result
 
 
-class WDS_Dataset:
-    def __init__(
-        self,
-        urls_or_paths, # urls or paths for tar files
-        tokenizer,
-        image_size,
-        image_filter_size,
-        shuffle=True,
-        random_crop=False,
-        filter_small_size=False,
-        dataset_size=-1, # num of data samples in total
-    ):
-
-        self.ds = wds.WebDataset(urls_or_paths) # repeat = True?
-        if shuffle:
-            self.ds = shuffle(1000)
-        self.ds = ds.decode("rgb8").to_tuple("jpg;png", "json") # rgb8 in range 0, 255
-
-        self.dataset_size = dataset_size  # TODO: parse
-        self.ds.length = dataset_size  # TODO: parse
-
-        self.tokenizer = tokenizer
-        self.image_size = image_size
-        self.image_filter_size = image_filter_size
-        self.shuffle = shuffle
-        self.random_crop = random_crop
-        self.filter_small_size = filter_small_size
-
-        self.rescaler = albumentations.SmallestMaxSize(max_size=self.image_size)
-        if not self.random_crop:
-            self.cropper = albumentations.CenterCrop(height=self.image_size, width=self.image_size)
-            self.preprocessor = albumentations.Compose([self.rescaler, self.cropper])
-        else:
-            self.cropper = albumentations.RandomCrop(height=self.image_size, width=self.image_size)
-            self.preprocessor = albumentations.Compose(
-                [self.rescaler, self.cropper, albumentations.HorizontalFlip(p=0.5)]
-            )
-            print("apply random crop and horizontal flip")
-
-    @property
-    def __len__(self):
-        return self.dataset_size
-
-    def sequential_sample(self, ind):
-        return self.__iter__()
-
-    #def __next__(self):
-    #    image, data = next(iter(self.ds))
-    #    return (image, data['caption'])
-
-    def __iter__(self):
-        for image, data in self.ds:
-            try:
-                # TODO: temp test filtering small images
-                filter_size = 512
-                h, w = image.shape[:2]
-                if min(h, w) >= self.image_filter_size:
-                    image = self.preprocess_image(image)
-                    caption = data['caption']
-                    caption_tokens = self.tokenize(caption)
-                    yield (image, caption_tokens)
-                else:
-                    print('Drop img with shape: ', image.shape)
-            except StopIteration:
-                return
- 
-    def tokenize(self, text):
-        SOT_TEXT = self.tokenizer.sot_text  # "[CLS]"
-        EOT_TEXT = self.tokenizer.eot_text  # "[SEP]"
-        CONTEXT_LEN = 77  # TODO: get from self.tokenizer.context_len
-
-        sot_token = self.tokenizer.encoder[SOT_TEXT]
-        eot_token = self.tokenizer.encoder[EOT_TEXT]
-        tokens = [sot_token] + self.tokenizer.encode(text) + [eot_token]
-        result = np.zeros([CONTEXT_LEN])
-        if len(tokens) > CONTEXT_LEN:
-            tokens = tokens[: CONTEXT_LEN - 1] + [eot_token]
-        result[: len(tokens)] = tokens
-
-        return result
- 
-
 class BatchSampler:
     """
     Batch Sampler
@@ -446,22 +364,19 @@ def build_dataset(args, rank_id, device_num):
     # tokenizer = WordpieceTokenizer()
     tokenizer = get_tokenizer(SD_VERSION)
     
-    if args.dataset_type == "files":
-        dataset = load_data(
-            data_path=args.data_path,
-            batch_size=args.train_batch_size,
-            tokenizer=tokenizer,
-            image_size=args.image_size,
-            image_filter_size=args.image_filter_size,
-            device_num=device_num,
-            rank_id=rank_id,
-            random_crop=args.random_crop,
-            filter_small_size=args.filter_small_size,
-            sample_num=-1,
-            shuffle=args.shuffle,
-        )
-    else:
-       dataset = load_wds_data() 
+    dataset = load_data(
+        data_path=args.data_path,
+        batch_size=args.train_batch_size,
+        tokenizer=tokenizer,
+        image_size=args.image_size,
+        image_filter_size=args.image_filter_size,
+        device_num=device_num,
+        rank_id=rank_id,
+        random_crop=args.random_crop,
+        filter_small_size=args.filter_small_size,
+        sample_num=-1,
+        shuffle=args.shuffle,
+    )
     _logger.info(f"Num batches for rank {rank_id}: {dataset.get_dataset_size()}")
 
     return dataset

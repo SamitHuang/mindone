@@ -147,7 +147,8 @@ def main(args):
 
     # set ms context
     device_id = int(os.getenv("DEVICE_ID", 0))
-    mode = ms.context.GRAPH_MODE
+    #mode = ms.context.GRAPH_MODE
+    mode = ms.context.PYNATIVE_MODE
     ms.context.set_context(mode=mode, device_target="Ascend", device_id=device_id, max_device_memory="30GB")
 
     set_random_seed(args.seed)

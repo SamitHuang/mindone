@@ -25,6 +25,8 @@ from mindspore.communication.management import get_group_size, get_rank, init
 from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
 from mindspore.train.callback import LossMonitor, TimeMonitor
 
+from mindspore.train.callback import LossMonitor, TimeMonitor, CheckpointConfig, ModelCheckpoint
+
 os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
 SD_VERSION = os.getenv("SD_VERSION", default="2.0")
 
