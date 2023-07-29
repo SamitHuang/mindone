@@ -67,11 +67,24 @@ def check_filtered_metadata(data_dir, dataset_name='laion2b_en'):
     df = spark.read.parquet(data_dir)
     num_samples = df.count()
     print("Num samples : ", num_samples)
-    print('Min w: ', df.select(functions.min("WIDTH")).collect())
-    print('Min h: ', df.select(functions.min("HEIGHT")).collect())
+    #print('Min w: ', df.select(functions.min("WIDTH")).collect())
+    #print('Min h: ', df.select(functions.min("HEIGHT")).collect())
     if dataset_name.startswith('laion2b'):
-        print('Min aes: ', df.select(functions.min("AESTHETIC_SCORE")).collect())
-        print('Max punsafe: ', df.select(functions.max("punsafe")).collect())
+        min_aes = df.select(functions.min("AESTHETIC_SCORE")).collect()
+        max_punsafe = df.select(functions.max("punsafe")).collect()
+        num_punsafe_ood = df.select().where((df.punsafe > 0.5)).count()
+        print('Min aes: ', min_aes)
+        print('Max punsafe: ', max_punsafe)
+        print('Num punsafe > 0.5: ', num_punsafe_ood, num_punsafe_ood/num_samples)
+    min_sim = df.select(functions.min("similarity")).collect()
+    num_sim_ood = df.select().where((df.similarity < 0.28)).count() # according to laion doc, samples with similariy < 0.28 should have been dropped
+    print("Min similarity: ", min_sim)
+    print("Num sim < 0.28: ", num_sim_ood, num_sim_ood/num_samples)
+    # from laion: we recommend 0.5 for safety and 0.8 for watermark
+    max_watermark = df.select(functions.max("pwatermark")).collect()
+    num_watermark_ood = df.select().where((df.pwatermark > 0.8)).count()
+    print("Max pwatermark: ", max_watermark)
+    print("Num pwatermark > 0.8: ", num_watermark_ood, num_watermark_ood/num_samples)
 
 def rename_parquet_files(data_dir):
     dirs = os.listdir(data_dir)
@@ -91,8 +104,9 @@ def rename_parquet_files(data_dir):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Metadata Filter")
     parser.add_argument("--data_dir", type=str, default='/Volumes/Extreme_SSD/LAION/2b_en_ae4.5_meta', help="dir containing source parquet files")
-    parser.add_argument("--output_dir", type=str, default='/Volumes/Extreme_SSD/LAION/2b_en_ae4.5_meta_filtered', help="dir to saved the filtered metadata")
+    parser.add_argument("--output_dir", type=str, default='/Volumes/Extreme_SSD/laion2b_en/sd2.1_base_train/metadata_filtered', help="dir to saved the filtered metadata")
     parser.add_argument("--dataset_name", type=str, default='laion2b_en', help="laion_art or laion2b_en")
+    parser.add_argument("--task", type=str, default='filter', help="filter or check")
     args = parser.parse_args()
 
     #data_path_or_dir='/data3/datasets/laion_art_metadata'
@@ -100,25 +114,24 @@ if __name__ == '__main__':
     output_dir = args.output_dir
     dataset_name = args.dataset_name
     num_repartitions = 1
-    if dataset_name.startswith('laion_art'):
-        res_num = filter_metadata(data_path_or_dir, filter_width, filter_height, num_repartitions, lang, output_dir=output_dir, dataset_name=dataset_name)
-    else:
-        # TODO: due to limited memory size, we need to do it one by one. Just set num_repartition=64 to finish the filtering on a machine with large memory.
-        #num_repartitions = 64
-        fps = sorted(glob.glob(data_path_or_dir + '/*.parquet'))
-        res_num = 0
-        for i, data_path in enumerate(fps):
-            output_path = output_dir + '/' + os.path.basename(data_path).replace(".parquet", "")
-            #output_path = output_dir + '/' + os.path.basename(data_path)
-            print('=> Start filtering ', data_path)
-            cur_num = filter_metadata(data_path, filter_width, filter_height, num_repartitions, lang, output_dir=output_path, dataset_name=dataset_name)
-            res_num += cur_name
 
-        rename_parquet_files(output_dir)
+    if args.task == 'filter':
+        if dataset_name.startswith('laion_art'):
+            res_num = filter_metadata(data_path_or_dir, filter_width, filter_height, num_repartitions, lang, output_dir=output_dir, dataset_name=dataset_name)
+        else:
+            # TODO: due to limited memory size, we need to do it one by one. Just set num_repartition=64 to finish the filtering on a machine with large memory.
+            #num_repartitions = 64
+            fps = sorted(glob.glob(data_path_or_dir + '/*.parquet'))
+            res_num = 0
+            for i, data_path in enumerate(fps):
+                output_path = output_dir + '/' + os.path.basename(data_path).replace(".parquet", "")
+                #output_path = output_dir + '/' + os.path.basename(data_path)
+                print('=> Start filtering ', data_path)
+                cur_num = filter_metadata(data_path, filter_width, filter_height, num_repartitions, lang, output_dir=output_path, dataset_name=dataset_name)
+                res_num += cur_name
 
-        print(f'{res_num} samples in total after filtering')
+            rename_parquet_files(output_dir)
+
+            print(f'{res_num} samples in total after filtering')
 
     check_filtered_metadata(output_dir, dataset_name)
-
-
-

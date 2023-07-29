@@ -33,6 +33,8 @@ class EMA(nn.Cell):
         self.hyper_map = C.HyperMap()
         self.map = ops.HyperMap()
 
+        #self.assign = ops.Assign().add_prim_attr("primitive_target", "CPU")
+
     def ema_update(self):
         """Update EMA parameters."""
         self.updates += 1

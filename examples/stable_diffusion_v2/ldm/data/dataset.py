@@ -17,6 +17,7 @@ import logging
 import os
 from collections import defaultdict
 from random import randint
+from PIL import Image
 
 import albumentations
 import imagesize
@@ -24,7 +25,8 @@ import numpy as np
 import pandas as pd
 from ldm.data.t2i_collate import data_column, t2i_collate
 from ldm.models.clip.simple_tokenizer import get_tokenizer
-from PIL import Image
+from ldm.data.laion_dataset import load_large_data
+
 
 from mindspore.dataset import GeneratorDataset
 
@@ -44,12 +46,12 @@ def load_data(
     rank_id=0,
     sample_num=-1,
     shuffle=True,
-    data_type='raw',
+    dataset_type='files',
 ):
     if not os.path.exists(data_path):
         raise ValueError(f"Data directory {data_path} does not exist!")
 
-    if dataset_type == 'raw':
+    if dataset_type == 'files':
         all_images, all_captions = list_image_files_captions_recursively(data_path)
         if filter_small_size:
             # print(f"Filter small images, filter size: {image_filter_size}")
@@ -58,20 +60,19 @@ def load_data(
         _logger.debug(f"The first image path is {all_images[0]}, and the caption is {all_captions[0]}")
         _logger.info(f"Total number of training samples: {len(all_images)}")
         dataloaders = {}
-    
+
         dataset = ImageDataset(
             all_images,
             all_captions,
             tokenizer,
             image_size,
-            image_filter_size,
             random_crop=random_crop,
-            filter_small_size=filter_small_size,
             shuffle=shuffle,
         )
     elif dataset_type == 'webdataset':
+        pass
 
-    datalen = dataset.__len__
+    datalen = dataset.__len__()
     loader = build_dataloader_ft(dataset, datalen, t2i_collate, batch_size, device_num, rank_id=rank_id)
     dataloaders["ftT2I"] = loader
     if sample_num == -1:
@@ -79,7 +80,11 @@ def load_data(
     else:
         batchlen = sample_num
     metaloader = MetaLoader(dataloaders, datalen=batchlen, task_num=len(dataloaders.keys()))
-    dataset = GeneratorDataset(metaloader, column_names=data_column, shuffle=shuffle)
+    if dataset_type == 'files':
+        dataset = GeneratorDataset(metaloader, column_names=data_column, shuffle=shuffle)
+    elif dataset_type == 'webdatatset':
+        # we use efficient shuffling in webdataset
+        dataset = GeneratorDataset(metaloader, column_names=data_column, shuffle=False)
 
     return dataset
 
@@ -110,20 +115,20 @@ def list_image_files_captions_recursively(data_path):
 
 
 def filter_small_image(all_images, all_captions, image_filter_size):
-    filted_images = []
-    filted_captions = []
+    filtered_images = []
+    filtered_captions = []
     for image, caption in zip(all_images, all_captions):
         w, h = imagesize.get(image)
         if min(w, h) < image_filter_size:
             _logger.info(f"image {image} of size {w}x{h} is filtered.")
             continue
         else:
-            filted_images.append(image)
-            filted_captions.append(caption)
+            filtered_images.append(image)
+            filtered_captions.append(caption)
     if len(filtered_images) != len(all_images):
         _logger.info('Num source images: ', len(all_images))
         _logger.info(f'Num images after resolution filtering (size>={image_filter_size}): ', len(filtered_images))
-    return filted_images, filted_captions
+    return filtered_images, filtered_captions
 
 
 def check_data(all_iamges):
@@ -149,20 +154,16 @@ class ImageDataset:
         captions,
         tokenizer,
         image_size,
-        image_filter_size,
         shuffle=True,
         random_crop=False,
-        filter_small_size=False,
     ):
         super().__init__()
         self.tokenizer = tokenizer
         self.image_size = image_size
-        self.image_filter_size = image_filter_size
         self.local_images = image_paths
         self.local_captions = captions
         self.shuffle = shuffle
         self.random_crop = random_crop
-        self.filter_small_size = filter_small_size
 
         self.rescaler = albumentations.SmallestMaxSize(max_size=self.image_size)
         if not self.random_crop:
@@ -175,7 +176,7 @@ class ImageDataset:
             )
             print("apply random crop and horizontal flip")
 
-    @property
+    #@property
     def __len__(self):
         return len(self.local_images)
 
@@ -226,88 +227,6 @@ class ImageDataset:
 
         return result
 
-
-class WDS_Dataset:
-    def __init__(
-        self,
-        urls_or_paths, # urls or paths for tar files
-        tokenizer,
-        image_size,
-        image_filter_size,
-        shuffle=True,
-        random_crop=False,
-        filter_small_size=False,
-        dataset_size=-1, # num of data samples in total
-    ):
-
-        self.ds = wds.WebDataset(urls_or_paths) # repeat = True?
-        if shuffle:
-            self.ds = shuffle(1000)
-        self.ds = ds.decode("rgb8").to_tuple("jpg;png", "json") # rgb8 in range 0, 255
-
-        self.dataset_size = dataset_size  # TODO: parse
-        self.ds.length = dataset_size  # TODO: parse
-
-        self.tokenizer = tokenizer
-        self.image_size = image_size
-        self.image_filter_size = image_filter_size
-        self.shuffle = shuffle
-        self.random_crop = random_crop
-        self.filter_small_size = filter_small_size
-
-        self.rescaler = albumentations.SmallestMaxSize(max_size=self.image_size)
-        if not self.random_crop:
-            self.cropper = albumentations.CenterCrop(height=self.image_size, width=self.image_size)
-            self.preprocessor = albumentations.Compose([self.rescaler, self.cropper])
-        else:
-            self.cropper = albumentations.RandomCrop(height=self.image_size, width=self.image_size)
-            self.preprocessor = albumentations.Compose(
-                [self.rescaler, self.cropper, albumentations.HorizontalFlip(p=0.5)]
-            )
-            print("apply random crop and horizontal flip")
-
-    @property
-    def __len__(self):
-        return self.dataset_size
-
-    def sequential_sample(self, ind):
-        return self.__iter__()
-
-    #def __next__(self):
-    #    image, data = next(iter(self.ds))
-    #    return (image, data['caption'])
-
-    def __iter__(self):
-        for image, data in self.ds:
-            try:
-                # TODO: temp test filtering small images
-                filter_size = 512
-                h, w = image.shape[:2]
-                if min(h, w) >= self.image_filter_size:
-                    image = self.preprocess_image(image)
-                    caption = data['caption']
-                    caption_tokens = self.tokenize(caption)
-                    yield (image, caption_tokens)
-                else:
-                    print('Drop img with shape: ', image.shape)
-            except StopIteration:
-                return
- 
-    def tokenize(self, text):
-        SOT_TEXT = self.tokenizer.sot_text  # "[CLS]"
-        EOT_TEXT = self.tokenizer.eot_text  # "[SEP]"
-        CONTEXT_LEN = 77  # TODO: get from self.tokenizer.context_len
-
-        sot_token = self.tokenizer.encoder[SOT_TEXT]
-        eot_token = self.tokenizer.encoder[EOT_TEXT]
-        tokens = [sot_token] + self.tokenizer.encode(text) + [eot_token]
-        result = np.zeros([CONTEXT_LEN])
-        if len(tokens) > CONTEXT_LEN:
-            tokens = tokens[: CONTEXT_LEN - 1] + [eot_token]
-        result[: len(tokens)] = tokens
-
-        return result
- 
 
 class BatchSampler:
     """
@@ -365,7 +284,6 @@ class DataLoader:
 
         data = self.collat_fn(data)
         return data
-
 
 class MetaLoader:
     """wraps multiple data loaders"""
@@ -445,8 +363,8 @@ class MetaLoader:
 def build_dataset(args, rank_id, device_num):
     # tokenizer = WordpieceTokenizer()
     tokenizer = get_tokenizer(SD_VERSION)
-    
-    if args.dataset_type == "files":
+
+    if args.dataset_type == 'files':
         dataset = load_data(
             data_path=args.data_path,
             batch_size=args.train_batch_size,
@@ -459,9 +377,30 @@ def build_dataset(args, rank_id, device_num):
             filter_small_size=args.filter_small_size,
             sample_num=-1,
             shuffle=args.shuffle,
+            dataset_type=args.dataset_type,
         )
-    else:
-       dataset = load_wds_data() 
-    _logger.info(f"Num batches for rank {rank_id}: {dataset.get_dataset_size()}")
+        dataset_size = dataset.get_dataset_size()
+
+    elif args.dataset_type == 'webdataset':
+        dataset, data_info = load_large_data(
+                data_dir=args.data_path,
+                batch_size=args.train_batch_size,
+                tokenizer=tokenizer,
+                image_size=args.image_size,
+                shuffle=args.shuffle,
+                random_crop=args.random_crop,
+                filter_small_size=args.filter_small_size,
+                small_size=args.image_filter_size,
+                device_num=device_num,
+                rank_id=rank_id,
+                num_workers=8, # TODO: config
+                #streaming=False,
+                download_from_remote=False,
+                remote_dataset_root=None,
+                download_dir=args.data_path,
+                )
+        dataset_size = data_info['dataset_size']
+
+    _logger.info(f"Num batches for rank {rank_id}: {}")
 
     return dataset

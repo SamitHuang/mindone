@@ -35,7 +35,6 @@ We will use the following data source and filtering conditions for training data
     resolution >= 512x512
 ```
 
-
 ### Step 1. Download LAION 2B-en Metadata
 
 #### Saving to Local

@@ -5,8 +5,10 @@ import argparse
 import importlib
 import logging
 import os
+import ast
 
 from ldm.data.dataset import build_dataset
+from ldm.data.laion_dataset import build_laion_dataset
 from ldm.modules.logger import set_logger
 from ldm.modules.lora import inject_trainable_lora
 from ldm.modules.train.callback import EvalSaveCallback, OverflowMonitor
@@ -115,7 +117,7 @@ def load_pretrained_model_clip_and_vae(pretrained_ckpt, net):
 def main(args):
     # init
     rank_id, device_id, device_num = init_env(args)
-    set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
+    set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=ast.literal_eval(args.log_level))
 
     # build dataset
     dataset = build_dataset(args, rank_id, device_num)
@@ -237,6 +239,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_parallel", default=False, type=str2bool, help="use parallel")
     parser.add_argument("--data_path", default="dataset", type=str, help="data path")
     parser.add_argument("--dataset_type", default="files", type=str, help="files, webdataset")
+    parser.add_argument("--remote_url_root", default="", type=str, help="remote url point to save the dataset parts, e.g. https://data_server.com/laion_subset")
     parser.add_argument("--output_path", default="output/", type=str, help="output directory to save training results")
     parser.add_argument("--train_config", default="configs/train_config.json", type=str, help="train config path")
     parser.add_argument("--model_config", default="configs/v1-train-chinese.yaml", type=str, help="model config path")
