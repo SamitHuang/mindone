@@ -8,7 +8,6 @@ import os
 import ast
 
 from ldm.data.dataset import build_dataset
-from ldm.data.laion_dataset import build_laion_dataset
 from ldm.modules.logger import set_logger
 from ldm.modules.lora import inject_trainable_lora
 from ldm.modules.train.callback import EvalSaveCallback, OverflowMonitor
@@ -239,7 +238,8 @@ if __name__ == "__main__":
     parser.add_argument("--use_parallel", default=False, type=str2bool, help="use parallel")
     parser.add_argument("--data_path", default="dataset", type=str, help="data path")
     parser.add_argument("--dataset_type", default="files", type=str, help="files, webdataset")
-    parser.add_argument("--remote_url_root", default="", type=str, help="remote url point to save the dataset parts, e.g. https://data_server.com/laion_subset")
+    parser.add_argument("--data_stats_dir", default="", type=str,
+                        help="Directory for data statistic files (which record the relative path, num samples for each tar data file), only required when dataset type is webdataset. ")
     parser.add_argument("--output_path", default="output/", type=str, help="output directory to save training results")
     parser.add_argument("--train_config", default="configs/train_config.json", type=str, help="train config path")
     parser.add_argument("--model_config", default="configs/v1-train-chinese.yaml", type=str, help="model config path")

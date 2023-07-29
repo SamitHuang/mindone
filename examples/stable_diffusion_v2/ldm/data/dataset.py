@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 from ldm.data.t2i_collate import data_column, t2i_collate
 from ldm.models.clip.simple_tokenizer import get_tokenizer
-from ldm.data.laion_dataset import load_large_data
+from ldm.data.laion_dataset import load_laion_data
 
 
 from mindspore.dataset import GeneratorDataset
@@ -382,7 +382,7 @@ def build_dataset(args, rank_id, device_num):
         dataset_size = dataset.get_dataset_size()
 
     elif args.dataset_type == 'webdataset':
-        dataset, data_info = load_large_data(
+        dataset, data_info = load_laion_data(
                 data_dir=args.data_path,
                 batch_size=args.train_batch_size,
                 tokenizer=tokenizer,
@@ -400,6 +400,8 @@ def build_dataset(args, rank_id, device_num):
                 download_dir=args.data_path,
                 )
         dataset_size = data_info['dataset_size']
+    else:
+        raise NotImplementedError
 
     _logger.info(f"Num batches for rank {rank_id}: {}")
 
