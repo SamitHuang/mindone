@@ -1,8 +1,6 @@
 import argparse
 import glob
-import glob
 import os
-import pandas as pd
 from img2dataset import download
 from tqdm import tqdm
 import json
@@ -38,7 +36,7 @@ def convert(data_dir, output_dir, img_fmt='jpg', one_csv_per_part=True, check_da
     num_imgs = 0
     len_postfix = len(img_fmt) + 1
 
-    num_parts = len(glob.glob("part_*"))
+    num_parts = len(glob.glob(os.path.join(data_dir, "part_*")))
     use_part_div = False
     if num_parts == 0:
         use_part_div = True
@@ -92,7 +90,10 @@ def convert(data_dir, output_dir, img_fmt='jpg', one_csv_per_part=True, check_da
                                 log.write(f"{meta['original_height']}x{meta['original_width']}, {meta['url']} \n")
 
                     texts.append(text)
-                    rel_path = folder + '/' + img_fp.split('/')[-1]
+                    if one_csv_per_part:
+                        rel_path = folder + '/' + img_fp.split('/')[-1]
+                    else:
+                        rel_path = folder.split("/")[-1] + '/' + img_fp.split('/')[-1] # remove part_x
                     rel_img_paths.append(rel_path)
                 if one_csv_per_part:
                     rel_img_paths_all.extend(rel_img_paths)
@@ -123,7 +124,7 @@ def convert(data_dir, output_dir, img_fmt='jpg', one_csv_per_part=True, check_da
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description="Save csv")
-    parser.add_argument("--data_dir", type=str, default='/Volumes/Extreme_SSD/LAION/2b_en_ae4.5_filtered', help="dir containing the downloaded images")
+    parser.add_argument("--data_dir", type=str, default='/Volumes/Extreme_SSD/LAION/sd2.1_base_train', help="dir containing the downloaded images")
     parser.add_argument("--save_csv_per_img_folder", type=bool, default=False, help="If False, save a csv file for each part, which will result in a large csv file (~400MB). If True, save a csv file for each image folder, which will result in hundreads of csv files for one part of dataset.")
     args = parser.parse_args()
 
