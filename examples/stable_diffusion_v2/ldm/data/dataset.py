@@ -384,6 +384,7 @@ def build_dataset(args, rank_id, device_num):
     elif args.dataset_type == 'webdataset':
         dataset, data_info = load_laion_data(
                 data_dir=args.data_path,
+                data_stats_dir=args.data_data_stats_dir,
                 batch_size=args.train_batch_size,
                 tokenizer=tokenizer,
                 image_size=args.image_size,
@@ -394,10 +395,6 @@ def build_dataset(args, rank_id, device_num):
                 device_num=device_num,
                 rank_id=rank_id,
                 num_workers=8, # TODO: config
-                #streaming=False,
-                download_from_remote=False,
-                remote_dataset_root=None,
-                download_dir=args.data_path,
                 )
         dataset_size = data_info['dataset_size']
     else:

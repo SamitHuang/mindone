@@ -216,7 +216,6 @@ def load_laion_data(data_stats_dir, # local path to a directory containing data 
                     device_num=1,
                     rank_id=0,
                     num_workers=8,
-                    streaming=False,
                     download=False,
                     cache_dir=None,
                     ):
@@ -226,8 +225,7 @@ def load_laion_data(data_stats_dir, # local path to a directory containing data 
     Args:
         data_dir: local path or remote url path toward a directory containing training data files, e.g., /data3/laion_subset, https://my_server/laion_subset. if None, data_dir will be set the same as `data_stats_dir`.
         data_stats_dir: local path to a directory that contains csv files recording data statistic (relative file path, num samples) for all training data files, where the csv files are named in format `*_stats.csv`. Because IterableDataset requires to parse the dataset size explicitly for efficient loading, the data stats are necessary.
-        streaming: if True, downaload data samples while batch-wise training (only support when `data_dir` is a remote url). if False, the allocated data samples for current device should be prepared and saved locally before launching data loading and training.
-        download: if True, download the data files specified by the remote url (parsed from `data_dir`) and relative file paths (parsed from csv files in `data_statas_dir`) before training. Only valid when `data_dir` is a remote url.
+        download: if True, download the allocated data files from remote url (parsed from `data_dir`) before training. If False, downaload data samples needed while training (streaming). Only valid when `data_dir` is a remote url.
 
     Notes:
     - File structure for `data_stats_dir` should be as follows
