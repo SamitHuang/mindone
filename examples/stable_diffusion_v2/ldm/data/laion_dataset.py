@@ -1,4 +1,5 @@
 import gc
+import math
 import logging
 import os
 from collections import defaultdict
@@ -13,6 +14,8 @@ import numpy as np
 import pandas as pd
 from ldm.data.t2i_collate import data_column, t2i_collate
 from ldm.models.clip.simple_tokenizer import get_tokenizer
+
+_logger = logging.getLogger(__name__)
 
 
 class LAION_Webdataset:
@@ -34,6 +37,7 @@ class LAION_Webdataset:
         num_shards=1,
         shard_id=0,
         verbose=True,
+        cache_dir=None,
     ):
         assert dataset_size>0, "Must provide the exact dataset size"
         self.dataset_size = dataset_size
@@ -42,7 +46,7 @@ class LAION_Webdataset:
 
 
         # webdataset reader for large-scale data
-        ds = wds.WebDataset(urls_or_paths) #, shardshuffle=shuffle) # repeat = True?
+        ds = wds.WebDataset(urls_or_paths, cache_dir=None) #, shardshuffle=shuffle) # repeat = True?
         if shuffle:
             ds = ds.shuffle(1000)
         self.ds = ds.decode("rgb8").to_tuple("jpg;png", "json") # rgb8 in range 0, 255
@@ -57,7 +61,7 @@ class LAION_Webdataset:
         self.num_small_sim = 0
         self.num_text_url = 0
 
-        # ~5% samples with pwatermark>0.8, but somehow the used watermark detector is not so accurate (some images with high pwatermark are actually free from waterwark).
+        # ~5% samples with pwatermark>0.8, but somehow the used watermark detector is not so accurate (some images with high pwatermark are actually free from watermark).
         #self.filter_watermark = filter_watermark
         #self.big_watermark = big_watermark
         #self.num_watermark = 0
@@ -72,17 +76,17 @@ class LAION_Webdataset:
         if not self.random_crop:
             self.cropper = albumentations.CenterCrop(height=self.image_size, width=self.image_size)
             self.preprocessor = albumentations.Compose([self.rescaler, self.cropper])
-            print("apply center crop and horizontal flip")
+            _logger.debug("apply center crop and horizontal flip")
         else:
             self.cropper = albumentations.RandomCrop(height=self.image_size, width=self.image_size)
             self.preprocessor = albumentations.Compose(
                 [self.rescaler, self.cropper, albumentations.HorizontalFlip(p=0.5)]
             )
-            print("apply random crop and horizontal flip")
+            _logger.debug("apply random crop and horizontal flip")
 
         # used to replace the abnormal samples
         self._replace_image = np.zeros([512, 512, 3], dtype=np.float32)
-        self._replace_token = self.tokenize("")
+        self._replace_token = self.tokenize("").astype(np.int32)
         self.verbose = verbose
 
     def __len__(self):
@@ -120,7 +124,7 @@ class LAION_Webdataset:
                     # image and text preprocessing
                     image = self.preprocess_image(image)
                     caption = data['caption']
-                    caption_tokens = self.tokenize(caption)
+                    caption_tokens = self.tokenize(caption).astype(np.int32)
 
                     if self.filter_small_size or self.filter_small_sim or self.filter_watermark:
                         self._replace_image = image
@@ -129,8 +133,6 @@ class LAION_Webdataset:
                     yield (image, caption_tokens)
 
             except StopIteration:
-                print(f"Finish itering the whole WSD, {self.ds.length} samples.\nNum small ", self.num_small)
-                print("Scanned samples: ", self._index-1)
                 raise StopIteration
 
     def preprocess_image(self, img_rgb8):
@@ -157,10 +159,6 @@ class LAION_Webdataset:
         return result
 
 
-def _sharding(urls_or_paths, num_shards=1, shard_id=0):
-    pass
-
-
 def _check_and_download_tars(urls_or_paths, download_dir=''):
     def _download():
         # TODO: impl donwload from OBS or HF
@@ -181,9 +179,8 @@ def read_data_stats(data_dir, remote_dataset_root=None):
     remote_dataset_root: if None, data_dir is the data root containing folders of data parts. If not None, it should be a url prefix to a remote server, e.g. for `https://huggingface.co/datasets/jasonhuang23/sd2.1_base_train/resolve/main/part_1/00000.tar`, the prefix is `https://huggingface.co/datasets/jasonhuang23/sd2.1_base_train/resolve/main`
     '''
     # data_dir/part_{id}_stats.csv
-    stats_fps = glob.glob(f'{data_dir}/part_*_stats.csv') # TODO:
-    assert len(stats_fps) > 0, 'No data stats csv files found. Expect part_{id}_stats.csv under data dir'
-    #stat_fps = [f'{data_dir}/all_stats.csv']
+    stats_fps = glob.glob(f'{data_dir}/part_*_stats.csv') # fixed naming 
+    assert len(stats_fps) > 0, f'No data stats csv files found. Expect part_{id}_stats.csv under {data_dir}'
 
     urls_or_paths = []
     sample_nums = []
@@ -204,7 +201,7 @@ def read_data_stats(data_dir, remote_dataset_root=None):
     return urls_or_paths, sample_nums
 
 
-def load_laion_data(data_stats_dir, # local path to a directory containing data statistic files, i.e. data file relative path, number for samples.
+def load_laion_data(data_stats_dir,
                     batch_size,
                     tokenizer,
                     data_dir=None,
@@ -215,9 +212,10 @@ def load_laion_data(data_stats_dir, # local path to a directory containing data 
                     small_size=512,
                     device_num=1,
                     rank_id=0,
-                    num_workers=8,
+                    num_workers=2,
                     download=False,
                     cache_dir=None,
+                    verbose=False,
                     ):
     '''
     A pipeline to load large-scale dataset based on IterableDataset + Sharding + Streaming for efficiency.
@@ -250,11 +248,12 @@ def load_laion_data(data_stats_dir, # local path to a directory containing data 
 
     # 1. read tar path/url list for the whole laion training set
     urls_or_paths_all, num_samples_all = read_data_stats(data_stats_dir, data_dir)
-    print("Total number of tar files: ", len(urls_or_paths_all))
-    print("Total dataset size: ", sum(num_samples_all))
-    ##  urls_or_paths_all, num_samples_all = urls_or_paths_all[:16], num_samples_all[:16] # comment it for debug
+    _logger.info("Total number of tar files: ", len(urls_or_paths_all))
+    _logger.info("Total nunber of samples: ", sum(num_samples_all))
+    ##  urls_or_paths_all, num_samples_all = urls_or_paths_all[:16], num_samples_all[:16] # uncomment for debug
 
     # 2. sharding for distributed training.
+    assert len(urls_or_paths_all) >= device_num, "Expect number of data shards to be larger than device_num."
     if urls_or_paths_all is str:
         urls_or_paths_all = list(urls_or_paths_all)
     tot_tars = len(urls_or_paths_all)
@@ -262,18 +261,30 @@ def load_laion_data(data_stats_dir, # local path to a directory containing data 
     begin_idx = tars_per_device * rank_id
     end_idx = tars_per_device * (rank_id+1)
 
-    urls_or_paths = urls_or_paths_all[begin_idx: end_idx]
-    num_samples_list = num_samples_all[begin_idx: end_idx]
+    urls_or_paths = urls_or_paths_all[begin_idx: min(end_idx, tot_tars)] 
+    num_samples_list = num_samples_all[begin_idx: min(end_idx, tot_tars)]
     dataset_size = sum(num_samples_list)
+    cur_num_batches = dataset_size // batch_size
 
-    print(f"Number of tar files allocated to device {rank_id}: ", len(urls_or_paths))
-    print(f"Number of traininag samples for device {rank_id}: ", dataset_size)
+    _logger.info(f"Number of tar files allocated to device {rank_id}: {len(urls_or_paths)}")
+    _logger.info(f"Number of training samples for device {rank_id}: {dataset_size}")
+    
+    # get maximum number of batches among all devices. to fix data parallel in model.train when samples for each deivce are not equal
+    max_num_batches = -1
+    num_assigned_tars = 0
+    for rid in range(device_num):
+        _num_samples_list = num_samples_all[tars_per_device * rid: min(tars_per_device * (rid+1), tot_tars)]
+        num_assigned_tars += len(_num_samples_list)
+        _num_batches = sum(_num_samples_list) // batch_size
+        _logger.debug(f'rid: {rid}, num_batches: {_num_batches}')
+        max_num_batches = max(max_num_batches, _num_batches)
+    assert num_assigned_tars == len(urls_or_paths_all), f"Number of tars {num_assigned_tars} assigned to all devices are not equal to total number of tars"
 
     # 3. download the tars in `urls_or_paths` if inputs are urls and streaming is False. (optional)
     # generate list of tar file paths or urls for current shard
     if download:
         #urls_or_paths = _check_and_download_tars(urls_or_paths, download_dir)
-        raise NotImplementedError("Please sync ") # TODO: impl
+        raise NotImplementedError("Please pull the training data to computing machine manually.") # TODO: impl
 
     # 4. build source webdataset (supporting streaming)
     # TODO: support mindrecord format
@@ -288,7 +299,7 @@ def load_laion_data(data_stats_dir, # local path to a directory containing data 
         filter_small_size=filter_small_size, small_size=small_size,
         filter_small_sim=True, small_sim=0.28,
         cache_dir=cache_dir,
-        verbose=True,
+        verbose=verbose,
     )
 
     # 5. build ms loader
@@ -296,21 +307,27 @@ def load_laion_data(data_stats_dir, # local path to a directory containing data 
                                        column_names=["img_feat", "txt_tokens"],
                                        num_shards=None, # stop sample level sharding
                                        shard_id=None,
-                                       num_parallel_workers=num_workers, # TODO: optimal value
+                                       num_parallel_workers=num_workers,  # the bottle neck is not here
                                        )
     dataloader = msds.batch(
         batch_size,
-        drop_remainder=True, # TODO: make it configurable
-        num_parallel_workers=2, # TODO: optimal value
+        drop_remainder=True,
+        #num_parallel_workers=1, 
         #input_columns=["image", "text"],
         # output_columns=batch_column,
         # per_batch_map=per_batch_map, # uncommet to use inner-batch transformation
     )
 
-    #dataloader = msdl.create_tuple_iterator(num_epochs=-1, do_copy=False) # uncommet for debugging or self-defined trainer with `value_and_grad`.
+    add_epochs = 0
+    if max_num_batches != cur_num_batches:
+        add_epochs = math.ceil((max_num_batches - cur_num_batches) / cur_num_batches) 
+        
+        _logger.warning((
+            f"cur_num_batches < max_num_batches. As number of steps must be equal for different devices in distributed traning." 
+            "Epochs for {rank_id} will be added by {add_epochs} to make sure the last epoch training can be finished. Please kill the npu processes manually or wait until timeout in the end."))
 
-    meta_info = {'dataset_size': dataset_size, 'src_tars': urls_or_paths, 'tar_samples': num_samples_list}
+    meta_info = {'dataset_size': dataset_size, 'src_tars': urls_or_paths, 'tar_samples': num_samples_list, 'add_epochs': add_epochs}
+
+    #dataloader = dataloader.create_tuple_iterator(num_epochs=-1) # uncommet for debugging or self-defined trainer with `value_and_grad`.
 
     return dataloader, meta_info
-
-

@@ -46,31 +46,27 @@ def load_data(
     rank_id=0,
     sample_num=-1,
     shuffle=True,
-    dataset_type='files',
 ):
     if not os.path.exists(data_path):
         raise ValueError(f"Data directory {data_path} does not exist!")
 
-    if dataset_type == 'files':
-        all_images, all_captions = list_image_files_captions_recursively(data_path)
-        if filter_small_size:
-            # print(f"Filter small images, filter size: {image_filter_size}")
-            all_images, all_captions = filter_small_image(all_images, all_captions, image_filter_size)
+    all_images, all_captions = list_image_files_captions_recursively(data_path)
+    if filter_small_size:
+        # print(f"Filter small images, filter size: {image_filter_size}")
+        all_images, all_captions = filter_small_image(all_images, all_captions, image_filter_size)
 
-        _logger.debug(f"The first image path is {all_images[0]}, and the caption is {all_captions[0]}")
-        _logger.info(f"Total number of training samples: {len(all_images)}")
-        dataloaders = {}
+    _logger.debug(f"The first image path is {all_images[0]}, and the caption is {all_captions[0]}")
+    _logger.info(f"Total number of training samples: {len(all_images)}")
+    dataloaders = {}
 
-        dataset = ImageDataset(
-            all_images,
-            all_captions,
-            tokenizer,
-            image_size,
-            random_crop=random_crop,
-            shuffle=shuffle,
-        )
-    elif dataset_type == 'webdataset':
-        pass
+    dataset = ImageDataset(
+        all_images,
+        all_captions,
+        tokenizer,
+        image_size,
+        random_crop=random_crop,
+        shuffle=shuffle,
+    )
 
     datalen = dataset.__len__()
     loader = build_dataloader_ft(dataset, datalen, t2i_collate, batch_size, device_num, rank_id=rank_id)
@@ -80,11 +76,7 @@ def load_data(
     else:
         batchlen = sample_num
     metaloader = MetaLoader(dataloaders, datalen=batchlen, task_num=len(dataloaders.keys()))
-    if dataset_type == 'files':
-        dataset = GeneratorDataset(metaloader, column_names=data_column, shuffle=shuffle)
-    elif dataset_type == 'webdatatset':
-        # we use efficient shuffling in webdataset
-        dataset = GeneratorDataset(metaloader, column_names=data_column, shuffle=False)
+    dataset = GeneratorDataset(metaloader, column_names=data_column, shuffle=shuffle)
 
     return dataset
 
@@ -106,8 +98,9 @@ def list_image_files_captions_recursively(data_path):
     all_images = []
     all_captions = []
     for db in db_list:
-        all_images.extend(list(db["dir"]))
-        all_captions.extend(list(db["text"]))
+        if 'text' in db:
+            all_images.extend(list(db["dir"]))
+            all_captions.extend(list(db["text"]))
     assert len(all_images) == len(all_captions)
     all_images = [os.path.join(data_path, f) for f in all_images]
 
@@ -126,7 +119,7 @@ def filter_small_image(all_images, all_captions, image_filter_size):
             filtered_images.append(image)
             filtered_captions.append(caption)
     if len(filtered_images) != len(all_images):
-        _logger.info('Num source images: ', len(all_images))
+        _logger.info(f'Num source images: {len(all_images)}')
         _logger.info(f'Num images after resolution filtering (size>={image_filter_size}): ', len(filtered_images))
     return filtered_images, filtered_captions
 
@@ -377,14 +370,14 @@ def build_dataset(args, rank_id, device_num):
             filter_small_size=args.filter_small_size,
             sample_num=-1,
             shuffle=args.shuffle,
-            dataset_type=args.dataset_type,
         )
-        dataset_size = dataset.get_dataset_size()
+        num_batches = dataset.get_dataset_size() # batch considered
+        _logger.info(f"Num batches for rank {rank_id}: {num_batches}")
 
     elif args.dataset_type == 'webdataset':
         dataset, data_info = load_laion_data(
                 data_dir=args.data_path,
-                data_stats_dir=args.data_data_stats_dir,
+                data_stats_dir=args.data_stats_path,
                 batch_size=args.train_batch_size,
                 tokenizer=tokenizer,
                 image_size=args.image_size,
@@ -394,12 +387,17 @@ def build_dataset(args, rank_id, device_num):
                 small_size=args.image_filter_size,
                 device_num=device_num,
                 rank_id=rank_id,
-                num_workers=8, # TODO: config
+                num_workers=2, # TODO: configurable, but the bottleneck is not in here.
                 )
-        dataset_size = data_info['dataset_size']
+        num_samples = data_info['dataset_size']
+        num_batches = dataset.get_dataset_size()
+        _logger.info(f"Num samples for rank {rank_id}: {num_samples}")
+        _logger.info(f"Num batches for rank {rank_id}: {num_batches}")
+
+        # TODO: 1. after all data downloaded, re-partition the whole data into even distributed tars for target number of device. 2. add a signal of success of saving the last ckpt, used to close all training process for devices with added epochs.
+        args.epochs += data_info['add_epochs']
     else:
-        raise NotImplementedError
+        print(args)
+        raise NotImplementedError(f"Got datast_type {args.dataset_type}")
 
-    _logger.info(f"Num batches for rank {rank_id}: {}")
-
-    return dataset
+    return dataset, num_batches

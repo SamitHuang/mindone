@@ -44,6 +44,7 @@ class EvalSaveCallback(Callback):
         ckpt_save_policy="lastest_k",
         ckpt_max_keep=10,
         ckpt_save_interval=1,
+        async_save=False,
         lora_rank=None,
     ):
         self.rank_id = rank_id
@@ -64,6 +65,7 @@ class EvalSaveCallback(Callback):
                 ckpt_save_dir,
                 ckpt_save_policy,
                 k=ckpt_max_keep,
+                async_save=async_save,
             )
 
         if use_lora:

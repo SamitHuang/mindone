@@ -5,7 +5,6 @@ import argparse
 import importlib
 import logging
 import os
-import ast
 
 from ldm.data.dataset import build_dataset
 from ldm.modules.logger import set_logger
@@ -28,7 +27,7 @@ from mindspore.train.callback import LossMonitor, TimeMonitor
 
 from mindspore.train.callback import LossMonitor, TimeMonitor, CheckpointConfig, ModelCheckpoint
 
-os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
+#os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
 SD_VERSION = os.getenv("SD_VERSION", default="2.0")
 
 logger = logging.getLogger(__name__)
@@ -118,10 +117,10 @@ def load_pretrained_model_clip_and_vae(pretrained_ckpt, net):
 def main(args):
     # init
     rank_id, device_id, device_num = init_env(args)
-    set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=ast.literal_eval(args.log_level))
+    set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
 
     # build dataset
-    dataset = build_dataset(args, rank_id, device_num)
+    dataset, num_batches = build_dataset(args, rank_id, device_num)
 
     # build model
     latent_diffusion_with_loss = build_model_from_config(args.model_config)
@@ -148,8 +147,10 @@ def main(args):
         # print('Trainable params: ', latent_diffusion_with_loss.model.trainable_params())
 
     if not args.decay_steps:
-        dataset_size = dataset.get_dataset_size()
-        args.decay_steps = args.epochs * dataset_size - args.warmup_steps  # fix lr scheduling
+        # NOTE: one step corresponds to one batch of data for gradient compute, instead of a global batch from gradient accumulation, which is different from `diffusers`   
+        steps_per_epoch = num_batches 
+        args.decay_steps = args.epochs * steps_per_epoch - args.warmup_steps
+        assert args.decay_steps >= 0, f"decay steps must be >= 0, but got {args.decay_steps}. Please adjust warmup_steps {args.warmup_steps} or epochs {args.epochs}" 
     lr = LearningRate(args.start_learning_rate, args.end_learning_rate, args.warmup_steps, args.decay_steps)
     optimizer = build_optimizer(latent_diffusion_with_loss, args, lr)
 
@@ -191,7 +192,7 @@ def main(args):
             os.makedirs(ckpt_dir)
 
         save_cb = EvalSaveCallback(
-            network=latent_diffusion_with_loss, #.model,
+            network=latent_diffusion_with_loss, #add .model if save unet only 
             use_lora=args.use_lora,
             rank_id=rank_id,
             ckpt_save_dir=ckpt_dir,
@@ -200,6 +201,7 @@ def main(args):
             ckpt_max_keep=10,
             ckpt_save_interval=args.ckpt_save_interval,
             lora_rank=args.lora_rank,
+            async_save=(not args.use_lora),
         )
 
         callback.append(save_cb)
@@ -212,6 +214,7 @@ def main(args):
                 "MindSpore mode[GRAPH(0)/PYNATIVE(1)]: 0",
                 f"Distributed mode: {args.use_parallel}",
                 f"Data path: {args.data_path}",
+                f"Num batches: {num_batches}",
                 f"Model: StableDiffusion v{SD_VERSION}",
                 f"Precision: {latent_diffusion_with_loss.model.diffusion_model.dtype}",
                 f"Use LoRA: {args.use_lora}",
@@ -240,8 +243,10 @@ if __name__ == "__main__":
     parser.add_argument("--use_parallel", default=False, type=str2bool, help="use parallel")
     parser.add_argument("--data_path", default="dataset", type=str, help="data path")
     parser.add_argument("--dataset_type", default="files", type=str, help="files, webdataset")
-    parser.add_argument("--data_stats_dir", default="", type=str,
+    parser.add_argument("--data_stats_path", default="", type=str,
                         help="Directory for data statistic files (which record the relative path, num samples for each tar data file), only required when dataset type is webdataset. ")
+    parser.add_argument("--shuffle", default=True, type=str2bool, help="shuffle in training")
+
     parser.add_argument("--output_path", default="output/", type=str, help="output directory to save training results")
     parser.add_argument("--train_config", default="configs/train_config.json", type=str, help="train config path")
     parser.add_argument("--model_config", default="configs/v1-train-chinese.yaml", type=str, help="model config path")

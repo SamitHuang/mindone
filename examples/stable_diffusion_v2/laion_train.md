@@ -183,39 +183,65 @@ output_format="webdataset"
 
 ### Step 4. Generate Annotation File for Training 
 
+#### For training with original files
+
 This step is to record the image paths and their corresponding captions into csv files, used for data indexing in training.
 
+```shell
+python laion_to_csv.py --data_dir {path/to/download_folder}
 ```
-python laion_to_csv.py --data_dir {path/to/image_download_folder}
-```
-> e.g.  `python laion_to_csv.py --data_dir /data/laion_filtered`
+> e.g.  `python laion_to_csv.py --data_dir /data/laion_2b_en`
 
 
-After the above steps, we will have the data dir as follows.
+After execution, the ready-to-train data should be in following structure.
 ```text
 data_dir
 ├── part_1.csv # annotation
-├── part_1
+├── part_1/
 │   ├── 00000.csv 
 │   ├── 00000  # (00000.tar for webdataset) 
 │   │   ├── 000000000.jpg
 │   │   ├── 000000001.jpg 
 │   │   ├── 000000002.jpg
 │   │   └── ... 
-│   ├── 00001.csv 
-│   ├── 00001 
-│   │   ├── 000010000.jpg
-│   │   ├── 000010002.jpg 
-│   │   └── ... 
 │   ├── ... 
 │       
 ├── part_2.csv
-├── part_2
-│   ├── 00000.csv 
-│   ├── 00000 
-│   │   ├── 000000000.jpg
+├── part_2/
 ...
 ```
+
+
+#### For training with tar files (webdataset)
+> Data loading is ~20% faster than raw format and requires much less time in init on SSD. 
+
+
+```shell
+python laion_get_data_stats.py --data_dir {path/to/download_folder}
+```
+> e.g.  `python laion_get_data_stats.py --data_dir /data/laion_2b_en`
+
+After execution, the ready-to-train data should be in following structure.
+```text
+data_dir
+├── part_1_stats.csv # annotation, record: tar file path, number of samples
+├── part_1/
+│   ├── 00000.tar ( archive of image files and the corresponding text and metadata as follows)
+│   │   ├── 000000000.jpg
+│   │   ├── 000000000.json
+│   │   ├── 000000000.text
+│   │   ├── 000000001.jpg
+│   │   ├── 000000001.json
+│   │   ├── 000000001.text
+│   │   └── ... 
+│   ├── ... 
+│       
+├── part_2_stats.csv
+├── part_2/
+...
+```
+
+
 
 ## Training
 

@@ -143,7 +143,7 @@ class TrainOneStepWrapper(nn.TrainOneStepWithLossScaleCell):
                 else:
                     # update LR in each gradient step but not optimize net parameter to ensure the LR curve is
                     # consistent
-                    loss = F.depend(loss, self.optimizer.get_lr())  # .get_lr() will make lr step increased by 1
+                    loss = F.depend(loss, self.optimizer.get_lr())  # .get_lr() will make lr step increased by 1 # TODO: can it be changed in future version?
             else:
                 # 5. gradient reduction on distributed GPUs/NPUs
                 grads = self.grad_reducer(grads)

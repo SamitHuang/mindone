@@ -23,14 +23,14 @@ train_batch_size=3
 start_learning_rate=1e-5
 end_learning_rate=0
 warmup_steps=10000
-epochs=2 # TODO: reduce for larger laion dataset
+epochs=1    # adjust according to dataset size
 use_ema=True
-clip_grad=False # TODO: confirm
+clip_grad=False # TODO: check
 max_grad_norm=1.
 
 ## For phase 1 in training sd 2.0-base, images with resolution < 256x256 are filtered out. For phase 2, 512x512
 ## For sd2.1-base, images with resolution < 512x512 are filtered out
-image_filter_size=512 # TODO: confirm
+image_filter_size=512
 image_size=512
 
 # ascend config
