@@ -16,6 +16,8 @@ dataset_name="laion2b_en"
 #dataset_name="laion_art"
 timeout=15 # default: 10. increase if "The read operation timed out"
 #encode_quality=95
+processes_count=8 # default: 1, important for throughput, M processes - download M data shards (i.e. tar) in parallel
+thread_count=64 # default: 256, important for throughput, N threads - download N images in parallel for each process/data shard
 
 if [ "$part_id" -gt 0 ]; then
     input_folder=$input_folder/part_$part_id.parquet
@@ -35,12 +37,14 @@ img2dataset --url_list $input_folder --input_format "parquet" \
         --url_col "URL" --caption_col "TEXT" \
 		--output_format $output_format \
         --output_folder  $output_folder \
-		--processes_count 16 --thread_count 64 --image_size 512 \
+		--image_size 512 \
         --resize_only_if_bigger=True \
 		--resize_mode="keep_ratio" \
 		--skip_reencode=True \
         --timeout $timeout \
         --save_additional_columns $save_additional_columns \
         --number_sample_per_shard 10000 \
+        --processes_count $processes_count \
+        --thread_count $thread_count \
 		#--enable_wandb True
 
