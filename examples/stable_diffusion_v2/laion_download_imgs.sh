@@ -1,10 +1,15 @@
-# Usage:
-# To download one part: `sh laion_download_imgs.sh {part_id}`, e.g. `sh laion_download_imgs.sh 1`
-# To download all 64 parts: `sh laion_download_imgs.sh 0`
+: '
+1. To download one part: `bash laion_download_imgs.sh {part_id}`, e.g. `bash laion_download_imgs.sh 1`
 
+2. To download multiple parts one by one (e.g., part 1, 2, 3):
+`for part_id in 1 2 3; do bash laion_download_imgs.sh $part_id; done`
 
-input_folder="/Volumes/Extreme_SSD/laion2b_en/sd2.1_base_train/metadata_filtered" # change to your local path containing the filtered metadata
-output_folder="/Volumes/EXTERNAL_USB/laion2b_en/sd2.1_base_train/image_text_data" # change to your local path for saving the downloaded images
+3. To download all 64 parts at once:
+    `bash laion_download_imgs.sh 0`
+'
+
+input_folder="/Volumes/Data/laion2b_en/sd2.1_base_train/metadata_filtered" # change to your local path containing the filtered metadata
+output_folder="/Volumes/Data/laion2b_en/sd2.1_base_train/image_text_data" # change to your local path for saving the downloaded images
 
 part_id=$1 # if set to 0, it will download all images at a time (requiring more than 30TB storage for saving them). If set to a value in {1..64}, it will only download one part of the whole metadata (requiring around 500GB to save one part)
 
@@ -16,8 +21,8 @@ dataset_name="laion2b_en"
 #dataset_name="laion_art"
 timeout=15 # default: 10. increase if "The read operation timed out"
 #encode_quality=95
-processes_count=8 # default: 1, important for throughput, M processes - download M data shards (i.e. tar) in parallel
-thread_count=64 # default: 256, important for throughput, N threads - download N images in parallel for each process/data shard
+processes_count=16 # default: 1, important for throughput, M processes - download M data shards (i.e. tar) in parallel. Tip: set it to the number of CPU cores of your machine for best performance.
+thread_count=64 # default: 256, important for throughput, N threads - download N images in parallel for each process/data shard. Tip: increase it as long as your bandwidth and CPU are below limits
 
 if [ "$part_id" -gt 0 ]; then
     input_folder=$input_folder/part_$part_id.parquet
@@ -47,4 +52,14 @@ img2dataset --url_list $input_folder --input_format "parquet" \
         --processes_count $processes_count \
         --thread_count $thread_count \
 		#--enable_wandb True
+
+:'
+if [ "$output_format" = "webdataset" ]; then
+    echo "Start calculating sha256sum of all donwloaded data shards"
+    cd $output_folder
+    # TODO: get number of data shards and loop with it
+    for i in {00000..00535}; do sha256sum $i.tar; done > sha256sum_checklist
+fi
+'
+
 

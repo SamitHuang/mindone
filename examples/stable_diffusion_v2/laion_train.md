@@ -133,6 +133,7 @@ Then, run
 # download a part of the whole dataset, where part_id can be an integer in [1, 64].
 bash laion_download_imgs.sh {part_id}
 ```
+> Tips: To get best throughput, you should set `processes_count` as the number of CPU cores your machine has, increase `thread_count` as long as the bandwitdh and CPU is below limit (100%).  
 
 , where you need to set `{part_id}` to an integer  in [1, 64], since we will download the large-scale image dataset part by part (64 parts in total). e.g. `bash laion_download_imgs.sh 1`
 

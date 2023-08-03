@@ -6,7 +6,7 @@ import json
 import pandas as pd
 #from pyspark.sql import SparkSession
 
-def count(data_dir, output_fn='stats.csv', save_abs_path=False, summarize_all_parts=False):
+def count(data_dir, save_fn_postfix='stats.csv', save_abs_path=False, summarize_all_parts=False):
     part_fps = sorted(glob.glob(os.path.join(data_dir, "part_*")))
     part_fps = [fp for fp in part_fps if os.path.isdir(fp)]
     num_parts = len(part_fps)
@@ -33,7 +33,7 @@ def count(data_dir, output_fn='stats.csv', save_abs_path=False, summarize_all_pa
         print(f"=> Count samples: ", sum(part_sample_nums))
 
         df = pd.DataFrame({"file_path": part_tar_fps, "num_samples": part_sample_nums})
-        save_fp = os.path.join(data_dir,  f"part_{i+1}_"+output_fn)
+        save_fp = os.path.join(data_dir,  f"part_{i+1}_"+save_fn_postfix)
         df.to_csv(save_fp, index=False, sep=",")
         print('Part data stats saved in ', save_fp)
 
@@ -42,7 +42,7 @@ def count(data_dir, output_fn='stats.csv', save_abs_path=False, summarize_all_pa
 
     if summarize_all_parts:
         df = pd.DataFrame({"file_path": all_tar_fps, "num_samples": all_sample_nums})
-        save_fp = os.path.join(data_dir,  "all_" + output_fn)
+        save_fp = os.path.join(data_dir,  "all_" + save_fn_postfix)
         df.to_csv(save_fp, index=False, sep=",")
         print('All data stats saved in ', save_fp)
 
