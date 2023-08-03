@@ -6,7 +6,7 @@
 
 We will use `pyspark` to do metadata filtering and `img2dataset` to download source images. Please install the required packages by: 
 
-For Linux,
+For Linux:
 ```shell
 apt-get install openjdk-8-jdk
 pip install pyspark
@@ -21,6 +21,22 @@ brew install apache-spark
 pip install pyspark
 pip install img2dataset
 ```
+
+For Windows:
+```shell
+pip install pyspark
+pip install img2dataset
+```
+
+Patch img2dataset (to address certificate issue in image downloading) by:
+```shell
+wget https://github.com/SamitHuang/mindone/blob/laion_p1/examples/stable_diffusion_v2/tools/laion_data_utils/img2dataset_patch/downloader.py
+ori_downloader=$(python -c 'import img2dataset; print(img2dataset.downloader.__file__)' | awk '{print $1}')
+echo $ori_downloader
+mv downloader.py $ori_downloader
+echo Patch done. img2dataset downloader is replaced!
+```
+
 
 ### Data Description
 We will use the following data source and filtering conditions for training data preparation.
@@ -179,7 +195,8 @@ output_format="webdataset"
 #### Notes on download failure issue:
 - Some urls can become invalid. The success rate has dropped to around 80% from the day when LAION dataset was released,
 - Without proxy in CN, the success rate can further drop to around 50%.
-- For detailed reasons for download failures, you can check the log file in `{output_dir}/{id}_stats.json` and try to fix them (e.g. no-certifate error can be easily fixed if happened)
+- For detailed reasons for download failures, you can check the log file in `{output_dir}/{id}_stats.json` and try to fix them 
+    - no-certifate error - fix by adding `-k` to curl download command in img2dataset source code
 
 
 ### Step 4. Generate Annotation File for Training 
