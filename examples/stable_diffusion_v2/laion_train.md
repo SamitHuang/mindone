@@ -28,15 +28,17 @@ pip install pyspark
 pip install img2dataset
 ```
 
-Patch img2dataset (to address certificate issue in image downloading) by:
-```shell
-wget https://github.com/SamitHuang/mindone/blob/laion_p1/examples/stable_diffusion_v2/tools/laion_data_utils/img2dataset_patch/downloader.py
-ori_downloader=$(python -c 'import img2dataset; print(img2dataset.downloader.__file__)' | awk '{print $1}')
-echo $ori_downloader
-mv downloader.py $ori_downloader
-echo Patch done. img2dataset downloader is replaced!
-```
+To reduce image download failures caused by certificate verify issue, you may do the following code patching:
 
+```shell
+mkdir tmp; cd tmp
+git clone https://github.com/SamitHuang/mindone.git --branch laion_p1
+patch_fp=mindone/examples/stable_diffusion_v2/tools/laion_data_utils/img2dataset_patch/downloader.py
+ori_downloader=$(python -c 'import img2dataset; print(img2dataset.downloader.__file__)' | awk '{print $1}')
+mv $patch_fp $ori_downloader
+cd ..; rm -rf tmp
+echo Finish updating img2dataset $ori_downloader
+```
 
 ### Data Description
 We will use the following data source and filtering conditions for training data preparation.
