@@ -51,6 +51,7 @@ img2dataset --url_list $input_folder --input_format "parquet" \
         --number_sample_per_shard 10000 \
         --processes_count $processes_count \
         --thread_count $thread_count \
+        --disallowed_header_directives '[]'
 		#--enable_wandb True
 
 :'
