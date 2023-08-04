@@ -209,9 +209,9 @@ output_format="webdataset"
 This step is to record the image paths and their corresponding captions into csv files, used for data indexing in training.
 
 ```shell
-python laion_to_csv.py --data_dir {path/to/download_folder}
+python laion_gen_csv_annot.py --data_dir {path/to/download_folder}
 ```
-> e.g.  `python laion_to_csv.py --data_dir /data/laion_2b_en`
+> e.g.  `python laion_gen_csv_annot.py --data_dir /data/laion_2b_en`
 
 
 After execution, the ready-to-train data should be in following structure.
@@ -238,9 +238,9 @@ data_dir
 
 
 ```shell
-python laion_get_data_stats.py --data_dir {path/to/download_folder}
+python laion_gen_data_stats.py --data_dir {path/to/download_folder}
 ```
-> e.g.  `python laion_get_data_stats.py --data_dir /data/laion_2b_en`
+> e.g.  `python laion_gen_data_stats.py --data_dir /data/laion_2b_en`
 
 After execution, the ready-to-train data should be in following structure.
 ```text
