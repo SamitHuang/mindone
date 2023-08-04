@@ -41,17 +41,18 @@ echo Finish updating img2dataset $ori_downloader
 ```
 
 ### Data Description
-We will use the following data source and filtering conditions for training data preparation.
+We will use the following data source and filtering conditions for preparing data for SD 2.1 base training.
 
-- Metadata for LAION2b-en: https://huggingface.co/datasets/ChristophSchuhmann/improved_aesthetics_4.5plus 
+- Source metadata - LAION2b-en: https://huggingface.co/datasets/ChristophSchuhmann/improved_aesthetics_4.5plus 
 > Compared to the original LAION2b-en with 345GB metadata, this source has about 230GB metadata by fitlering samples with aesthetic score < 4.5.
-- Filter conditions will be applied in the following processing steps.
+- Filtering conditions that will be applied in Step 2:
 ```text
     lang=en
     aesthetic score>=4.5
     punsafe <= 0.98
     resolution >= 512x512
 ```
+- Filtered metadata - LAION2b-en-sd2.1base: https://huggingface.co/datasets/jasonhuang23/laion2b_en_sd2.1base 
 
 ### Step 1. Download LAION 2B-en Metadata
 
