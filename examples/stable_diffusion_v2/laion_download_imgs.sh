@@ -21,7 +21,7 @@ dataset_name="laion2b_en"
 #dataset_name="laion_art"
 timeout=15 # default: 10. increase if "The read operation timed out"
 #encode_quality=95
-processes_count=16 # default: 1, important for throughput, M processes - download M data shards (i.e. tar) in parallel. Tip: set it to the number of CPU cores of your machine for best performance.
+processes_count=8 # default: 1, important for throughput, M processes - download M data shards (i.e. tar) in parallel. Tip: set it to the number of CPU cores of your machine for best performance.
 thread_count=64 # default: 256, important for throughput, N threads - download N images in parallel for each process/data shard. Tip: increase it as long as your bandwidth and CPU are below limits
 
 if [ "$part_id" -gt 0 ]; then
