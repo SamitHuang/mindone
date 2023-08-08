@@ -115,15 +115,15 @@ For convenience, the filtered metadata is uploaded to [here](https://huggingface
 
 ## Step 3. Download Source Images and Resize
 
-In this step, we will use `img2dataset` to download source image files, and resize, and encode them into target format.
+In this step, we will use [img2dataset](https://github.com/rom1504/img2dataset) to download source image files, and resize, and encode them into target format.
 
-**Notes**: The overall dataset will take up about **30TB**, which is beyond the capacity of most hard drives. So you should either
+**Notes**: The downloaded dataset will take about **30TB** storage split into 64 parts. We recommend two ways to download such a large-scale dataset.
 
-1) download different parts to different hard drives locally at first, then upload them to the storage server (e.g. OBS) before the hard drive reaches its capacity limit,
+1) Download locally. Download the dataset part by part and upload to a cloud storage server (e.g. OBS) before the local storage reaches its capacity limit,
 
-or 2) directly download to the storage server with local caching if its remote file system supports it. The optimal choice depends on your network condition and features of the remote file system.
+2) Distributed download. Download the dataset parallely with multiple nodes on a cluster.
 
-### Download to Local Drives
+### Download Locally
 
 Please modify the `laion_download_imgs.sh` script by setting `metadata_dir` to the directory of downloaded metadata, setting `output_dir` to where you want to save the donwloaded source images, for example.
 
@@ -158,15 +158,14 @@ Total size for part 1 (output_format=files): 459GB
 
 There are 64 parts in total, so they will result in ~272M images and take ~30TB for `files` saving format or ~10TB in for `webdataset` format.
 
-### Download to Remote Cluster Directly
+### Distributed Download
 
 If you have a cluster or have access to N machines over ssh, you can set up a PySpark cluster and then download the images directly to the cluster.
 
 For detailed instructions, please refer to [distributed_img2dataset_tutorial](https://github.com/rom1504/img2dataset/blob/main/examples/distributed_img2dataset_tutorial.md) and [laion5B download images](https://github.com/rom1504/img2dataset/blob/main/dataset_examples/laion5B.md#download-the-images).
 
 
-
-#### Notes on data format
+#### About output format
 You can alos change the parameters for image resizing, saving format, etc. Please look into the `laion_download_imgs.sh` script and refer to `img2dataset` [API doc](https://github.com/rom1504/img2dataset/tree/main#api).
 
 To change the saving format, please change the `output_format` arg in the `laion_download_imgs.sh` script. We use `webdataset` format by default (data shard saved as tar file) because it is more convenient to handle packed data rather than billions of image files, and can save space for HDD devices and support suqential access with [WebDataset](https://github.com/webdataset/webdataset).
