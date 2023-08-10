@@ -5,6 +5,9 @@ def get_data_stats(data_dir):
 
 def get_split(num_samples, num_devices, device_id):
 
+    num_parts = num_samples.shape[0]
+    max_tars = num_samples.shape[1]
+
     samples_per_device = num_samples.sum() // num_devices
     print('avg: ', samples_per_device)
 
@@ -50,7 +53,10 @@ if __name__ == '__main__':
 
     # get num samples for each tar file in each part
     num_samples = np.random.randint(6, 9, size=(num_parts, max_tars))
+
     print(num_samples)
+
+    id_2_idx = []
 
     #
     start, end = get_split(num_samples, num_devices, device_id)
