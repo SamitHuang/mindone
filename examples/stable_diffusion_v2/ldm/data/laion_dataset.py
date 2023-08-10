@@ -179,7 +179,7 @@ def read_data_stats(data_dir, remote_dataset_root=None):
     remote_dataset_root: if None, data_dir is the data root containing folders of data parts. If not None, it should be a url prefix to a remote server, e.g. for `https://huggingface.co/datasets/jasonhuang23/sd2.1_base_train/resolve/main/part_1/00000.tar`, the prefix is `https://huggingface.co/datasets/jasonhuang23/sd2.1_base_train/resolve/main`
     '''
     # data_dir/part_{id}_stats.csv
-    stats_fps = glob.glob(f'{data_dir}/part_*_stats.csv') # fixed naming 
+    stats_fps = glob.glob(f'{data_dir}/part_*_stats.csv') # fixed naming
     assert len(stats_fps) > 0, f'No data stats csv files found. Expect part_{id}_stats.csv under {data_dir}'
 
     urls_or_paths = []
@@ -200,11 +200,9 @@ def read_data_stats(data_dir, remote_dataset_root=None):
 
     return urls_or_paths, sample_nums
 
-
-def load_laion_data(data_stats_dir,
+def load_webdataset(data_stats_dir,
                     batch_size,
                     tokenizer,
-                    data_dir=None,
                     image_size=512,
                     shuffle=True,
                     random_crop=False,
@@ -261,14 +259,14 @@ def load_laion_data(data_stats_dir,
     begin_idx = tars_per_device * rank_id
     end_idx = tars_per_device * (rank_id+1)
 
-    urls_or_paths = urls_or_paths_all[begin_idx: min(end_idx, tot_tars)] 
+    urls_or_paths = urls_or_paths_all[begin_idx: min(end_idx, tot_tars)]
     num_samples_list = num_samples_all[begin_idx: min(end_idx, tot_tars)]
     dataset_size = sum(num_samples_list)
     cur_num_batches = dataset_size // batch_size
 
     _logger.info(f"Number of tar files allocated to device {rank_id}: {len(urls_or_paths)}")
     _logger.info(f"Number of training samples for device {rank_id}: {dataset_size}")
-    
+
     # get maximum number of batches among all devices. to fix data parallel in model.train when samples for each deivce are not equal
     max_num_batches = -1
     num_assigned_tars = 0
@@ -312,7 +310,7 @@ def load_laion_data(data_stats_dir,
     dataloader = msds.batch(
         batch_size,
         drop_remainder=True,
-        #num_parallel_workers=1, 
+        #num_parallel_workers=1,
         #input_columns=["image", "text"],
         # output_columns=batch_column,
         # per_batch_map=per_batch_map, # uncommet to use inner-batch transformation
@@ -320,10 +318,10 @@ def load_laion_data(data_stats_dir,
 
     add_epochs = 0
     if max_num_batches != cur_num_batches:
-        add_epochs = math.ceil((max_num_batches - cur_num_batches) / cur_num_batches) 
-        
+        add_epochs = math.ceil((max_num_batches - cur_num_batches) / cur_num_batches)
+
         _logger.warning((
-            f"cur_num_batches < max_num_batches. As number of steps must be equal for different devices in distributed traning." 
+            f"cur_num_batches < max_num_batches. As number of steps must be equal for different devices in distributed traning."
             "Epochs for {rank_id} will be added by {add_epochs} to make sure the last epoch training can be finished. Please kill the npu processes manually or wait until timeout in the end."))
 
     meta_info = {'dataset_size': dataset_size, 'src_tars': urls_or_paths, 'tar_samples': num_samples_list, 'add_epochs': add_epochs}
