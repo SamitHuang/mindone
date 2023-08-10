@@ -40,7 +40,6 @@ def get_split(num_samples, num_devices, device_id):
 
             p1 = p2
 
-
     return (start_part_idx, start_tar_idx, start_sample_idx), (end_part_idx, end_tar_idx, end_sample_idx)
 
 
@@ -65,13 +64,17 @@ if __name__ == '__main__':
     end_part_idx, end_tar_idx, end_sample_idx = end
 
     tars_to_sync = {}
-    for j in range(start_part_idx, end_part_idx+1):
+    if start_part_idx == end_part_idx:
         if j == start_part_idx:
-            tars_to_sync[j] = list(range(start_tar_idx, max_tars))
-        elif j == end_part_idx:
-            tars_to_sync[j] = list(range(0, end_tar_idx))
-        else:
-            tars_to_sync[j] = list(range(0, max_tars))
+            tars_to_sync[j] = list(range(start_tar_idx, end_tar_idx))
+    else:
+        for j in range(start_part_idx, end_part_idx+1):
+            if j == start_part_idx:
+                tars_to_sync[j] = list(range(start_tar_idx, max_tars))
+            elif j == end_part_idx:
+                tars_to_sync[j] = list(range(0, end_tar_idx))
+            else:
+                tars_to_sync[j] = list(range(0, max_tars))
     print("Split result:\nStart: ", start_part_idx, start_tar_idx, start_sample_idx)
     print("End: ", end_part_idx, end_tar_idx, end_sample_idx)
     print('tars to sync: ', tars_to_sync)
