@@ -2,6 +2,7 @@ import argparse
 import glob
 import json
 import os
+import shutil
 
 import pandas as pd
 from tqdm import tqdm
@@ -30,7 +31,16 @@ def check_download_result(data_dir="/data3/datasets/laion_art", img_fmt="jpg", d
     print(df.show())
 
 
-def convert(data_dir, img_fmt="jpg", one_csv_per_part=True, check_data=False, folder_prefix=""):
+def gen_csv(data_dir,
+            img_fmt="jpg", one_csv_per_part=True, folder_prefix="",
+            merge_all=True, merge_fn='merged_imgp_text.csv',
+            start_sample_idx=0, end_sample_idx=-1,
+            del_part_csvs=True,
+            ):
+    '''
+    start_sample_idx: index of the first sample to include for training in the first tar of the first part
+    end_sample_idx: index of the last sample to include for training in the last tar of the last part
+    '''
     assert os.path.exists(data_dir), f"{data_dir} not exists"
     # img_paths = sorted(glob.glob(os.path.join(data_dir, f'*/*.{img_fmt}')))
     # num_imgs = len(img_paths)
@@ -44,13 +54,14 @@ def convert(data_dir, img_fmt="jpg", one_csv_per_part=True, check_data=False, fo
     if folder_prefix != "":
         folders = [f for f in folders if f.startswith(folder_prefix)]
 
-    if check_data:
-        log = open("laion_to_csv_log.txt", "w")
-        stat = {"min_h": 10e5, "min_w": 10e5, "max_punsafe": -1, "min_aes": 10e5}
+    # sort folders by part_idx
+    folders = sorted(folders, key = lambda folder_name : int(folder_name.split("_")[1]))
+    part_ids = [int(folder_name.split("_")[1]) for folder_name in folders ]
+    print('part ids: ', part_ids)
 
     # for part_id in range(1, num_parts+1):
-    def _gather_img_text_in_folder(root_dir, folder, check_data=False):
-        img_paths = sorted(glob.glob(os.path.join(root_dir, folder, f"*.{img_fmt}")))
+    def _gather_img_text_in_folder(root_dir, folder, trim_start=0, trim_end=-1):
+        img_paths = sorted(glob.glob(os.path.join(root_dir, folder, f"*.{img_fmt}")))[trim_start:trim_end]
         print("Image folder: ", folder, ", num imgs: ", len(img_paths))
         rel_img_paths = []
         texts = []
@@ -67,17 +78,6 @@ def convert(data_dir, img_fmt="jpg", one_csv_per_part=True, check_data=False, fo
                     meta = json.load(f)
                     text = meta["caption"]
 
-                    if check_data:
-                        stat["min_h"] = min(meta["original_height"], stat["min_h"])
-                        stat["min_w"] = min(meta["original_width"], stat["min_w"])
-                        stat["min_aes"] = min(meta["aesthetic"], stat["min_aes"])
-                        stat["max_punsafe"] = max(meta["punsafe"], stat["max_punsafe"])
-
-                        if meta["original_width"] < filter_width or meta["original_height"] < filter_width:
-                            # if meta['aesthetic'] < 8.0:
-                            print("Abnormal sample: ", meta["url"], meta["original_height"], meta["original_width"])
-                            log.write(f"{meta['original_height']}x{meta['original_width']}, {meta['url']} \n")
-
                 texts.append(text)
 
         return rel_img_paths, texts
@@ -88,12 +88,15 @@ def convert(data_dir, img_fmt="jpg", one_csv_per_part=True, check_data=False, fo
         frame.to_csv(save_fp, index=False, sep=",")
         print("csv saved in ", save_fp)
 
-    for folder in folders:
+    all_csv_paths = []
+
+    for i, folder in enumerate(folders):
         # try to get image-text from level one folder
         rel_img_paths, texts = _gather_img_text_in_folder(data_dir, folder)
         if len(texts) > 0:
             save_fp = os.path.join(data_dir, folder + ".csv")
             _save_to_csv(rel_img_paths, texts, save_fp)
+            all_csv_paths.append(save_fp)
             num_imgs += len(rel_img_paths)
 
         # second level
@@ -107,8 +110,15 @@ def convert(data_dir, img_fmt="jpg", one_csv_per_part=True, check_data=False, fo
 
         rel_img_paths_all = []
         texts_all = []
-        for subfolder in subfolders:
-            rel_img_paths, texts = _gather_img_text_in_folder(os.path.join(data_dir, folder), subfolder)
+        for j, subfolder in enumerate(subfolders): # tar extracted
+            trim_start = 0
+            trim_end= -1
+            if (i==0) and (j==0): # is_first_subset:
+                trim_start = start_sample_idx
+            if (i==len(folders)-1) and (j==len(subfolders)-1): #is_last_subset:
+                trim_end = end_sample_idx
+
+            rel_img_paths, texts = _gather_img_text_in_folder(os.path.join(data_dir, folder), subfolder, trim_start=trim_start, trim_end=trim_end)
 
             if len(rel_img_paths) > 0:
                 if one_csv_per_part:
@@ -121,22 +131,30 @@ def convert(data_dir, img_fmt="jpg", one_csv_per_part=True, check_data=False, fo
                     # rel_img_paths= [os.path.join(p.split("/")[1:]) for p in rel_img_paths]
                     save_fp = os.path.join(data_dir, folder, subfolder + ".csv")
                     _save_to_csv(rel_img_paths, texts, save_fp)
+                    all_csv_paths.append(save_fp)
 
                 num_imgs += len(rel_img_paths)
-
         if len(rel_img_paths_all) > 0:
             print("Saving csv...")
             save_fp = os.path.join(data_dir, folder + ".csv")
             print(len(rel_img_paths_all), len(texts_all))
             _save_to_csv(rel_img_paths_all, texts_all, save_fp)
+            all_csv_paths.append(save_fp)
+
 
     print("Num text-image pairts: ", num_imgs)
     print("All csv files are saved in ", data_dir)
 
-    if check_data:
-        log.close()
-        print("Stat: ", stat)
-
+    if merge_all:
+        print("csv files to merged: ", all_csv_paths)
+        df = pd.concat(map(pd.read_csv, all_csv_paths), ignore_index=True)
+        save_fp = os.path.join(data_dir, merge_fn)
+        df.to_csv(save_fp, index=False, sep=",")
+        print("Finished. Removing cached csv files...")
+        if del_part_csvs:
+            for cache_csv in all_csv_paths:
+                os.remove(cache_csv)
+        print("Merged CSV file saved in: ", save_fp)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Save csv")
@@ -147,7 +165,7 @@ if __name__ == "__main__":
         help="dir containing the downloaded images",
     )
     parser.add_argument(
-        "--folder_prefix", type=str, default="", help="folder prefix to filter unwanted folders. e.g. part"
+        "--folder_prefix", type=str, default="part", help="folder prefix to filter unwanted folders. e.g. part"
     )
     parser.add_argument(
         "--save_csv_per_img_folder",
@@ -161,4 +179,4 @@ if __name__ == "__main__":
     # data_dir = '/data3/datasets/laion_art_filtered'
     data_dir = args.data_dir
     # check_download_result(data_dir)
-    convert(data_dir, one_csv_per_part=not args.save_csv_per_img_folder, folder_prefix=args.folder_prefix)
+    gen_csv(data_dir, one_csv_per_part=not args.save_csv_per_img_folder, folder_prefix=args.folder_prefix)
