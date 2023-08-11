@@ -72,6 +72,7 @@ def gen_csv(data_dir,
 
     # for part_id in range(1, num_parts+1):
     def _gather_img_text_in_folder(root_dir, folder, trim_start=0, trim_end=-1):
+        trim_end = trim_end + 1 if trim_end > 0 else None
         img_paths = sorted(glob.glob(os.path.join(root_dir, folder, f"*.{img_fmt}")))[trim_start:trim_end]
         print("Image folder: ", folder, ", num imgs: ", len(img_paths))
         rel_img_paths = []
@@ -152,7 +153,7 @@ def gen_csv(data_dir,
             _save_to_csv(rel_img_paths_all, texts_all, save_fp)
             all_csv_paths.append(save_fp)
 
-    print("Num text-image pairs without trim: ", num_imgs)
+    print("Num text-image pairs: ", num_imgs)
     print("All csv files are saved in ", data_dir)
 
     if merge_all:
