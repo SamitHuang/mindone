@@ -38,18 +38,29 @@ def gen_csv(data_dir,
             del_part_csvs=True,
             ):
     '''
-    start_sample_idx: index of the first sample to include for training in the first tar of the first part
-    end_sample_idx: index of the last sample to include for training in the last tar of the last part
+    Args:
+        start_sample_idx: index of the first sample to include for training in the first tar of the first part
+        end_sample_idx: index of the last sample to include for training in the last tar of the last part
+
+    Input data structure:
+    ```text
+    data_dir
+    ├── part_1/ # part folder
+    │   ├── 00000 # sub folder extracted for tar file
+    │   │   ├── 000000000.jpg
+    │   │   ├── 000000001.jpg
+    │   │   ├── 000000002.jpg
+    │   │   └── ...
+    │   ├── ...
+    │     
+    ├── part_2/
+    ...
+    ```
     '''
     assert os.path.exists(data_dir), f"{data_dir} not exists"
-    # img_paths = sorted(glob.glob(os.path.join(data_dir, f'*/*.{img_fmt}')))
-    # num_imgs = len(img_paths)
-    # print("Get image num: ", num_imgs)
     num_imgs = 0
     len_postfix = len(img_fmt) + 1
 
-    # num_parts = len(glob.glob(os.path.join(data_dir, "part_*")))
-    # part_folders = [fp for fp in glob.glob(os.path.join(data_dir, "part_*") if os.path.isdir(fp)]
     folders = [fp for fp in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, fp))]
     if folder_prefix != "":
         folders = [f for f in folders if f.startswith(folder_prefix)]
@@ -141,8 +152,7 @@ def gen_csv(data_dir,
             _save_to_csv(rel_img_paths_all, texts_all, save_fp)
             all_csv_paths.append(save_fp)
 
-
-    print("Num text-image pairts: ", num_imgs)
+    print("Num text-image pairs without trim: ", num_imgs)
     print("All csv files are saved in ", data_dir)
 
     if merge_all:
@@ -174,9 +184,13 @@ if __name__ == "__main__":
         help="If False, save a csv file for each part, which will result in a large csv file (~400MB). \
             If True, save a csv file for each image folder, which will result in hundreads of csv files for one part of dataset.",
     )
+    parser.add_argument(
+        "--start_sample_idx", type=int, default=0, help="index of the first sample to include for training in the first tar of the first part")
+    parser.add_argument(
+        "--end_sample_idx", type=int, default=-1, help="index of the last sample to include for training in the last tar of the last part")
     args = parser.parse_args()
 
     # data_dir = '/data3/datasets/laion_art_filtered'
     data_dir = args.data_dir
     # check_download_result(data_dir)
-    gen_csv(data_dir, one_csv_per_part=not args.save_csv_per_img_folder, folder_prefix=args.folder_prefix)
+    gen_csv(data_dir, one_csv_per_part=not args.save_csv_per_img_folder, folder_prefix=args.folder_prefix, start_sample_idx=args.start_sample_idx, end_sample_idx=args.end_sample_idx)
