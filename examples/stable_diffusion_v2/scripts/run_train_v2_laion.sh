@@ -1,6 +1,6 @@
 # Finetune SD2.0-base on LAION subsets
 
-# ascend config 
+# ascend config
 export GLOG_v=3
 export HCCL_CONNECT_TIMEOUT=6000
 export ASCEND_GLOBAL_LOG_LEVEL=3
@@ -21,8 +21,8 @@ export RANK_TABLE_FILE
 echo "RANK_TABLE_FILE=${RANK_TABLE_FILE}"
 
 # train config
-data_path=/data3/datasets/laion_art_filtered
-output_path=output/laion_filtered
+data_path=/data3/datasets/laion2b_en
+output_path=output/sd2.1_base
 ckpt_save_interval=1
 
 task_name=txt2img
@@ -32,14 +32,16 @@ train_config_file=configs/train_config_v2.json
 
 # For phase 1 in training sd 2.0-base, images with resolution < 256x256 are filtered out. For phase 2, 512x512
 # For sd2.1-base, images with resolution < 512x512 are filtered out
-image_filter_size=512 # TODO: confirm
+image_filter_size=512
 image_size=512
 
 train_batch_size=3
-start_learning_rate=1e-5
-end_learning_rate=0
-warmup_steps=10000
-epochs=2 # TODO: reduce for larger laion dataset
+start_learning_rate=1e-5 # TODO: lr=1e-5, global bs=2048 ref from hf sd2.1 base, but lr=1e-4 in mosaicml/diffusion
+end_learning_rate=5e-6  # hf: Learning rate: warmup to 0.0001 for 10,000 steps and then kept constant
+
+
+warmup_steps=10000 # TDOO: related to # devices and batch size
+epochs=2        # TODO: reduce for larger laion dataset
 use_ema=True
 clip_grad=False # TODO: confirm
 max_grad_norm=1.
