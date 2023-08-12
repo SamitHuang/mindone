@@ -66,13 +66,13 @@ if __name__ == '__main__':
     tars_to_sync = {}
     if start_part_idx == end_part_idx:
         if j == start_part_idx:
-            tars_to_sync[j] = list(range(start_tar_idx, end_tar_idx))
+            tars_to_sync[j] = list(range(start_tar_idx, end_tar_idx+1))
     else:
         for j in range(start_part_idx, end_part_idx+1):
             if j == start_part_idx:
                 tars_to_sync[j] = list(range(start_tar_idx, max_tars))
             elif j == end_part_idx:
-                tars_to_sync[j] = list(range(0, end_tar_idx))
+                tars_to_sync[j] = list(range(0, end_tar_idx+1))
             else:
                 tars_to_sync[j] = list(range(0, max_tars))
     print("Split result:\nStart: ", start_part_idx, start_tar_idx, start_sample_idx)

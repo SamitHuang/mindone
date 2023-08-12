@@ -72,7 +72,7 @@ def gen_csv(data_dir,
 
     # for part_id in range(1, num_parts+1):
     def _gather_img_text_in_folder(root_dir, folder, trim_start=0, trim_end=-1):
-        trim_end = trim_end + 1 if trim_end > 0 else None
+        trim_end = trim_end + 1 if trim_end!=-1 else None
         img_paths = sorted(glob.glob(os.path.join(root_dir, folder, f"*.{img_fmt}")))[trim_start:trim_end]
         print("Image folder: ", folder, ", num imgs: ", len(img_paths))
         rel_img_paths = []

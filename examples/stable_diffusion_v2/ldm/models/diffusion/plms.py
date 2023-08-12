@@ -245,7 +245,7 @@ class PLMSSampler:
                     for k in c:
                         if isinstance(c[k], list):
                             c_in[k] = [
-                                ops.concat([unconditional_conditioning[k][i], c[k][i]], axis=0)
+                                ops.concat([unconditional_conditioning[k][i], c[k][i]], axis=0) # concat batch-wisely, only for parallele inference for conditional and unconditional forward
                                 for i in range(len(c[k]))
                             ]
                         else:
