@@ -44,7 +44,7 @@ warmup_steps=10000 # TDOO: related to # devices and batch size
 epochs=2        # TODO: reduce for larger laion dataset
 use_ema=True
 clip_grad=False # TODO: confirm
-max_grad_norm=1.
+max_grad_norm=1.0
 
 
 # train
