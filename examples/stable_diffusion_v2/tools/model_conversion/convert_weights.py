@@ -1,9 +1,11 @@
 import argparse
-
+import os
 import numpy as np
 import torch
 
 import mindspore as ms
+
+__dir__ = os.path.dirname(os.path.abspath(__file__))
 
 MINDSPORE = "ms"
 PYTORCH = "pt"
@@ -45,9 +47,9 @@ args = parser.parse_args()
 
 
 def PYTORCH_MINDSPORE_STABLE_DIFFUSION_V2():
-    with open("tools/ms_names_v2.txt") as file_ms:
+    with open(os.path.join(__dir__, "ms_names_v2.txt")) as file_ms:
         lines_ms = file_ms.readlines()
-    with open("tools/pt_names_v2.txt") as file_pt:
+    with open(os.path.join(__dir__, "pt_names_v2.txt")) as file_pt:
         lines_pt = file_pt.readlines()
 
     source_data = torch.load(args.source, map_location="cpu")["state_dict"]
@@ -61,9 +63,9 @@ def PYTORCH_MINDSPORE_STABLE_DIFFUSION_V2():
 
 
 def MINDSPORE_PYTORCH_STABLE_DIFFUSION_V2():
-    with open("tools/ms_names_v2.txt") as file_ms:
+    with open(os.path.join(__dir__, "ms_names_v2.txt")) as file_ms:
         lines_ms = file_ms.readlines()
-    with open("tools/pt_names_v2.txt") as file_pt:
+    with open(os.path.join(__dir__, "pt_names_v2.txt")) as file_pt:
         lines_pt = file_pt.readlines()
 
     source_data = ms.load_checkpoint(args.source)
@@ -77,9 +79,9 @@ def MINDSPORE_PYTORCH_STABLE_DIFFUSION_V2():
 
 
 def PYTORCH_MINDSPORE_STABLE_DIFFUSION_V1():
-    with open("tools/ms_names_v1.txt") as file_ms:
+    with open(os.path.join(__dir__, "ms_names_v1.txt")) as file_ms:
         lines_ms = file_ms.readlines()
-    with open("tools/pt_names_v1.txt") as file_pt:
+    with open(os.path.join(__dir__, "pt_names_v1.txt")) as file_pt:
         lines_pt = file_pt.readlines()
 
     source_data = torch.load(args.source, map_location="cpu")["state_dict"]

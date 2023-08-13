@@ -13,7 +13,7 @@ cd mindone/examples/stable_diffusion_v2
 - [x] convert torch SD v1.* weights to mindspore
 
 ```shell
-python tools/convert_weights.py \
+python tools/model_conversion/convert_weights.py \
 --source PATH_TO_TORCH.pt
 --target PATH_TO_SAVE_MS.ckpt
 --model sdv1
@@ -23,7 +23,7 @@ python tools/convert_weights.py \
 - [x] convert torch SD v2.* weights to mindspore
 
 ```shell
-python tools/convert_weights.py \
+python tools/model_conversion/convert_weights.py \
 --source PATH_TO_TORCH.pt
 --target PATH_TO_SAVE_MS.ckpt
 --model sdv2
@@ -35,7 +35,7 @@ python tools/convert_weights.py \
 - [x] convert mindspore SD v2.* weights to torch
 
 ```shell
-python tools/convert_weights.py \
+python tools/model_conversion/convert_weights.py \
 --source PATH_TO_MS.ckpt
 --target PATH_TO_SAVE_TORCH.pt
 --model sdv2
