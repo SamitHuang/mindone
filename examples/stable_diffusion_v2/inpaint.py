@@ -4,6 +4,7 @@ import math
 import os
 import sys
 import shutil
+import logging
 
 import numpy as np
 from omegaconf import OmegaConf
@@ -18,8 +19,14 @@ workspace = os.path.dirname(os.path.abspath(__file__))
 print("workspace:", workspace, flush=True)
 sys.path.append(workspace)
 from ldm.models.diffusion.plms import PLMSSampler
+from ldm.models.diffusion.ddim import DDIMSampler
+from ldm.models.diffusion.dpm_solver import DPMSolverSampler
+from ldm.models.diffusion.uni_pc import UniPCSampler
+from ldm.modules.logger import set_logger
 from ldm.util import instantiate_from_config
 from ldm.modules.train.tools import set_random_seed
+
+logger = logging.getLogger("text_to_image")
 
 
 def make_batch_sd(
@@ -60,25 +67,27 @@ def inpaint(sampler, image, mask, prompt, seed, scale, sample_steps, num_samples
     start_code = Tensor(start_code, dtype=mstype.float32) # z_T
 
     batch = make_batch_sd(image, mask, txt=prompt, num_samples=num_samples)
-
-    c = model.get_learned_conditioning(batch["txt"])
+    
+    tokenized_prompts = model.tokenize(batch['txt'])
+    c = model.get_learned_conditioning(tokenized_prompts)
 
     c_cat = list()
-    for ck in model.concat_keys: # ["mask", "masked_image"] defined in ddpm.LatentInpaintDiffusion
+    for ck in model.concat_keys: # ["mask", "masked_image"]
         cc = batch[ck]
-        if ck != model.masked_image_key: # masked_image_key="masked_image"
-            bchw = [num_samples, 4, h // 8, w // 8] # TODO: extend for where not (Z=4, f_down=8)
+        if ck != model.masked_image_key:
+            bchw = [num_samples, 4, h // 8, w // 8] # TODO: when not (Z=4, f_down=8)
             cc = x = ops.ResizeNearestNeighbor((bchw[-2], bchw[-1]))(cc)  # latent mask:[bs, 1, H/8, W/8]
         else:
-            cc = model.get_first_stage_encoding(model.encode_first_stage(cc)) # letent masked image encoded by VAE.encoder, shape [bs, 4, H/8, W/8]
+            cc = model.get_first_stage_encoding(model.encode_first_stage(cc)) # latent masked image encoded by VAE.encoder, in shape [bs, 4, H/8, W/8]
         c_cat.append(cc)
     c_cat = ops.concat(c_cat, axis=1) # concat latent mask and latent masked image channel-wisely.
 
-    # hybrid conditi/Users/Samit/Data/Work/HW/ms_kit/diffusion/diffusers/scriptson, further judged by DiffusionWrapper.construct
+    # hybrid conditions, work with DiffusionWrapper.construct
     cond = {"c_concat": c_cat, "c_crossattn": c}
 
-    # uncond cond
-    uc_cross = model.get_learned_conditioning(num_samples * [""]) # empty set as input for unconditional guidence
+    # unconditional guidance
+    uc_tokenized_prompts = model.tokenize(num_samples * [""])
+    uc_cross = model.get_learned_conditioning(uc_tokenized_prompts) 
     uc_full = {"c_concat": c_cat, "c_crossattn": uc_cross}
 
     shape = [model.channels, h // 8, w // 8]
@@ -115,14 +124,16 @@ def image_grid(imgs, rows, cols):
         grid.paste(img, box=(i % cols * w, i // cols * h))
     return grid
 
+
 def main(args):
+    # init
     device_id = int(os.getenv("DEVICE_ID", 0))
     ms.context.set_context(
-        mode=ms.context.GRAPH_MODE,
-        device_target="Ascend",
-        device_id=device_id,
-        max_device_memory="30GB"
-    )
+        mode=args.ms_mode, 
+        #mode=ms.context.GRAPH_MODE,
+        device_target="Ascend", 
+        device_id=device_id, 
+        max_device_memory="30GB")
 
     if args.save_graph:
         save_graphs_path = "graph"
@@ -137,16 +148,25 @@ def main(args):
     if not os.path.isabs(args.config):
         args.config = os.path.join(workspace, args.config)
     config = OmegaConf.load(f"{args.config}")
-    model = load_model_from_config(config, f"{os.path.join(args.ckpt_path, args.ckpt_name)}")
-    if args.sampler.lower() == "plms":
+    
+    # build model
+    model = load_model_from_config(config, args.ckpt_path)
+    
+    # build sampler
+    # TODO: support more samplers
+    sname = args.sampler.lower()
+    if sname == "plms":
         sampler = PLMSSampler(model)
+    #elif sname == 'dpm_solver_pp':
+    #    sampler = DPMSolverSampler(model, "dpmsolver++", prediction_type='noise')
     else:
-        raise TypeError("unsupported sampler type")
-
+        raise TypeError(f"unsupported sampler type: {sname}")
+    
+    # process inputs 
     img_size = args.img_size
     num_samples = args.num_samples
     prompt = args.prompt
-    image = Image.open(args.img).convert("RGB")
+    image = Image.open(args.image).convert("RGB")
     mask_image = Image.open(args.mask).convert("RGB")
     if args.aug == "resize":
         aug_func = lambda x_: x_.resize((img_size, img_size))
@@ -174,6 +194,8 @@ def main(args):
     mask_image = Image.fromarray(np.array(mask_image)[:, :, -1] > 127.5)
 
     images = [image, mask_image]
+
+    # sampling
     for _ in range(math.ceil(num_samples / args.batch_size)):
         output = inpaint(
             sampler=sampler,
@@ -188,7 +210,8 @@ def main(args):
             w=img_size
         )
         images.extend(output)
-
+    
+    # save output
     im_save = image_grid(images, 1, num_samples + 2)
     ct = datetime.datetime.now().strftime("%Y_%d_%b_%H_%M_%S_")
     img_name = ct + prompt.replace(" ", "_") + ".png"
@@ -210,10 +233,11 @@ def load_model_from_config(config, ckpt, verbose=False):
 
     return model
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--img",
+        "--image",
         type=str,
         required=True,
         help="path to origin image"
@@ -227,7 +251,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--save_path",
         type=str,
-        default="output",
+        default="output/inpaint",
         help="path to save image"
     )
     parser.add_argument(
@@ -239,19 +263,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/wukong-huahua_inpaint_inference.yaml",
+        default=None,
         help=""
     )
     parser.add_argument(
         "--ckpt_path",
         type=str,
-        default="models",
-        help=""
-    )
-    parser.add_argument(
-        "--ckpt_name",
-        type=str,
-        default="wukong-huahua-inpaint-ms.ckpt",
+        default=None,
         help=""
     )
     parser.add_argument(
@@ -265,6 +283,9 @@ if __name__ == "__main__":
         type=float,
         default=.75,
         help=""
+    )
+    parser.add_argument(
+        "--ms_mode", type=int, default=0, help="Running in GRAPH_MODE(0) or PYNATIVE_MODE(1) (default=0)"
     )
     parser.add_argument(
         "--num_samples",
@@ -298,14 +319,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--sample_steps",
         type=int,
-        default=30,
+        default=50,
         help=""
     )
     parser.add_argument(
         "--sampler",
         type=str,
         default="plms",
-        help="support plms only"
+        help="support plms, ddim, dpm_solver, dpm_solver_pp, uni_pc"
     )
     parser.add_argument(
         "--save_graph",
@@ -317,8 +338,8 @@ if __name__ == "__main__":
         "--version",
         type=str,
         nargs="?",
-        default="1.5_wk",
-        help="Stable diffusion version, Only support 1.5_wk currently",
+        default="2.0", #"1.5_wk",
+        help="Stable diffusion version, 1.5 or 2.0",
     )
 
     args = parser.parse_args()
@@ -328,7 +349,7 @@ if __name__ == "__main__":
         os.environ["SD_VERSION"] = args.version
     if args.ckpt_path is None:
         args.ckpt_path = (
-            "models/wukong-huahua-inpaint-ms.ckpt" if args.version.startswith("1.") else "models/sd_v2_base_inpaint-xxxx.ckpt"
+            "models/wukong-huahua-inpaint-ms.ckpt" if args.version.startswith("1.") else "models/sd_v2_inpaint.ckpt"
         )
     if args.config is None:
         args.config = (

@@ -16,7 +16,7 @@ model:
     scale_factor: 0.18215
     finetune_keys: null
     use_ema: false
-    use_fp16: True
+    #use_fp16: True
 
     unet_config:
       target: ldm.modules.diffusionmodules.openaimodel.UNetModel
@@ -59,7 +59,7 @@ model:
           dropout: 0.0
 
     cond_stage_config: # TODO: need change for SD 2.0
-      target: ldm.modules.encoders.modules.FrozenCLIPEmbedder_ZH
+      target: ldm.modules.encoders.modules.FrozenCLIPEmbedder
       params:
         use_fp16: True
         tokenizer_name: "WordpieceTokenizer" # only wukong uses this
