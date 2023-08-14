@@ -103,15 +103,7 @@ def gen_csv(data_dir,
     all_csv_paths = []
 
     for i, folder in enumerate(folders):
-        # try to get image-text from level one folder
-        rel_img_paths, texts = _gather_img_text_in_folder(data_dir, folder)
-        if len(texts) > 0:
-            save_fp = os.path.join(data_dir, folder + ".csv")
-            _save_to_csv(rel_img_paths, texts, save_fp)
-            all_csv_paths.append(save_fp)
-            num_imgs += len(rel_img_paths)
 
-        # second level
         subfolders = [
             dn
             for dn in sorted(os.listdir(os.path.join(data_dir, folder)))

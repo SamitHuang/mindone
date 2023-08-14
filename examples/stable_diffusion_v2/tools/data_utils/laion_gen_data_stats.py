@@ -2,10 +2,47 @@ import argparse
 import glob
 import json
 import os
-
+import tarfile
 import pandas as pd
 
 # from pyspark.sql import SparkSession
+
+def gen_tar_stats(data_dir, save_per_part=True):
+    #fp = '/Volumes/Extreme_SSD/laion2b_en/sd2.1_base_train/image_text_data/part_1/00469.tar'
+    def _is_image_file(fn, fmts=['jpg', 'png']):
+        for fmt in fmts:
+            if fn.endswith(fmt):
+                return True
+        return False
+
+    def count_images_in_tar(fp):
+        tar = tarfile.open(fp, 'r')
+        n = len([fn for fn in tar.getnames() if _is_image_file(fn)])
+        return n
+
+    part_fps = sorted(glob.glob(os.path.join(data_dir, "part_*")))
+    part_fps = [fp for fp in part_fps if os.path.isdir(fp)]
+    num_parts = len(part_fps)
+    print("Num parts: ", num_parts)
+
+    # out_file = open("data_stats.csv", "w")
+    global_stats= {}
+    for i, part_fp in enumerate(part_fps):
+        part_stats = {}
+        part_id = os.path.basename(part_fp).split("_")[1]
+        tar_fps = sorted(glob.glob(os.path.join(part_fp, "*.tar")))
+        for j, tar_fp in enumerate(tar_fps):
+            num_images = count_images_in_tar(tar_fp)
+            tar_id = int(os.path.basename(tar_fp)[:-4])
+            part_stats[tar_id] = num_images
+            print(part_id, tar_id, num_images)
+
+        print(part_stats)
+        global_stats[part_id] = part_stats
+        with open(os.path.join(data_dir, f"part_{part_id}_stats.json"), "w") as f:
+            f.write(json.dumps(part_stats))
+
+    print(global_stats)
 
 
 def count(data_dir, save_fn_postfix="stats.csv", save_abs_path=False, summarize_all_parts=False):
@@ -59,4 +96,5 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    count(args.data_dir)
+    #count(args.data_dir)
+    gen_tar_stats(args.data_dir)
