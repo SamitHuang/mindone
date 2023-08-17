@@ -26,7 +26,7 @@ from ldm.modules.logger import set_logger
 from ldm.util import instantiate_from_config
 from ldm.modules.train.tools import set_random_seed
 
-logger = logging.getLogger("text_to_image")
+logger = logging.getLogger("inpaint")
 
 
 def make_batch_sd(
@@ -67,7 +67,7 @@ def inpaint(sampler, image, mask, prompt, seed, scale, sample_steps, num_samples
     start_code = Tensor(start_code, dtype=mstype.float32) # z_T
 
     batch = make_batch_sd(image, mask, txt=prompt, num_samples=num_samples)
-    
+
     tokenized_prompts = model.tokenize(batch['txt'])
     c = model.get_learned_conditioning(tokenized_prompts)
 
@@ -87,7 +87,7 @@ def inpaint(sampler, image, mask, prompt, seed, scale, sample_steps, num_samples
 
     # unconditional guidance
     uc_tokenized_prompts = model.tokenize(num_samples * [""])
-    uc_cross = model.get_learned_conditioning(uc_tokenized_prompts) 
+    uc_cross = model.get_learned_conditioning(uc_tokenized_prompts)
     uc_full = {"c_concat": c_cat, "c_crossattn": uc_cross}
 
     shape = [model.channels, h // 8, w // 8]
@@ -129,10 +129,10 @@ def main(args):
     # init
     device_id = int(os.getenv("DEVICE_ID", 0))
     ms.context.set_context(
-        mode=args.ms_mode, 
+        mode=args.ms_mode,
         #mode=ms.context.GRAPH_MODE,
-        device_target="Ascend", 
-        device_id=device_id, 
+        device_target="Ascend",
+        device_id=device_id,
         max_device_memory="30GB")
 
     if args.save_graph:
@@ -148,10 +148,10 @@ def main(args):
     if not os.path.isabs(args.config):
         args.config = os.path.join(workspace, args.config)
     config = OmegaConf.load(f"{args.config}")
-    
+
     # build model
     model = load_model_from_config(config, args.ckpt_path)
-    
+
     # build sampler
     # TODO: support more samplers
     sname = args.sampler.lower()
@@ -161,8 +161,8 @@ def main(args):
     #    sampler = DPMSolverSampler(model, "dpmsolver++", prediction_type='noise')
     else:
         raise TypeError(f"unsupported sampler type: {sname}")
-    
-    # process inputs 
+
+    # process inputs
     img_size = args.img_size
     num_samples = args.num_samples
     prompt = args.prompt
@@ -195,6 +195,24 @@ def main(args):
 
     images = [image, mask_image]
 
+    # log
+    key_info = "Key Settings:\n" + "=" * 50 + "\n"
+    key_info += "\n".join(
+        [
+            f"MindSpore mode[GRAPH(0)/PYNATIVE(1)]: {args.ms_mode}",
+            f"Model: StableDiffusion v-{args.version}",
+            f"Precision: {model.model.diffusion_model.dtype}",
+            f"Pretrained ckpt path: {args.ckpt_path}",
+            f"Sampler: {sname}",
+            f"Sampling steps: {args.sample_steps}",
+            f"Uncondition guidance scale: {args.guidance_scale}",
+        ]
+    )
+    key_info += "\n" + "=" * 50
+    logger.info(key_info)
+    logger.info("Running text-guided image inpainting...")
+
+
     # sampling
     for _ in range(math.ceil(num_samples / args.batch_size)):
         output = inpaint(
@@ -210,26 +228,27 @@ def main(args):
             w=img_size
         )
         images.extend(output)
-    
+
     # save output
     im_save = image_grid(images, 1, num_samples + 2)
     ct = datetime.datetime.now().strftime("%Y_%d_%b_%H_%M_%S_")
     img_name = ct + prompt.replace(" ", "_") + ".png"
     os.makedirs(args.save_path, exist_ok=True)
     im_save.save(os.path.join(args.save_path, img_name))
-    print("finish inpaint.")
+
+    logger.info(f"Done! All generated images are saved in: {args.save_path}" f"\nEnjoy.")
 
 
 def load_model_from_config(config, ckpt, verbose=False):
-    print(f"Loading model from {ckpt}")
+    logger.info(f"Loading model from {ckpt}")
     model = instantiate_from_config(config.model)
     if os.path.exists(ckpt):
         param_dict = ms.load_checkpoint(ckpt)
         if param_dict:
             param_not_load = ms.load_param_into_net(model, param_dict)
-            print("param not load:", param_not_load)
+            logger.info("param not load:", param_not_load)
     else:
-        print(f"!!!Warning!!!: {ckpt} doesn't exist")
+        logger.info(f"!!!Warning!!!: {ckpt} doesn't exist")
 
     return model
 
@@ -339,7 +358,7 @@ if __name__ == "__main__":
         type=str,
         nargs="?",
         default="2.0", #"1.5_wk",
-        help="Stable diffusion version, 1.5 or 2.0",
+        help="Stable diffusion version, wukong or 2.0",
     )
 
     args = parser.parse_args()
@@ -348,14 +367,16 @@ if __name__ == "__main__":
     if args.version:
         os.environ["SD_VERSION"] = args.version
     if args.ckpt_path is None:
-        args.ckpt_path = (
-            "models/wukong-huahua-inpaint-ms.ckpt" if args.version.startswith("1.") else "models/sd_v2_inpaint-f694d5cf.ckpt"
-        )
+        if args.version in ['wukong', '1.5_cn']:
+            args.ckpt_path = "models/wukong-huahua-inpaint-ms.ckpt"
+        else:
+            args.ckpt_path = "models/sd_v2_inpaint-f694d5cf.ckpt"
     if args.config is None:
-        args.config = (
-            "configs/v1-inpaint-inference-chinese.yaml" if args.version.startswith("1.") else "configs/v2-inpaint-inference.yaml"
-        )
+        if args.version in ['wukong', '1.5_cn']:
+            args.config = "configs/v1-inpaint-inference-chinese.yaml"
+        else:
+            args.config = "configs/v2-inpaint-inference.yaml"
     if args.guidance_scale is None:
-        args.guidance_scale = 7.5 if args.version.startswith("1.") else 9.0
+        args.guidance_scale = 9.0 if args.version.startswith("2.") else 7.5
 
     main(args)
