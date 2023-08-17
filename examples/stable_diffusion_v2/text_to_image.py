@@ -25,7 +25,7 @@ from ldm.modules.train.tools import set_random_seed
 from ldm.util import instantiate_from_config, str2bool
 from utils import model_utils
 
-logger = logging.getLogger("inpaint")
+logger = logging.getLogger("text_to_image")
 
 
 def numpy_to_pil(images):

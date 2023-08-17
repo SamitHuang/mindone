@@ -126,6 +126,14 @@ def image_grid(imgs, rows, cols):
 
 
 def main(args):
+    # set logger
+    set_logger(
+        name="",
+        output_dir=args.save_path,
+        rank=0,
+        log_level=eval(args.log_level),
+    )
+
     # init
     device_id = int(os.getenv("DEVICE_ID", 0))
     ms.context.set_context(
@@ -245,8 +253,8 @@ def load_model_from_config(config, ckpt, verbose=False):
     if os.path.exists(ckpt):
         param_dict = ms.load_checkpoint(ckpt)
         if param_dict:
-            param_not_load = ms.load_param_into_net(model, param_dict)
-            logger.info("param not load:", param_not_load)
+            param_not_load, _ = ms.load_param_into_net(model, param_dict)
+            logger.info("Net params not loaded: {}".format(param_not_load))
     else:
         logger.info(f"!!!Warning!!!: {ckpt} doesn't exist")
 
@@ -328,6 +336,12 @@ if __name__ == "__main__":
         "--seed",
         type=int,
         default=42
+    )
+    parser.add_argument(
+        "--log_level",
+        type=str,
+        default="logging.INFO",
+        help="log level, options: logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR",
     )
     parser.add_argument(
         "--guidance_scale",
