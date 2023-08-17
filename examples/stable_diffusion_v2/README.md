@@ -299,9 +299,14 @@ Please refer to [Evaluation for Diffusion Models](eval/README.md)
   - Add Dreambooth finetuning
   - Add text-guided image inpainting
   - Add CLIP score metrics (CLIP-I, CLIP-T) for evaluating visual and textual fidelity
-- 2023.07.05  Add negative prompts; Improve logger; Fix bugs for MS 2.0.
-- 2023.06.30  Add LoRA finetuning and FID evalution.
-- 2023.06.12  Add velocity parameterization for DDPM prediction type. Usage: set `parameterization: velocity` in configs/your_train.yaml
+- 2023.07.05
+  - Add negative prompts
+  - Improve logger
+  - Fix bugs for MS 2.0.
+- 2023.06.30
+  - Add LoRA finetuning and FID evalution.
+- 2023.06.12
+  - Add velocity parameterization for DDPM prediction type. Usage: set `parameterization: velocity` in configs/your_train.yaml
 
 
 ## Contributing
