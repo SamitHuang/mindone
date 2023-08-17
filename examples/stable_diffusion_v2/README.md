@@ -115,12 +115,10 @@ python inpaint.py
 
 Example: 
 
-Download the input [image]("https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png") and [mask]("https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo_mask.png") to the running path. Then run 
+Download the [example image](https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png) and [mask](https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo_mask.png) to the running path. Then execute
 
 ```shell
-python inpaint.py 
-    --image  overture-creations-5sI6fQgYIuo.png\
-    --mask  overture-creations-5sI6fQgYIuo_mask.png \
+python inpaint.py  --image overture-creations-5sI6fQgYIuo.png --mask overture-creations-5sI6fQgYIuo_mask.png \
     --prompt "Face of a yellow cat, high resolution, sitting on a park bench"
 ```
 
