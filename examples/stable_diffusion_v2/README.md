@@ -9,13 +9,13 @@ This folder contains various [Stable Diffusion](https://arxiv.org/abs/2112.10752
 - [x] Vanilla Stable Diffusion finetuning
 - [x] [Efficient SD finetuning with LoRA](lora_finetune.md) 🔥
 - [x] [Finetuning with DreamBooth](dreambooth_finetune.md)
-- [x] Quantitative evaluation for diffusion models: FID
-- [x] Chinese text-to-image generation thanks to Wukonghuahua (based on SD 1.x)
+- [x] Quantitative evaluation for diffusion models: FID, CLIP Scores (CLIP-I, CLIP-T)
+- [x] Chinese text-to-image generation thanks to Wukonghuahua
 - [x] Negative prompt guidance.
 
 For a quick tour, please view [demo](demo.md).
 
-## Navigation
+## Tutorials
 
 - [Installation](#installation)
 - [Pretrained Weights](#pretrained-weights)
@@ -23,7 +23,7 @@ For a quick tour, please view [demo](demo.md).
   - [Inference](#inference)
     - [Text-to-Image Generation](#text-to-image-generation)
     - [Text-guided Image Inpainting](#text-guided-image-inpainting)
-    - [Text-guided Image-to-Image]() # coming soon
+    - [Text-guided Image-to-Image](#text-guided-image-to-image)
   - [Training](#training)
     - [LoRA](#efficient-finetuning-with-lora)
     - [Dreambooth](#dreambooth)
@@ -53,7 +53,7 @@ pip install -r requirements.txt
 ## Pretrained Weights 
 
 <details close>
-  <summary>We provide pre-trained SD weights that are compatible with MindSpore as follows.</summary>
+  <summary>Pre-trained SD weights that are compatible with MindSpore: </summary>
 
 - Stable Diffusion 2.x
     - SD 2.0-base (text-to-image): [sd_v2_base-57526ee4.ckpt](https://download.mindspore.cn/toolkits/mindone/stable_diffusion/sd_v2_base-57526ee4.ckpt), converted from [this HF model](https://huggingface.co/stabilityai/stable-diffusion-2-base)
@@ -67,6 +67,8 @@ pip install -r requirements.txt
 
 Please download the checkpoints you need for your task, and put them under `models/` folder.
 </details>
+
+If you like to convert other Stable Diffusion models to MindSpore checkpoints, please refer to [model conversion](tools/model_conversion/README.md).
 
 - - -
 # Stable Diffusion 2.0
