@@ -349,7 +349,7 @@ if __name__ == "__main__":
         os.environ["SD_VERSION"] = args.version
     if args.ckpt_path is None:
         args.ckpt_path = (
-            "models/wukong-huahua-inpaint-ms.ckpt" if args.version.startswith("1.") else "models/sd_v2_inpaint.ckpt"
+            "models/wukong-huahua-inpaint-ms.ckpt" if args.version.startswith("1.") else "models/sd_v2_inpaint-f694d5cf.ckpt"
         )
     if args.config is None:
         args.config = (
