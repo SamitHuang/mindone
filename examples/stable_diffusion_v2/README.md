@@ -109,13 +109,13 @@ Download [sd_v2_inpaint-f694d5cf.ckpt](https://download.mindspore.cn/toolkits/mi
 python inpaint.py 
     --image {path to input image} \
     --mask  {path to mask image} \
-    --prompt "my magic prompt to paint the masked region"
+    --prompt "your magic prompt to paint the masked region"
 ```
 > For more argument usage, please run `python inpaint.py --help`
 
-Showcase: 
+Example: 
 
-Download the demo [image]("https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png") and [mask]("https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo_mask.png"), and run 
+Download the input [image]("https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png") and [mask]("https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo_mask.png") to the running path. Then run 
 
 ```shell
 python inpaint.py 
@@ -124,7 +124,7 @@ python inpaint.py
     --prompt "Face of a yellow cat, high resolution, sitting on a park bench"
 ```
 
-A demo result is as follows
+Now the masked region is smoothly replaced with the instructed content.
 <div align="left">
 <img src="https://github.com/SamitHuang/mindone/assets/8156835/f0d6073e-fe24-4d3d-8f54-b7c4833bb206" width="960" />
 </div>
@@ -177,14 +177,14 @@ bash scripts/run_train_v2_distributed.sh
 ```
 , after updating `data_path` and `num_devices`, `rank_table_file`, `CANDIDATE_DEVICES` according to your running devices.
 
-> To update the text encoder meanwhile, please set `cond_stage_trainable: True` in `configs/v2-train.yaml` 
+> To make the text encoder also trainable, please set `cond_stage_trainable: True` in `configs/v2-train.yaml` 
 
 
 ### Chinese Prompt Adaptation
 
-To make SD work better with Chinese prompts, one can set the text encoder to [CN-CLIP](https://github.com/ofa-sys/chineseclip) and run [vanilla finetuning](#vanilla-finetuing) on a Chinese text-image pair dataset. 
+To make SD work better with Chinese prompts, one can replace the default text encoder with [CN-CLIP](https://github.com/ofa-sys/chineseclip) and run [vanilla finetuning](#vanilla-finetuing) on a Chinese text-image pair dataset. 
 
-CN-CLIP is an open-source CLIP implementation that is trained on an extensive dataset on Chinese text, image pairs. The main difference between CN-CLIP and OpenCLIP is the tokenizer and the first embedding layer. 
+CN-CLIP is an open-source CLIP implementation that is trained on an extensive dataset of Chinese text-image pairs. The main difference between CN-CLIP and OpenCLIP is the tokenizer and the first embedding layer. 
 
 To replace the original CLIP used in SD with CN-CLIP, please:
 
@@ -198,7 +198,6 @@ To replace the original CLIP used in SD with CN-CLIP, please:
 
 ```
 python train_text_to_image.py --custom_text_encoder models/ms_cnclip_h14-d780480a.ckpt --config configs/v2-inference-cnclip.yaml ...
-
 ```
 
 After the training is finished, similarly, you can load the model and run Chinese text-to-image generation.
@@ -295,8 +294,13 @@ For detailed usage of the schedulers/samplers, please refer to [Diffusion Proces
 Please refer to [Evaluation for Diffusion Models](eval/README.md)
 
 
-
+- - -
 ## What's New
+- 2023.08.17
+  - Add Stable Diffusion v1.5
+  - Add Dreambooth finetuning
+  - Add text-guided image inpainting
+  - Add CLIP score metrics (CLIP-I, CLIP-T) for evaluating visual and textual fidelity
 - 2023.07.05  Add negative prompts; Improve logger; Fix bugs for MS 2.0.
 - 2023.06.30  Add LoRA finetuning and FID evalution.
 - 2023.06.12  Add velocity parameterization for DDPM prediction type. Usage: set `parameterization: velocity` in configs/your_train.yaml
