@@ -19,7 +19,7 @@ For a quick tour, please view [demo](demo.md).
 
 - [Installation](#installation)
 - [Pretrained Weights](#pretrained-weights)
-- [Stable Diffusion 2.0](#stable-diffusion-2.0)
+- [Stable Diffusion 2.0](#stable-diffusion-20)
   - [Inference](#inference)
     - [Text-to-Image Generation](#text-to-image-generation)
     - [Text-guided Image Inpainting](#text-guided-image-inpainting)
@@ -30,9 +30,9 @@ For a quick tour, please view [demo](demo.md).
     - [Text Inversion](#text-inversion)
     - [Vanilla Finetuning](#vanilla-finetuning)
     - [Chinese Prompt Adaptation](#chinese-prompt-adaptation)
-- [Stable Diffusion 1.5](#stable-diffusion-1.5)
-  - [Inference](#inference)
-  - [Training](#training)
+- [Stable Diffusion 1.5](#stable-diffusion-15)
+  - [Inference](#inference-1)
+  - [Training](#training-1)
 - [Data Preparation for Training](#dataset-preparation-for-finetuning)
 - [Supported Schedulers](#supported-schedulers)
 - [Evaluation](#evaluation)
@@ -52,7 +52,8 @@ pip install -r requirements.txt
 
 ## Pretrained Weights 
 
-Currently, we provide the following SD pre-trained weights that are compatible with MindSpore. 
+<details close>
+  <summary>We provide pre-trained SD weights that are compatible with MindSpore as follows.</summary>
 
 - Stable Diffusion 2.x
     - SD 2.0-base (text-to-image): [sd_v2_base-57526ee4.ckpt](https://download.mindspore.cn/toolkits/mindone/stable_diffusion/sd_v2_base-57526ee4.ckpt), converted from [this HF model](https://huggingface.co/stabilityai/stable-diffusion-2-base)
@@ -65,14 +66,14 @@ Currently, we provide the following SD pre-trained weights that are compatible w
     - Wukonghuahua Inpainting: [wukong-huahua-inpaint-ms.ckpt](https://download.mindspore.cn/toolkits/minddiffusion/wukong-huahua/wukong-huahua-inpaint-ms.ckpt) 
 
 Please download the checkpoints you need for your task, and put them under `models/` folder.
-
+</details>
 
 - - -
-## Stable Diffusion 2.0
+# Stable Diffusion 2.0
 
-### Inference
+## Inference
 
-#### Text-to-Image Generation
+### Text-to-Image Generation
 
 Download [sd_v2_base-57526ee4.ckpt](https://download.mindspore.cn/toolkits/mindone/stable_diffusion/sd_v2_base-57526ee4.ckpt) to `models/` folder. Then run,
 
@@ -82,7 +83,7 @@ python text_to_image.py --prompt "elven forest"
 ```
 For more argument usages, please run `python text_to_image.py -h`.
 
-##### Negative Prompt Guidance
+#### Negative Prompt Guidance
 
 While `--prompt` indicates what to render in the generated images, the negative prompt (`--negative_prompt`) can be used to tell Stable Diffusion what you don't want to see in the generated images. It can be useful in reducing specific artifacts. Here is an example of removing 'moss' from the 'elven forest':
 
@@ -98,7 +99,7 @@ While `--prompt` indicates what to render in the generated images, the negative 
   <em> With negative prompt: "moss" </em>
 </p>
 
-#### Text-guided Image Inpainting
+### Text-guided Image Inpainting
 
 Download [sd_v2_inpaint-f694d5cf.ckpt](https://download.mindspore.cn/toolkits/mindone/stable_diffusion/sd_v2_inpaint-f694d5cf.ckpt)  to `models/` folder. Then run,
 
@@ -129,34 +130,34 @@ A demo result is as follows
 <em> (From left to right: input image, mask, generated images) </em>
 </p>
 
-#### Text-guided Image-to-Image 
+### Text-guided Image-to-Image 
 
 Coming soon
 
 
-### Training 
+## Training 
 
-To create a dataset for training, please refer to [data preparation](Dataset-Preparation-for-Finetuning ).  
+To create a dataset for training, please refer to [data preparation](#dataset-preparation-for-finetuning).  
 
-#### Efficient Finetuning with LoRA 🔥
+### Efficient Finetuning with LoRA 🔥
 
 Low-Rank Adaptation (LoRA) is a parameter-efficient finetuning method for large models.
 
 Please refer to the tutorial of [LoRA for Stable Diffusion Finetuning](lora_finetune.md) for detailed instructions.
 
 
-#### DreamBooth
+### DreamBooth
 
 DreamBooth allows users to generate contextualized images of one subject using just 3-5 images of the subject, e.g., your dog.
 
 Please refer to the tutorial of [DreamBooth for Stable Diffusion Finetuning](dreambooth_finetune.md) for detailed instructions.
 
 
-#### Text Inversion
+### Text Inversion
 
 Coming soon
 
-#### Vanilla Finetuning
+### Vanilla Finetuning
 
 Vanilla finetuning is to finetune the latent diffusion model (UNet) directly, which can be viewed as the second-stage training mentioned in the [LDM paper](https://arxiv.org/abs/2112.10752). In this setting, both CLIP-TextEncoder and VAE will be frozen, and **only UNet will be updated**.
 
@@ -177,7 +178,7 @@ bash scripts/run_train_v2_distributed.sh
 > To update the text encoder meanwhile, please set `cond_stage_trainable: True` in `configs/v2-train.yaml` 
 
 
-#### Chinese Prompt Adaptation
+### Chinese Prompt Adaptation
 
 To make SD work better with Chinese prompts, one can set the text encoder to [CN-CLIP](https://github.com/ofa-sys/chineseclip) and run [vanilla finetuning](#vanilla-finetuing) on a Chinese text-image pair dataset. 
 
@@ -205,13 +206,13 @@ python text_to_image.py --config configs/v2-inference-cnclip.yaml --ckpt_path {p
 ```
 
 - - -
-## Stable Diffusion 1.5
+# Stable Diffusion 1.5
 
-### Inference
+## Inference
 
 It is simple to switch from SD 2.0 to SD 1.5 by setting the `--version` (`-v`) argument. 
 
-#### SD1.5 Text-to-Image Generation
+### SD1.5 Text-to-Image Generation
 
 Download [SD1.5 checkpoint](https://download.mindspore.cn/toolkits/mindone/stable_diffusion/ms_v1_5_pruned_emaonly-d0ab7146.ckpt) to `models/` folder. Then run,
 
@@ -235,7 +236,7 @@ Download [wukong-huahua-inpaint-ms.ckpt](https://download.mindspore.cn/toolkits/
 python inpaint.py --image {path to input image} --mask {path to mask image} --prompt "图片编辑内容描述"  -v wukong
 ```
 
-### Training
+## Training
 
 To train SD 1.5 on a custom text-image dataset, please run
 
@@ -248,7 +249,7 @@ after setting `data_path` in `run_train_v1.sh` to your dataset path.
 > Note: to run other training pipelines on SD 1.5, you can also refer to the related tutorials for SD 2.0, and modify the `--model_config` argument to `configs/v1-train.yaml`, `--train_config` to `configs/train_config.json`, and set `--ckpt_path` to `models/ms_v1_5_pruned_emaonly-d0ab7146.ckpt`. 
 
 
-## Dataset Preparation for Finetuning
+# Dataset Preparation for Finetuning
 
 The text-image pair dataset for finetuning should follow the file structure below
 
@@ -276,7 +277,7 @@ For convenience, we have prepared two public text-image datasets obeying the abo
 To use them, please download `pokemon_blip.zip` and `chinese_art_blip.zip` from the [openi dataset website](https://openi.pcl.ac.cn/jasonhuang/mindone/datasets). Then unzip them on your local directory, e.g. `./datasets/pokemon_blip`.
 
 
-## Supported Schedulers
+# Supported Schedulers
 
 - DDIM
 - DPM Solver
@@ -287,10 +288,9 @@ To use them, please download `pokemon_blip.zip` and `chinese_art_blip.zip` from 
 For detailed usage of the schedulers/samplers, please refer to [Diffusion Process Schedulers](schedulers.md).
 
 
-## Evaluation
+# Evaluation
 
 Please refer to [Evaluation for Diffusion Models](eval/README.md)
-
 
 
 
