@@ -1,8 +1,6 @@
 # Stable Diffusion
 
-This folder contains [Stable Diffusion](https://arxiv.org/abs/2112.10752) (SD) models and pipelines implemented with MindSpore. It targets at a full support for inference, finetuning, and training from scratch. 
-
-New models and features will be continuously updated.
+This folder contains various [Stable Diffusion](https://arxiv.org/abs/2112.10752) (SD) models and pipelines implemented with MindSpore. It targets at full support for inference, finetuning, and training from scratch. New models and features will be continuously updated.
 
 ## Features
 
@@ -17,28 +15,27 @@ New models and features will be continuously updated.
 
 For a quick tour, please view [demo](demo.md).
 
-## Contents
+## Navigation
 
-- [Installation](#)
-- [Pretrained Weights]()
-- [Stable Diffusion 2.0](#)
-  - [Inference](#)
-    - [Text-to-Image Generation]()
-    - [Text-guided Image Inpainting]()
+- [Installation](#installation)
+- [Pretrained Weights](#pretrained-weights)
+- [Stable Diffusion 2.0](#stable-diffusion-2.0)
+  - [Inference](#inference)
+    - [Text-to-Image Generation](#text-to-image-generation)
+    - [Text-guided Image Inpainting](#text-guided-image-inpainting)
     - [Text-guided Image-to-Image]() # coming soon
-  - [Finetuning and Training](#)
-    - [LoRA]()
-    - [Dreambooth]()
-    - [Text Inversion]()
-    - [Vanilla Finetune]()
-    - [Adaptation to Chinese Prompts]()
-- [Stable Diffusion 1.5](#)
-  - [Inference](#)
-  - [Finetuning and Training](#)
-  - [Run with Chinese Prompts (Wukonghuahua)]()
-- [Data Preparation for Training]()
-- [Supported Schedulers]()
-- [Evaluation]()
+  - [Training](#training)
+    - [LoRA](#efficient-finetuning-with-lora)
+    - [Dreambooth](#dreambooth)
+    - [Text Inversion](#text-inversion)
+    - [Vanilla Finetuning](#vanilla-finetuning)
+    - [Chinese Prompt Adaptation](#chinese-prompt-adaptation)
+- [Stable Diffusion 1.5](#stable-diffusion-1.5)
+  - [Inference](#inference)
+  - [Training](#training)
+- [Data Preparation for Training](#dataset-preparation-for-finetuning)
+- [Supported Schedulers](#supported-schedulers)
+- [Evaluation](#evaluation)
 
 
 ## Installation
@@ -55,7 +52,7 @@ pip install -r requirements.txt
 
 ## Pretrained Weights 
 
-Currently, we provide SD preatrained weights for MindSpore as follows. 
+Currently, we provide the following SD pre-trained weights that are compatible with MindSpore. 
 
 - Stable Diffusion 2.x
     - SD 2.0-base (text-to-image): [sd_v2_base-57526ee4.ckpt](https://download.mindspore.cn/toolkits/mindone/stable_diffusion/sd_v2_base-57526ee4.ckpt), converted from [this HF model](https://huggingface.co/stabilityai/stable-diffusion-2-base)
@@ -77,6 +74,8 @@ Please download the checkpoints you need for your task, and put them under `mode
 
 #### Text-to-Image Generation
 
+Download [sd_v2_base-57526ee4.ckpt](https://download.mindspore.cn/toolkits/mindone/stable_diffusion/sd_v2_base-57526ee4.ckpt) to `models/` folder. Then run,
+
 ```shell
 # Text to image generation with SD2.0
 python text_to_image.py --prompt "elven forest"
@@ -85,7 +84,7 @@ For more argument usages, please run `python text_to_image.py -h`.
 
 ##### Negative Prompt Guidance
 
-While `--prompt` indicates what to render in the generated images, the negative prompt (`--negative_prompt`) can be used to tell Stable Diffusion what you don't want to see in the generated images. It can be useful in reducing specific artifacts. Here is an example for removing 'moss' from the 'elven forest':
+While `--prompt` indicates what to render in the generated images, the negative prompt (`--negative_prompt`) can be used to tell Stable Diffusion what you don't want to see in the generated images. It can be useful in reducing specific artifacts. Here is an example of removing 'moss' from the 'elven forest':
 
 <div align="center">
 <img src="https://github.com/SamitHuang/mindone/assets/8156835/1c35853d-036f-459c-944c-9953d2da8087" width="320" />
@@ -101,7 +100,7 @@ While `--prompt` indicates what to render in the generated images, the negative 
 
 #### Text-guided Image Inpainting
 
-Please download [sd_v2_inpaint-f694d5cf.ckpt](https://download.mindspore.cn/toolkits/mindone/stable_diffusion/sd_v2_inpaint-f694d5cf.ckpt)  and place it under `models` folder. Then run,
+Download [sd_v2_inpaint-f694d5cf.ckpt](https://download.mindspore.cn/toolkits/mindone/stable_diffusion/sd_v2_inpaint-f694d5cf.ckpt)  to `models/` folder. Then run,
 
 ```shell
 python inpaint.py 
@@ -122,10 +121,13 @@ python inpaint.py
     --prompt "Face of a yellow cat, high resolution, sitting on a park bench"
 ```
 
-An demo result is as follows 
-
-
-
+A demo result is as follows
+<div align="left">
+<img src="https://github.com/SamitHuang/mindone/assets/8156835/f0d6073e-fe24-4d3d-8f54-b7c4833bb206" width="960" />
+</div>
+<p align="left">
+<em> (From left to right: input image, mask, generated images) </em>
+</p>
 
 #### Text-guided Image-to-Image 
 
@@ -175,28 +177,28 @@ bash scripts/run_train_v2_distributed.sh
 > To update the text encoder meanwhile, please set `cond_stage_trainable: True` in `configs/v2-train.yaml` 
 
 
-#### Adaptation for Chinese Prompts
+#### Chinese Prompt Adaptation
 
 To make SD work better with Chinese prompts, one can set the text encoder to [CN-CLIP](https://github.com/ofa-sys/chineseclip) and run [vanilla finetuning](#vanilla-finetuing) on a Chinese text-image pair dataset. 
 
-CN-CLIP is an open-source CLIP implementation that is trained on an extensive dataset on Chinese text, image pairs. The difference between CN-CLIP and OpenCLIP is mostly on the tokenizer and the first embedding layer. 
+CN-CLIP is an open-source CLIP implementation that is trained on an extensive dataset on Chinese text, image pairs. The main difference between CN-CLIP and OpenCLIP is the tokenizer and the first embedding layer. 
 
-To replace the orignal CLIP used in SD with CN-CLIP, please:
+To replace the original CLIP used in SD with CN-CLIP, please:
 
-1. Download our provided weights [CN-CLIP ViT-H/14](https://download.mindspore.cn/toolkits/mindone/stable_diffusion/ms_cnclip_h14-d780480a.ckpt) converted from torch, and put it under `models` folder.
+1. Download [CN-CLIP ViT-H/14](https://download.mindspore.cn/toolkits/mindone/stable_diffusion/ms_cnclip_h14-d780480a.ckpt) to `models` folder.
 
 2. Update `scripts/train_config_v2.json` by setting the model config as follows.
 
 `"model_config": "configs/v2-train-cnclip.yaml"`
 
-3. Run the vanilla training script after setting the `--custom_text_encoder` and `--config` argument.
+3. Run the vanilla training script after setting the `--custom_text_encoder` and `--config` arguments.
 
 ```
 python train_text_to_image.py --custom_text_encoder models/ms_cnclip_h14-d780480a.ckpt --config configs/v2-inference-cnclip.yaml ...
 
 ```
 
-After the training finished, similarly, you can load the model and run Chinese text-to-image generation.
+After the training is finished, similarly, you can load the model and run Chinese text-to-image generation.
 
 ```
 python text_to_image.py --config configs/v2-inference-cnclip.yaml --ckpt_path {path to trained checkpoint} ...
@@ -211,7 +213,7 @@ It is simple to switch from SD 2.0 to SD 1.5 by setting the `--version` (`-v`) a
 
 #### SD1.5 Text-to-Image Generation
 
-Download [SD1.5 checkpoint](https://download.mindspore.cn/toolkits/mindone/stable_diffusion/ms_v1_5_pruned_emaonly-d0ab7146.ckpt) and place it under `models` folder. Then run,
+Download [SD1.5 checkpoint](https://download.mindspore.cn/toolkits/mindone/stable_diffusion/ms_v1_5_pruned_emaonly-d0ab7146.ckpt) to `models/` folder. Then run,
 
 ```
 python text_to_image.py --prompt "A cute wolf in winter forest" -v 1.5
@@ -219,7 +221,7 @@ python text_to_image.py --prompt "A cute wolf in winter forest" -v 1.5
 
 ### Chinese Text-to-Image Generation
 
-Download [wukong-huahua-ms.ckpt](https://download.mindspore.cn/toolkits/minddiffusion/wukong-huahua/wukong-huahua-ms.ckpt) and place it under `models` folder. Then run,
+Download [wukong-huahua-ms.ckpt](https://download.mindspore.cn/toolkits/minddiffusion/wukong-huahua/wukong-huahua-ms.ckpt) to `models/` folder. Then run,
 
 ```
 python text_to_image.py --prompt "雪中之狼"  -v wukong
@@ -227,7 +229,7 @@ python text_to_image.py --prompt "雪中之狼"  -v wukong
 
 ### Chinese Text-guided Image Inpainting
 
-Download [wukong-huahua-inpaint-ms.ckpt](https://download.mindspore.cn/toolkits/minddiffusion/wukong-huahua/wukong-huahua-inpaint-ms.ckpt) and place it under `models` folder. Then run,
+Download [wukong-huahua-inpaint-ms.ckpt](https://download.mindspore.cn/toolkits/minddiffusion/wukong-huahua/wukong-huahua-inpaint-ms.ckpt) to `models/` folder. Then run,
 
 ```
 python inpaint.py --image {path to input image} --mask {path to mask image} --prompt "图片编辑内容描述"  -v wukong
@@ -274,7 +276,7 @@ For convenience, we have prepared two public text-image datasets obeying the abo
 To use them, please download `pokemon_blip.zip` and `chinese_art_blip.zip` from the [openi dataset website](https://openi.pcl.ac.cn/jasonhuang/mindone/datasets). Then unzip them on your local directory, e.g. `./datasets/pokemon_blip`.
 
 
-## Supported Diffusion Process Schedulers
+## Supported Schedulers
 
 - DDIM
 - DPM Solver
