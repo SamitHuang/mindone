@@ -280,6 +280,7 @@ def main(args):
 
     # process inputs
     #tar_h, tar_w = args.img_size if args.img_size is not None
+    img_size = args.img_size
     num_samples = args.num_samples
     prompt = args.prompt
     if args.depth_map is None:
