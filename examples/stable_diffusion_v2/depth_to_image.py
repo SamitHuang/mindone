@@ -101,7 +101,8 @@ def prepare_latent_z(init_image=None, num_samples=4, h=512, w=512, vae_scale_fac
     if init_image is None, latent z is pure noise. Otherwsie, latient z is latent init image added with noise, where the noise is added according to forward diffusion timestep t.
     Args:
 	init_image: None or PIL image (shape: h w 3, value: 0-255) or str of image path
-        timestep: Tensor(int64), 
+        h, w: the target image size
+
     '''
     assert 0 <= strength <= 1., "strength must be in [0, 1]" 
 
@@ -109,7 +110,8 @@ def prepare_latent_z(init_image=None, num_samples=4, h=512, w=512, vae_scale_fac
         if isinstance(img, str):
             img = Image.open(img)
         img = img.convert("RGB")
-        img = img.resize((w, h), resample=Image.LANCZOS) # default is LANCZOS in original vae preprocess, for best quality.
+        if img.size != (w, h):
+            img = img.resize((w, h), resample=Image.LANCZOS) # default is LANCZOS in original vae preprocess, for best quality.
         img = np.array(img, dtype=np.float32)
         img /= 255.
         img = img * 2 - 1  # [-1, 1]
@@ -119,7 +121,7 @@ def prepare_latent_z(init_image=None, num_samples=4, h=512, w=512, vae_scale_fac
     if (init_image is not None) and strength < 1. :
         # latent image + noise as start latent code
         # get latent image, vae  input format: shape (h, w, 3), value: [-1, 1]
-        init_image = vae_image_process(init_image)
+        init_image = vae_image_process(init_image, h=h, w=w)
         # TODO: do it outside for main loop to avoid repeat running?
         print("Running VAE encoder to extract latent image...")
         img_latent, _ = model.get_input(init_image, None) 
@@ -277,21 +279,33 @@ def main(args):
     if not os.path.isabs(args.config):
         args.config = os.path.join(workspace, args.config)
     config = OmegaConf.load(f"{args.config}")
-
+    
+    grid_size = 64 # grid size = vae_scale_factor * (2**num_downsample_times)
+    do_grid_resize = True
     # process inputs
-    #tar_h, tar_w = args.img_size if args.img_size is not None
-    img_size = args.img_size
     num_samples = args.num_samples
     prompt = args.prompt
     if args.depth_map is None:
         assert args.image is not None, 'Either depth_map or image must be provided'
         image = Image.open(args.image).convert("RGB")
+        if args.img_size is None:
+            tar_w, tar_h = image.size # pil size order is diff from cv2/np shape
+        else:
+            tar_w, tar_h = args.img_size
+        if do_grid_resize:
+            tar_w = int(math.ceil(tar_w / grid_size) * grid_size) 
+            tar_h = int(math.ceil(tar_h / grid_size) * grid_size) 
+        print("Target image size (h, w) = ", tar_h, tar_w)
+
+        assert (tar_w % 8 == 0) and (tar_h % 8 == 0), "image size should be a multiple of 8. Please resize to requirement." 
+
         # TODO: extract depth map from input image after preprocess matching segment model input i.e. 384x384
         depth_map = estimate_depth(image)
         dm_np = save_img(depth_map, "tmp_depth_map.png", norm=True, gray=True)
+        
 
         init_image = Image.open(args.image) # TODO: reuse previous opened image 
-        vis_images = [init_image, Image.fromarray((dm_np*255).astype(np.uint8)).resize((img_size, img_size))]
+        vis_images = [init_image, Image.fromarray((dm_np*255).astype(np.uint8)).resize((tar_w, tar_h))]
 
     else:
         depth_map = Image.open(args.depth_map).convert("L")
@@ -340,8 +354,8 @@ def main(args):
             scale=args.guidance_scale,
             sample_steps=args.sample_steps,
             num_samples=args.batch_size,
-            h=img_size,
-            w=img_size,
+            h=tar_h,
+            w=tar_w,
             init_image=init_image,
             strength=args.strength,
         )
@@ -385,7 +399,7 @@ if __name__ == "__main__":
         "--ms_mode", type=int, default=0, help="Running in GRAPH_MODE(0) or PYNATIVE_MODE(1) (default=0)"
     )
     parser.add_argument("--num_samples", type=int, default=4, help="num of total samples")
-    parser.add_argument("--img_size", type=int, default=512, help="if None, target image size the same as input image size.")
+    parser.add_argument("--img_size", type=int, default=None, help="if None, target image size the same as input image size. Otherwise, img_size is an integer for target h and w")
     parser.add_argument("--batch_size", type=int, default=4, help="batch size of model")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
