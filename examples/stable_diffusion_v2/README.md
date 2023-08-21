@@ -144,7 +144,7 @@ Now the masked region is smoothly replaced with the instructed content.
 <em> Text-guided image inpainting. From left to right: input image, mask, generated images. </em>
 </p>
 
-By setting empty prompt (`--prompt=""`), the masked part can be auto-filled to fix the context as follows.
+By setting empty prompt (`--prompt=""`), the masked part will be auto-filled to fit the semantic context and image background.
 <div align="center">
 <img src="https://github.com/SamitHuang/mindone/assets/8156835/21158de6-b9ec-4538-83cf-2a3bbea649e7" width="960"
  />
