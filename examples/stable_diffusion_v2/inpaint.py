@@ -64,6 +64,7 @@ def inpaint(sampler, image, mask, prompt, seed, scale, sample_steps, num_samples
     start_code = Tensor(start_code, dtype=mstype.float32)  # z_T
 
     batch = make_batch_sd(image, mask, txt=prompt, num_samples=num_samples)
+
     tokenized_prompts = model.tokenize(batch["txt"])
     c = model.get_learned_conditioning(tokenized_prompts)
 
