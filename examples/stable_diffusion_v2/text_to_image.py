@@ -213,6 +213,13 @@ def main(args):
 
     all_samples = list()
     for i, prompts in enumerate(data):
+        if i % 2 == 0:
+            args.H = 256
+            args.W = 512
+        else:
+            args.H = 384
+            args.W = 256
+            
         negative_prompts = negative_data[i]
         logger.info(
             "[{}/{}] Generating images with conditions:\nPrompt(s): {}\nNegative prompt(s): {}".format(

@@ -6,8 +6,7 @@ export ASCEND_SLOG_PRINT_TO_STDOUT=0
 device_id=1
 
 # modify to your local data path
-#data_path=./datasets/pokemon_blip/train
-data_path=/home/yx/datasets/diffusion/pokemon
+data_path=./datasets/pokemon_blip/train
 output_path=output/lora_pokemon
 
 task_name=txt2img
