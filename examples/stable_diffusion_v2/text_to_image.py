@@ -24,9 +24,19 @@ from ldm.modules.lora import inject_trainable_lora
 from ldm.modules.train.tools import set_random_seed
 from ldm.util import instantiate_from_config, str2bool
 from utils import model_utils
+from utils.download import download_checkpoint
 
 logger = logging.getLogger("text_to_image")
 
+_url_prefix = "https://download.mindspore.cn/toolkits/mindone/stable_diffusion"
+_version_cfg = {
+        "2.1": ("sd_v2-1_base-7c8d09ce.ckpt", "v2-inference.yaml"),
+        "2.1-v": ("sd_v2-1_768_v-061732d1.ckpt", "v2-vpred-inference.yaml"),
+        "2.0": ("sd_v2_base-57526ee4.ckpt", "v2-inference.yaml"),
+        "2.0-v": ("sd_v2_768_v-e12e3a9b.ckpt", "v2-vpred-inference.yaml"),
+        "1.5": ("sd_v1.5-d0ab7146.ckpt", "v1-inference.yaml"),
+        "wukong" : ("wukong-huahua-ms.ckpt", "v1-inference-chinese.yaml"),
+        }
 
 def numpy_to_pil(images):
     """
@@ -165,7 +175,7 @@ def main(args):
     )
 
     prediction_type = getattr(config.model, "prediction_type", "noise")
-    logger.info(f"sampling prediction type: {prediction_type}")
+    logger.info(f"Prediction type: {prediction_type}")
     # create sampler
     if args.ddim:
         sampler = DDIMSampler(model)
@@ -173,15 +183,17 @@ def main(args):
     elif args.dpm_solver:
         sampler = DPMSolverSampler(model, "dpmsolver", prediction_type=prediction_type)
         sname = "dpm_solver"
-    elif args.dpm_solver_pp:
-        sampler = DPMSolverSampler(model, "dpmsolver++", prediction_type=prediction_type)
-        sname = "dpm_solver_pp"
+    elif args.plms:
+        sampler = PLMSSampler(model)
+        sname = "plms"
     elif args.uni_pc:
         sampler = UniPCSampler(model)
         sname = "uni_pc"
     else:
-        sampler = PLMSSampler(model)
-        sname = "plms"
+        sampler = DPMSolverSampler(model, "dpmsolver++", prediction_type=prediction_type)
+        sname = "dpm_solver_pp"
+    if prediction_type=='v':
+        assert sname in ['dpm_solver', 'dpm_solver_pp'], "Only dpm_solver and dpm_solver_pp support v-prediction currently."
 
     # log
     key_info = "Key Settings:\n" + "=" * 50 + "\n"
@@ -200,6 +212,7 @@ def main(args):
             f"Sampler: {sname}",
             f"Sampling steps: {args.sampling_steps}",
             f"Uncondition guidance scale: {args.scale}",
+            f"Target image size (H, W): ({args.H}, {args.W})",
         ]
     )
     key_info += "\n" + "=" * 50
@@ -313,8 +326,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--sampling_steps",
         type=int,
-        default=50,
-        help="number of ddim sampling steps",
+        default=20,
+        help="number of ddim sampling steps. The recommended value is  50 for PLMS, DDIM and 20 for UniPC,DPM-Solver, DPM-Solver++",
     )
     parser.add_argument(
         "--ddim_eta",
@@ -336,7 +349,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n_samples",
         type=int,
-        default=8,
+        default=4,
         help="how many samples to produce for each given prompt in an iteration. A.k.a. batch size",
     )
     parser.add_argument(
@@ -362,9 +375,9 @@ if __name__ == "__main__":
         help="use dpm_solver sampling",
     )
     parser.add_argument(
-        "--dpm_solver_pp",
+        "--plms",
         action="store_true",
-        help="use dpm_solver++ sampling",
+        help="use plms sampling",
     )
     parser.add_argument(
         "--uni_pc",
@@ -436,26 +449,16 @@ if __name__ == "__main__":
     # overwrite env var by parsed arg
     if args.version:
         os.environ["SD_VERSION"] = args.version
+        if args.version not in _version_cfg:
+            raise ValueError(f"Unknown version: {args.version}. Supported SD versions are: {list(_version_cfg.keys())}")
     if args.ckpt_path is None:
-        if args.version in ["1.5_cn", "wukong"]:
-            args.ckpt_path = "models/wukong-huahua-ms.ckpt"
-        elif args.version.startswith("1."):  # 1.x, 1.5
-            args.ckpt_path = "models/sd_v1.5-d0ab7146.ckpt"
-        elif args.version in ["2.0-v768", "2.0-v"]:
-            args.ckpt_path = "models/sd_v2_768_v-e12e3a9b.ckpt"
-        elif args.version in ["2.1-v768", "2.1-v"]:
-            args.ckpt_path = "models/sd_v2-1_768_v-xxxx.ckpt"
-        else:
-            args.ckpt_path = "models/sd_v2_base-57526ee4.ckpt"
+        ckpt_name = _version_cfg[args.version][0]
+        args.ckpt_path = "models/" + ckpt_name
+        if not os.path.exists(args.ckpt_path):
+            logger.info(f"Start downloading checkpoint {ckpt_name} ...") 
+            download_checkpoint(_url_prefix + "/" + ckpt_name, "models/") 
     if args.config is None:
-        if args.version in ["1.5_cn", "wukong"]:
-            args.config = "configs/v1-inference-chinese.yaml"
-        elif args.version.startswith("1."):  # 1.x, 1.5
-            args.config = "configs/v1-inference.yaml"
-        elif args.version in ["2.0-v768", "2.0-v", "2.1-v768, 2.1-v"]:
-            args.ckpt_path = "configs/v2-vpred-inference.yaml"
-        else:
-            args.config = "configs/v2-inference.yaml"
+        args.config = "configs/" + _version_cfg[args.version][1]
 
     if args.scale is None:
         args.scale = 9.0 if args.version.startswith("2.") else 7.5
