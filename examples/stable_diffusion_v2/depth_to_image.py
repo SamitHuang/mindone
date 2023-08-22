@@ -35,14 +35,29 @@ from conditions.midas_ms import midas_v3
 logger = logging.getLogger("depth_to_image")
 
 
-def estimate_depth(image, model_type='midas_v3_dpt_large_384', estimator_ckpt_path='models/depth_estimator/midas_v3_dpt_large_ms.ckpt'):
+def get_depth_estimator(model_type='midas_v3_dpt_large_384', estimator_ckpt_path='models/depth_estimator/midas_v3_dpt_large_ms.ckpt'):
+    if model_type == 'midas_v3_dpt_large_384':
+        depth_model = midas_v3(pretrained=True, ckpt_path=estimator_ckpt_path)
+    else:
+        raise NotImplementedError
+    
+    return depth_model
+
+
+def estimate_depth(images, depth_estimator):
     '''
     Use MiDas as depth estimator.
     Args:
-        image: rgb image as PIL object, shape [h, w, 3], value: 0-255 
+        images: rgb image as PIL object, shape [h, w, 3], value: 0-255 
+            or, list of PIL images  [n, h, w, 3]
+            
     return: 
         depth map as numpy array, shpae [384, 384]
+            or [n, 384, 384]
     '''
+    if not isinstance(images, list):
+        images = [images]
+
     # 1. preproess
     # hyper-params ref: https://huggingface.co/stabilityai/stable-diffusion-2-depth/blob/main/feature_extractor/preprocessor_config.json
     h = w = 384 # input image size for depth estimator 
@@ -50,27 +65,28 @@ def estimate_depth(image, model_type='midas_v3_dpt_large_384', estimator_ckpt_pa
     mean = [0.5, 0.5, 0.5]
     std = [0.5, 0.5, 0.5]
     # 1.1 resize to 384
-    image = image.resize((w, h),  resample=Image.BICUBIC) # resample=2 => BICUBIC
-    image = np.array(image, dtype=np.float32)
+    images = [img.resize((w, h),  resample=Image.BICUBIC) for img in images ]# resample=2 => BICUBIC
+    images = [np.array(img, dtype=np.float32) for img in images]
+    images = np.array(images, dtype=np.float32)  # [bs, h, w, 3]
 
     # 1.2 rescale to [0, 1]
     if rescale:
-        image = image / 255.0
+        images = images / 255.0
     # 1.3 normalize to [-1, 1]
-    image = (image - mean) / std
+    images = (images - mean) / std
     # 1.4 format tensor batch [bs, 3, h, w]
-    image = Tensor(image, dtype=mstype.float32)
-    image = image.transpose((2, 0, 1)).unsqueeze(0)
+    images = np.transpose(images, (0, 3, 1, 2))
+    images = Tensor(images, dtype=mstype.float32)
     assert len(image.shape)==4 and image.shape[1]==3, f"Expecting model input shape: [bs, 3, H, W], but got {image.shape}"
     
     print("D--, image for input ", image.shape, image.min(), image.max())
 
     # 2. infer 
-    model = midas_v3(pretrained=True, ckpt_path=estimator_ckpt_path)
     
     print("Running depth estimation on input image...")
     st = time.time() 
-    depth_est = model(image)[0].asnumpy()[0] # [1, 1, h, w] -> [h, w]
+    depth_maps = depth_estimator(images).asnumpy() # [bs, 1, h, w] 
+    depth_maps = np.squeeze(depth_maps) # [bs, h, w]
     print("Time cost: ", time.time() - st)
     print("D--: depth est output: ", depth_est.shape, depth_est.min(), depth_est.max())
     
@@ -282,6 +298,7 @@ def main(args):
     
     grid_size = 64 # grid size = vae_scale_factor * (2**num_downsample_times)
     do_grid_resize = True
+
     # process inputs
     num_samples = args.num_samples
     prompt = args.prompt
@@ -300,9 +317,9 @@ def main(args):
         assert (tar_w % 8 == 0) and (tar_h % 8 == 0), "image size should be a multiple of 8. Please resize to requirement." 
 
         # TODO: extract depth map from input image after preprocess matching segment model input i.e. 384x384
-        depth_map = estimate_depth(image)
+        depth_estimator = get_depth_estimator() # TODO: put it in init
+        depth_map = estimate_depth(image, depth_estimator)
         dm_np = save_img(depth_map, "tmp_depth_map.png", norm=True, gray=True)
-        
 
         init_image = Image.open(args.image) # TODO: reuse previous opened image 
         vis_images = [init_image, Image.fromarray((dm_np*255).astype(np.uint8)).resize((tar_w, tar_h))]
@@ -312,8 +329,7 @@ def main(args):
         init_image = None
         vis_images = [depth_map] 
 
-
-    # build model
+    # build models
     model = load_model_from_config(config, args.ckpt_path)
 
     # build sampler
