@@ -144,7 +144,7 @@ Now the masked region is smoothly replaced with the instructed content.
 <em> Text-guided image inpainting. From left to right: input image, mask, generated images. </em>
 </p>
 
-By setting empty prompt (`--prompt=""`), the masked part can be auto-filled to fix the context as follows.
+By setting empty prompt (`--prompt=""`), the masked part will be auto-filled to fit the context and background.
 <div align="center">
 <img src="https://github.com/SamitHuang/mindone/assets/8156835/21158de6-b9ec-4538-83cf-2a3bbea649e7" width="960"
  />
@@ -204,7 +204,7 @@ To make the text encoder also trainable, please set `cond_stage_trainable: True`
 
 ### v-prediction Finetuning
 
-The default objective used in SD training is to minimize the noise prediction error (noise-prediction). To alter the objective to v-prediction, which is used in SD 2.0-v training, please refer to [v-prediction.md](v-prediction.md)
+The default objective used in SD training is to minimize the noise prediction error (noise-prediction). To alter the objective to v-prediction, which is used in SD 2.0-v training, please refer to [v-prediction.md](v_prediction.md)
 
 ### Chinese Prompt Adaptation
 
