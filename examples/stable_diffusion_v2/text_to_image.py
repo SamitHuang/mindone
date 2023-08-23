@@ -28,7 +28,6 @@ from utils.download import download_checkpoint
 
 logger = logging.getLogger("text_to_image")
 
-_url_prefix = "https://download.mindspore.cn/toolkits/mindone/stable_diffusion"
 _version_cfg = {
         "2.1": ("sd_v2-1_base-7c8d09ce.ckpt", "v2-inference.yaml"),
         "2.1-v": ("sd_v2-1_768_v-061732d1.ckpt", "v2-vpred-inference.yaml"),
@@ -37,6 +36,9 @@ _version_cfg = {
         "1.5": ("sd_v1.5-d0ab7146.ckpt", "v1-inference.yaml"),
         "wukong" : ("wukong-huahua-ms.ckpt", "v1-inference-chinese.yaml"),
         }
+_URL_PREFIX = "https://download.mindspore.cn/toolkits/mindone/stable_diffusion"
+_MIN_CKPT_SIZE = 4.0 * 1e9
+
 
 def numpy_to_pil(images):
     """
@@ -194,6 +196,8 @@ def main(args):
         sname = "dpm_solver_pp"
     if prediction_type=='v':
         assert sname in ['dpm_solver', 'dpm_solver_pp'], "Only dpm_solver and dpm_solver_pp support v-prediction currently."
+    if '-v' in args.version and (args.H != 768 or args.W != 768):
+        logger.warning(f"The optimal H, W is 768 for sd2.0-v and sd2.1-v.")
 
     # log
     key_info = "Key Settings:\n" + "=" * 50 + "\n"
@@ -305,8 +309,8 @@ if __name__ == "__main__":
         "--version",
         type=str,
         nargs="?",
-        default="2.0",
-        help="Stable diffusion version, 1.x or 2.0. 1.x support Chinese prompts. 2.0 support English prompts.",
+        default="2.1",
+        help="Stable diffusion version. Options: '2.1', '2.1-v', '2.0', '2.0-v', '1.5', 'wukong'",
     )
     parser.add_argument(
         "--prompt", type=str, nargs="?", default="A cute wolf in winter forest", help="the prompt to render"
@@ -454,9 +458,16 @@ if __name__ == "__main__":
     if args.ckpt_path is None:
         ckpt_name = _version_cfg[args.version][0]
         args.ckpt_path = "models/" + ckpt_name
+
+        # download if not exists or not complete
+        ckpt_incomplete = False
+        if os.path.exists(args.ckpt_path):
+            if os.path.getsize(args.ckpt_path) < _MIN_CKPT_SIZE:
+                ckpt_incomplete = True
+                print(f"WARNING: The checkpoint size is too small {args.ckpt_path}. Please check and remove it if it is incomplete!")
         if not os.path.exists(args.ckpt_path):
-            logger.info(f"Start downloading checkpoint {ckpt_name} ...") 
-            download_checkpoint(_url_prefix + "/" + ckpt_name, "models/") 
+            print(f"Start downloading checkpoint {ckpt_name} ...") 
+            download_checkpoint(_URL_PREFIX + "/" + ckpt_name, "models/") 
     if args.config is None:
         args.config = "configs/" + _version_cfg[args.version][1]
 
