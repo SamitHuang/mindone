@@ -1,5 +1,16 @@
 '''
-image size: not fix to 512
+Extract depth map from input image, then generate new images conditioning on the depth map and the input prompt.
+
+Examples:
+    # Depth map will be extracted from input image. 
+    $ python depth_to_image.py --prompt "two tiger" --image 000000039769.jpg
+    # Depth map is given.
+    $ python depth_to_image.py --prompt "two tiger" --depth_map 000000039769_depth.png
+
+TODO:
+    auto download midas weights to models/depth_estimator/.
+    auto download sd-2-depth ckpt to models/.
+    parallel running on multiple initial images 
 '''
 
 import argparse
@@ -77,20 +88,17 @@ def estimate_depth(images, depth_estimator):
     # 1.4 format tensor batch [bs, 3, h, w]
     images = np.transpose(images, (0, 3, 1, 2))
     images = Tensor(images, dtype=mstype.float32)
-    assert len(image.shape)==4 and image.shape[1]==3, f"Expecting model input shape: [bs, 3, H, W], but got {image.shape}"
+    assert len(images.shape)==4 and images.shape[1]==3, f"Expecting model input shape: [bs, 3, H, W], but got {image.shape}"
     
-    print("D--, image for input ", image.shape, image.min(), image.max())
-
     # 2. infer 
-    
-    print("Running depth estimation on input image...")
+    logger.info("Running depth estimation on input image...")
     st = time.time() 
     depth_maps = depth_estimator(images).asnumpy() # [bs, 1, h, w] 
-    depth_maps = np.squeeze(depth_maps) # [bs, h, w]
-    print("Time cost: ", time.time() - st)
-    print("D--: depth est output: ", depth_est.shape, depth_est.min(), depth_est.max())
+    depth_maps = np.squeeze(depth_maps) # [bs, h, w] or [h, w]
+    #print("Time cost: ", time.time() - st)
+    logger.debug(f"depth est output: {}, {}, {}".format(depth_maps.shape, depth_maps.min(), depth_maps.max()))
     
-    return depth_est
+    return depth_maps
 
 def save_img(img_np, fn='tmp.png', norm=False, gray=False):
     from matplotlib import pyplot as plt
@@ -106,7 +114,6 @@ def save_img(img_np, fn='tmp.png', norm=False, gray=False):
         #plt.imshow(img_np)
         plt.imsave(fn, img_np, cmap=cmap)
         return img_np
-
 
 
 def prepare_latent_z(init_image=None, num_samples=4, h=512, w=512, vae_scale_factor=8, model=None, sampler=None,
@@ -159,7 +166,7 @@ def prepare_latent_z(init_image=None, num_samples=4, h=512, w=512, vae_scale_fac
     return start_code, start_sample_step
 
 
-def prepare_conditions(depth, txt, num_samples=1, height=512, width=512, vae_scale_factor=8):
+def prepare_conditions(depth, txt, num_samples=1, height=512, width=512, vae_scale_factor=8, save_depth_map=False):
     '''
     depth map to latent inputs 
 
@@ -178,11 +185,9 @@ def prepare_conditions(depth, txt, num_samples=1, height=512, width=512, vae_sca
     else:
         depth = depth.resize((w_z, h_z), resample=Image.BICUBIC) # NOTE: the order id width, height.
         depth = np.array(depth, dtype=np.float32) 
-
-    # TODO: visualize the resized depth map
-    save_img(depth, "tmp_depth_map_resized.png", norm=True, gray=True)
-
-    print("D--, after resize", depth.shape, depth.min(), depth.max())
+    
+    if save_depth_map:
+        save_img(depth, "tmp_depth_map_resized.png", norm=True, gray=True)
 
     # rescale to [-1, 1] 
     depth_min = np.amin(depth) #(depth_map, axis=[1, 2, 3], keepdim=True)
@@ -193,33 +198,29 @@ def prepare_conditions(depth, txt, num_samples=1, height=512, width=512, vae_sca
     depth = np.expand_dims(depth, axis=[0, 1])
     depth = depth.repeat(num_samples, axis=0)
     assert len(depth.shape)==4 and depth.shape[1]==1, f'expect shape [n, 1, h, w], but got {depth.shape}'
-    print("D--, after rescale", depth.shape, depth.min(), depth.max())
 
     depth = Tensor(depth, dtype=mstype.float32)
-    print("D--, to Tensor", depth.shape, depth.min(), depth.max())
 
     batch = {
         "txt": num_samples * [txt],
         "depth": depth,
     }
+
     return batch
 
+
 def depth_to_image(sampler, depth, prompt, seed, scale, sample_steps, num_samples=1, w=512, h=512, init_image=None, strength=0.8):
-    """
-    depth: [H, W, 1]
-    """
     model = sampler.model
     
     start_code, start_sample_step = prepare_latent_z(init_image=init_image, num_samples=num_samples, h=h, w=w, model=model, sampler=sampler, strength=strength, sample_steps=sample_steps, seed=seed)
 
     batch = prepare_conditions(depth, txt=prompt, num_samples=num_samples, height=h, width=w) 
-    print('D--: input to model: ', batch['depth'].shape) 
 
     tokenized_prompts = model.tokenize(batch["txt"]) 
-    c = model.get_learned_conditioning(tokenized_prompts) # TODO: 
+    c = model.get_learned_conditioning(tokenized_prompts)
     # TODO: make batch after computing prompt embedding
 
-    bchw = [num_samples, 4, h // 8, w // 8]  # TODO: when not (Z=4, f_down=8)
+    bchw = [num_samples, 4, h // 8, w // 8]
 
     c_cat = batch['depth'] # (bs, 1, h//8, w//8)
 
@@ -248,10 +249,8 @@ def depth_to_image(sampler, depth, prompt, seed, scale, sample_steps, num_sample
     x_samples = model.decode_first_stage(samples_cfg)
 
     result = ops.clip_by_value((x_samples + 1.0) / 2.0, clip_value_min=0.0, clip_value_max=1.0)
-
     result = result.asnumpy().transpose(0, 2, 3, 1)
     result = result * 255
-
     result = [Image.fromarray(img.astype(np.uint8)) for img in result]
 
     return result
@@ -296,19 +295,13 @@ def main(args):
         args.config = os.path.join(workspace, args.config)
     config = OmegaConf.load(f"{args.config}")
     
-    grid_size = 64 # grid size = vae_scale_factor * (2**num_downsample_times)
-    do_grid_resize = True
-
-    # process inputs
-    num_samples = args.num_samples
-    prompt = args.prompt
-    if args.depth_map is None:
-        assert args.image is not None, 'Either depth_map or image must be provided'
-        image = Image.open(args.image).convert("RGB")
-        if args.img_size is None:
+    def _check_image_size(image, tar_img_size, do_grid_resize=True, grid_size=64):
+        # grid_size = 64 # vae_scale_factor * (2**num_downsample_times)
+        if tar_img_size is None:
+            print("Input image size: (h,w)=", image.size[1], image.size[0])
             tar_w, tar_h = image.size # pil size order is diff from cv2/np shape
         else:
-            tar_w, tar_h = args.img_size
+            tar_w, tar_h = tar_img_size
         if do_grid_resize:
             tar_w = int(math.ceil(tar_w / grid_size) * grid_size) 
             tar_h = int(math.ceil(tar_h / grid_size) * grid_size) 
@@ -316,18 +309,27 @@ def main(args):
 
         assert (tar_w % 8 == 0) and (tar_h % 8 == 0), "image size should be a multiple of 8. Please resize to requirement." 
 
-        # TODO: extract depth map from input image after preprocess matching segment model input i.e. 384x384
-        depth_estimator = get_depth_estimator() # TODO: put it in init
+        return tar_w, tar_h
+
+    # process inputs
+    num_samples = args.num_samples
+    prompt = args.prompt
+    if args.depth_map is None:
+        assert args.image is not None, 'Either depth_map or image must be provided'
+        image = Image.open(args.image).convert("RGB")
+        tar_w, tar_h = _check_image_size(image, args.img_size)
+
+        depth_estimator = get_depth_estimator() # TODO: init before for loop 
         depth_map = estimate_depth(image, depth_estimator)
         dm_np = save_img(depth_map, "tmp_depth_map.png", norm=True, gray=True)
 
-        init_image = Image.open(args.image) # TODO: reuse previous opened image 
+        init_image = Image.open(args.image) # TODO: reuse opened image 
         vis_images = [init_image, Image.fromarray((dm_np*255).astype(np.uint8)).resize((tar_w, tar_h))]
-
     else:
         depth_map = Image.open(args.depth_map).convert("L")
         init_image = None
         vis_images = [depth_map] 
+        tar_w, tar_h = _check_image_size(depth_map, args.img_size)
 
     # build models
     model = load_model_from_config(config, args.ckpt_path)
@@ -340,7 +342,6 @@ def main(args):
     #    sampler = DPMSolverSampler(model, "dpmsolver++", prediction_type='noise')
     else:
         raise TypeError(f"unsupported sampler type: {sname}")
-
 
     # log
     key_info = "Key Settings:\n" + "=" * 50 + "\n"
@@ -359,7 +360,6 @@ def main(args):
     logger.info(key_info)
     logger.info("Running text-guided image inpainting...")
     
-
     # sampling
     for _ in range(math.ceil(num_samples / args.batch_size)):
         output = depth_to_image(

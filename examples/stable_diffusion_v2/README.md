@@ -24,6 +24,7 @@ For a quick tour, please view [demo](demo.md).
     - [Text-to-Image Generation](#text-to-image-generation)
     - [Text-guided Image Inpainting](#text-guided-image-inpainting)
     - [Text-guided Image-to-Image](#text-guided-image-to-image)
+    - [Text-guided Depth-to-Image](#text-guided-depth-to-image)
   - [Training](#training)
     - [LoRA](#efficient-finetuning-with-lora-)
     - [Dreambooth](#dreambooth)
@@ -157,7 +158,36 @@ By setting empty prompt (`--prompt=""`), the masked part will be auto-filled to 
 
 Coming soon
 
+### Text-guided Depth-to-Image
 
+This pipeline allows you to generate new images conditioning on a depth map (preserving image strucutre) and a text prompt. If you pass an initial image instead of a depth map, the pipeline will automatically extract the depth from it (using Midas depth estimation model) and generate new images conditioning on the image depth, the image, and the text prompt. 
+
+It is easy to run with the `depth_to_image.py` script. 
+```python
+# depth to image conditioning on an input image and text prompt 
+python depth_to_image.py --prompt {text prompt} \ 
+    --image {path to initial image} \ 
+    --strength 0.7
+```
+> `--strength` indicates how strong the pipeline will tranform the initial image. A lower value - preverse more content of input image. 1 - ignore the initial image and only condition on the depth and text prompt. 
+
+```python
+# depth to image given a depth image and text prompt 
+python depth_to_image.py --prompt {text prompt} --depth_map {path to depth map} 
+```
+
+Example:
+
+Download the [two-cat image]("http://images.cocodataset.org/val2017/000000039769.jpg") and save it in the current folder. Then execute
+
+```python
+python depth_to_image.py --prompt "two tigers" --image 000000039769.jpg
+```
+
+
+Now, the two cats are replaced with two tigers while the backbround and image structure are mostly preserved in the generate images.
+
+ 
 ## Training
 
 To create a dataset for training, please refer to [data preparation](#dataset-preparation-for-finetuning).
