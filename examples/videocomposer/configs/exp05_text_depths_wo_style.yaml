@@ -5,7 +5,8 @@ read_sketch: False
 save_origin_video: True
 ENABLE: true
 DATASET: webvid10m
-video_compositions: ['text', 'mask', 'depthmap', 'sketch', 'motion', 'image', 'local_image', 'single_sketch']
+#video_compositions: ['text', 'mask', 'depthmap', 'sketch', 'motion', 'image', 'local_image', 'single_sketch']
+video_compositions: ['text', 'depthmap']
 guidances: ['y', 'depth'] # You NEED Open It
 batch_sizes: {
     "1": 1,

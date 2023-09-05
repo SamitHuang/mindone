@@ -145,19 +145,20 @@ def worker(gpu, cfg):
         source=dataset,
         column_names=["ref_frame", "cap_txt", "video_data", "misc_data", "feature_framerate", "mask", "mv_data"],
     )
-    dataloader = dataloader.batch(1)
+    dataloader = dataloader.batch(1) # TODO: batch size > 1
 
     clip_encoder = FrozenOpenCLIPEmbedder(
         layer="penultimate",
         pretrained_ckpt_path=get_abspath_of_weights(cfg.clip_checkpoint),
         tokenizer_path=get_abspath_of_weights(cfg.clip_tokenizer),
     )
+    # TODO: use requires_grad==False? 
     zero_y = ms.ops.stop_gradient(clip_encoder("")).to(ms.float32)  # [1, 77, 1024]
     clip_encoder_visual = FrozenOpenCLIPVisualEmbedder(
         layer="penultimate", pretrained_ckpt_path=get_abspath_of_weights(cfg.clip_checkpoint)
     )
     black_image_feature = (
-        clip_encoder_visual(clip_encoder_visual.black_image).unsqueeze(1).to(ms.float32)
+        clip_encoder_visual(clip_encoder_visual.black_image).unsqueeze(1).to(ms.float16)
     )  # [1, 1, 1024]
     black_image_feature = ms.ops.zeros_like(black_image_feature)  # for old
 
@@ -257,7 +258,8 @@ def worker(gpu, cfg):
             resume_step = cfg.resume_step
         _logger.info(f"Successfully load step {resume_step} model from {cfg.resume_checkpoint}")
     else:
-        raise ValueError(f"The checkpoint file {cfg.resume_checkpoint} is wrong ")
+        #raise ValueError(f"The checkpoint file {cfg.resume_checkpoint} is wrong ")
+        _logger.warning("No checkpoint loaded for UNet model")
     _logger.info(
         f"Created a model with {int(sum(p.numel() for p in model.get_parameters()) / (1024 ** 2))}M parameters"
     )

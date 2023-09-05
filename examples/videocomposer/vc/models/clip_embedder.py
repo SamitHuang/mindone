@@ -15,6 +15,8 @@ __all__ = [
     "FrozenOpenCLIPVisualEmbedder",
 ]
 
+import os
+DEBUG = os.getenv("DEBUG", default=0)
 
 def load_clip_model(arch, pretrained_ckpt_path):
     """
@@ -31,7 +33,7 @@ def load_clip_model(arch, pretrained_ckpt_path):
     config_path = support_list[arch.lower()]
 
     config = parse(config_path, pretrained_ckpt_path)
-    model = CLIPModel(config)
+    model = CLIPModel(config, pretrained=not DEBUG)
     return model
 
 

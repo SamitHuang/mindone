@@ -2,7 +2,8 @@ TASK_TYPE: SINGLE_TASK
 read_image: True # You NEED Open It
 ENABLE: true
 DATASET: webvid10m
-video_compositions: ['text', 'mask', 'depthmap', 'sketch', 'motion', 'image', 'local_image', 'single_sketch']
+#video_compositions: ['text', 'mask', 'depthmap', 'sketch', 'motion', 'image', 'local_image', 'single_sketch']
+video_compositions: ['text', 'motion', 'image', 'local_image']
 guidances: ['y', 'local_image', 'motion'] # You NEED Open It
 batch_sizes: {
     "1": 1,
@@ -18,6 +19,6 @@ seed: 182
 num_workers: 0
 mvs_visual: False
 chunk_size: 1
-resume_checkpoint: "non_ema_228000.pth"
+resume_checkpoint: "non_ema_228000.ckpt"
 log_dir: 'outputs'
 num_steps: 1

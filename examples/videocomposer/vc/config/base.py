@@ -5,9 +5,9 @@ from easydict import EasyDict
 cfg = EasyDict(__name__="Config: VideoComposer")
 
 cfg.video_compositions = ["text", "mask", "depthmap", "sketch", "motion", "image", "local_image", "single_sketch"]
-cfg.midas_checkpoint = "midas_v3_dpt_large.pth"
-cfg.pidinet_checkpoint = "table5_pidinet.pth"
-cfg.sketch_simplification_checkpoint = "sketch_simplification_gan.pth"
+cfg.midas_checkpoint = "midas_v3_dpt_large.ckpt"
+cfg.pidinet_checkpoint = "table5_pidinet.ckpt"
+cfg.sketch_simplification_checkpoint = "sketch_simplification_gan.ckpt"
 
 # dataset
 cfg.root_dir = "webvid10m/"

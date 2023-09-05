@@ -1,4 +1,5 @@
 import math
+import types
 import os
 from functools import partial
 from typing import Any, Optional
@@ -28,7 +29,8 @@ def exists(x):
 def default(val, d):
     if exists(val):
         return val
-    return d() if callable(d) else d
+    
+    return d() if isinstance(d, types.FunctionType) else d
 
 
 def sinusoidal_embedding(timesteps, dim):
@@ -140,7 +142,8 @@ class RelativePositionBias(nn.Cell):
 
 class GroupNorm(nn.GroupNorm):
     def __init__(self, num_groups, num_channels, eps=1e-5, affine=True):
-        super().__init__(num_groups=num_groups, num_channels=num_channels, eps=eps, affine=affine)
+        #super().__init__(num_groups=num_groups, num_channels=num_channels, eps=eps, affine=affine) # TODO: not compatible for graph mode
+        super().__init__(num_groups=32, num_channels=num_channels, eps=eps, affine=affine)
 
     def construct(self, x):
         x_shape = x.shape
@@ -286,9 +289,9 @@ class CrossAttention(nn.Cell):
 
         def rearrange_qkv(tensor):
             # b n (h d) -> b n h d -> b h n d -> (b h) n d
-            tensor = ops.reshape(tensor, (*tensor.shape[:2], h, tensor.shape[2] // h))
+            tensor = ops.reshape(tensor, (tensor.shape[0], tensor.shape[1], h, tensor.shape[2] // h))
             tensor = ops.transpose(tensor, (0, 2, 1, 3))
-            tensor = ops.reshape(tensor, (-1, *tensor.shape[2:]))
+            tensor = ops.reshape(tensor, (-1, tensor.shape[2], tensor.shape[3]))
             return tensor
 
         q, k, v = map(lambda t: rearrange_qkv(t), (q, k, v))
@@ -310,9 +313,9 @@ class CrossAttention(nn.Cell):
 
         out = ops.bmm(sim, v)
         # (b h) n d -> b h n d -> b n h d -> b n (h d)
-        out = ops.reshape(out, (out.shape[0] // h, h, *out.shape[1:]))
+        out = ops.reshape(out, (out.shape[0] // h, h, out.shape[1], out.shape[2]))
         out = ops.transpose(out, (0, 2, 1, 3))
-        out = ops.reshape(out, (*out.shape[:2], -1))
+        out = ops.reshape(out, (out.shape[0], out.shape[1], -1))
         return self.to_out(out)
 
 
@@ -343,12 +346,13 @@ class Attention(nn.Cell):
         )
 
     def construct(self, x):
-        b, n, _, h = *x.shape, self.heads  # noqa
+        b, n, _ = x.shape
+        h = self.heads  # noqa
         qkv = self.to_qkv(x).chunk(3, axis=-1)
 
         def rearrange_qkv(tensor: ms.Tensor):
             # b n (h d) -> b n h d -> b h n d
-            tensor = ops.reshape(tensor, (*tensor.shape[:2], h, tensor.shape[2] // h))
+            tensor = ops.reshape(tensor, (tensor.shape[0], tensor.shape[1], h, tensor.shape[2] // h))
             tensor = ops.transpose(tensor, (0, 2, 1, 3))
             return tensor
 
@@ -361,7 +365,7 @@ class Attention(nn.Cell):
         out = ops.bmm(attn, v)
         # b h n d -> b n h d -> b n (h d)
         out = ops.transpose(out, (0, 2, 1, 3))
-        out = ops.reshape(out, (*out.shape[:2], -1))
+        out = ops.reshape(out, (out.shape[0], out.shape[1], -1))
         return self.to_out(out)
 
 
@@ -524,7 +528,7 @@ class SpatialTransformer(nn.Cell):
             x = self.proj_out(x)
         # b (h w) c -> b c (h w) -> b c h w
         x = ops.transpose(x, (0, 2, 1))
-        x = ops.reshape(x, (*x.shape[:2], h, w))
+        x = ops.reshape(x, (x.shape[0], x.shape[1], h, w))
         if not self.use_linear:
             x = self.proj_out(x)
         return x + x_in
@@ -608,14 +612,14 @@ class TemporalTransformer(nn.Cell):
         if not self.use_linear:
             # b c f h w -> b h w c f -> (b h w) c f
             x = ops.transpose(x, (0, 3, 4, 1, 2))
-            x = ops.reshape(x, (-1, *x.shape[3:]))
+            x = ops.reshape(x, (-1, x.shape[3], x.shape[4]))
             x = self.proj_in(x)
         # [16384, 16, 320]
         if self.use_linear:
             # (b f) c h w -> b f c h w -> b h w f c -> b (h w) f c
-            x = ops.reshape(x, (x.shape[0] // self.frames, self.frames, *x.shape[1:]))  # todo: wtf frames
+            x = ops.reshape(x, (x.shape[0] // self.frames, self.frames, x.shape[1], x.shape[2], x.shape[3]))  # todo: wtf frames
             x = ops.transpose(x, (0, 3, 4, 1, 2))
-            x = ops.reshape(x, (x.shape[0], -1, *x.shape[3:]))
+            x = ops.reshape(x, (x.shape[0], -1, x.shape[3], x.shape[4]))
             x = self.proj_in(x)
 
         if self.only_self_att:
@@ -623,16 +627,16 @@ class TemporalTransformer(nn.Cell):
             for i, block in enumerate(self.transformer_blocks):
                 x = block(x)
             # (b hw) f c -> b hw f c
-            x = ops.reshape(x, (b, x.shape[0] // b, *x.shape[1:]))
+            x = ops.reshape(x, (b, x.shape[0] // b, x.shape[1], x.shape[2]))
         else:
             # (b hw) c f -> b hw f c
-            x = ops.reshape(x, (b, x.shape[0] // b, *x.shape[1:]))
+            x = ops.reshape(x, (b, x.shape[0] // b, x.shape[1], x.shape[2]))
             x = ops.transpose(x, (0, 1, 3, 2))
             for i, block in enumerate(self.transformer_blocks):
                 # context[i] = repeat(context[i], '(b f) l con -> b (f r) l con', r=(h*w)//self.frames, f=self.frames)
                 # (b f) l con -> b f l con
                 context[i] = ops.reshape(
-                    context[i], (context[i].shape[0] // self.frames, self.frames, *context[i].shape[1:])
+                    context[i], (context[i].shape[0] // self.frames, self.frames, context[i].shape[1], context[i].shape[2])
                 )  # todo: wtf frames
                 # calculate each batch one by one (since number in shape could not greater than 65,535 for some package)
                 for j in range(b):
@@ -642,15 +646,15 @@ class TemporalTransformer(nn.Cell):
         if self.use_linear:
             x = self.proj_out(x)
             # b (h w) f c -> b h w f c -> b f c h w
-            x = ops.reshape(x, (x.shape[0], h, w, *x.shape[2:]))
+            x = ops.reshape(x, (x.shape[0], h, w, x.shape[2], x.shape[3]))
             x = ops.transpose(x, (0, 3, 4, 1, 2))
         if not self.use_linear:
             # b hw f c -> (b hw) f c -> (b hw) c f
-            x = ops.reshape(x, (-1, *x.shape[2:]))
+            x = ops.reshape(x, (-1, x.shape[2], x.shape[3]))
             x = ops.transpose(x, (0, 2, 1))
             x = self.proj_out(x)
             # (b h w) c f -> b h w c f -> b c f h w
-            x = ops.reshape(x, (b, h, w, *x.shape[1:]))
+            x = ops.reshape(x, (b, h, w, x.shape[1], x.shape[2]))
             x = ops.transpose(x, (0, 3, 4, 1, 2))
 
         if self.multiply_zero:
@@ -687,7 +691,7 @@ class TemporalAttentionBlock(nn.Cell):
 
         x = self.norm(x)
         # b c f h w -> b c f (h w) -> b (h w) f c
-        x = ops.reshape(x, (*x.shape[:3], -1))
+        x = ops.reshape(x, (x.shape[0], x.shape[1], x.shape[2], -1))
         x = ops.transpose(x, (0, 3, 2, 1))
 
         qkv = self.to_qkv(x).chunk(3, axis=-1)
@@ -698,7 +702,7 @@ class TemporalAttentionBlock(nn.Cell):
             values = qkv[-1]
             out = self.to_out(values)
             # b (h w) f c -> b h w f c -> b c f h w
-            out = ops.reshape(out, (out.shape[0], height, out.shape[1] // height, *out.shape[2:]))
+            out = ops.reshape(out, (out.shape[0], height, out.shape[1] // height, out.shape[2], out.shape[3]))
             out = ops.transpose(out, (0, 4, 3, 1, 2))
 
             return out + identity
@@ -707,11 +711,12 @@ class TemporalAttentionBlock(nn.Cell):
         # ... n (h d) -> ... n h d -> ... h n d
         q, k, v = qkv[0], qkv[1], qkv[2]
         permute_idx = tuple(range(q.ndim - 3)) + (q.ndim - 2, q.ndim - 3, q.ndim - 1)
-        q = ops.reshape(q, (*q.shape[:-1], self.heads, q.shape[-1] // self.heads))
+        print("D--, q shape: ", q.shape)
+        q = ops.reshape(q, (q.shape[0], q.shape[1], q.shape[2], self.heads, q.shape[-1] // self.heads))
         q = ops.transpose(q, permute_idx)
-        k = ops.reshape(k, (*k.shape[:-1], self.heads, k.shape[-1] // self.heads))
+        k = ops.reshape(k, (k.shape[0], k.shape[1], k.shape[2], self.heads, k.shape[-1] // self.heads))
         k = ops.transpose(k, permute_idx)
-        v = ops.reshape(v, (*v.shape[:-1], self.heads, v.shape[-1] // self.heads))
+        v = ops.reshape(v, (v.shape[0], v.shape[1], v.shape[2], self.heads, v.shape[-1] // self.heads))
         v = ops.transpose(v, permute_idx)
 
         # scale
@@ -741,9 +746,9 @@ class TemporalAttentionBlock(nn.Cell):
 
             mask = ops.where(
                 ops.reshape(focus_present_mask, (-1, 1, 1, 1, 1)),
-                ops.reshape(attend_self_mask, (1, 1, 1, *attend_self_mask.shape)),
-                ops.reshape(attend_all_mask, (1, 1, 1, *attend_all_mask.shape)),
-            )
+                ops.reshape(attend_self_mask, (1, 1, 1, attend_self_mask.shape[0], attend_self_mask.shape[1])),
+                ops.reshape(attend_all_mask, (1, 1, 1, attend_all_mask.shape[0], attend_all_mask.shape[1])),
+                ) # TODO: check shape
 
             sim = sim.masked_fill(~mask, -np.finfo(ms.dtype_to_nptype(sim.dtype)).max)
 
@@ -760,11 +765,11 @@ class TemporalAttentionBlock(nn.Cell):
         # ... h n d -> ... n h d -> ... n (h d)
         permute_idx = tuple(range(out.ndim - 3)) + (out.ndim - 2, out.ndim - 3, out.ndim - 1)
         out = ops.transpose(out, permute_idx)
-        out = ops.reshape(out, (*out.shape[:-2], -1))
+        out = ops.reshape(out, (out.shape[0], out.shape[1], out.shape[2], -1))
         out = self.to_out(out)
 
         # b (h w) f c -> b h w f c -> b c f h w
-        out = ops.reshape(out, (out.shape[0], height, out.shape[1] // height, *out.shape[2:]))
+        out = ops.reshape(out, (out.shape[0], height, out.shape[1] // height, out.shape[2], out.shape[3]))
         out = ops.transpose(out, (0, 4, 3, 1, 2))
 
         if self.use_image_dataset:
@@ -1155,13 +1160,13 @@ class ResBlock(nn.Cell):
 
         if self.use_temporal_conv:
             # (b f) c h w -> b f c h w -> b c f h w
-            h = ops.reshape(h, (batch_size, h.shape[0] // batch_size, *h.shape[1:]))
+            h = ops.reshape(h, (batch_size, h.shape[0] // batch_size, h.shape[1], h.shape[2], h.shape[3]))
             h = ops.transpose(h, (0, 2, 1, 3, 4))
             h = self.temporal_conv(h)
             # h = self.temporal_conv_2(h)
             # 'b c f h w -> b f c h w -> (b f) c h w
             h = ops.transpose(h, (0, 2, 1, 3, 4))
-            h = ops.reshape(h, (-1, *h.shape[2:]))
+            h = ops.reshape(h, (-1, h.shape[2], h.shape[3], h.shape[4]))
         return h
 
 
@@ -1251,6 +1256,7 @@ class UNetSD_temporal(nn.Cell):
         self.pre_image_condition = nn.SequentialCell(nn.Dense(1024, 1024), nn.SiLU(), nn.Dense(1024, 1024))
 
         # depth embedding
+        self.use_depth = False
         if "depthmap" in self.video_compositions:
             self.depth_embedding = nn.SequentialCell(
                 nn.Conv2d(1, concat_dim * 4, 3, pad_mode="pad", padding=1, has_bias=True),
@@ -1270,7 +1276,9 @@ class UNetSD_temporal(nn.Cell):
                 dropout_ffn=0.05,
                 depth=adapter_transformer_layers,
             )
-
+            self.use_depth = True
+    
+        self.use_motion = False
         if "motion" in self.video_compositions:
             self.motion_embedding = nn.SequentialCell(
                 nn.Conv2d(2, concat_dim * 4, 3, pad_mode="pad", padding=1, has_bias=True),
@@ -1290,9 +1298,12 @@ class UNetSD_temporal(nn.Cell):
                 dropout_ffn=0.05,
                 depth=adapter_transformer_layers,
             )
+            self.use_motion = True 
 
         # canny embedding
+        self.use_canny = False 
         if "canny" in self.video_compositions:
+            self.use_canny = True 
             self.canny_embedding = nn.SequentialCell(
                 nn.Conv2d(1, concat_dim * 4, 3, pad_mode="pad", padding=1, has_bias=True),
                 nn.SiLU(),
@@ -1313,7 +1324,9 @@ class UNetSD_temporal(nn.Cell):
             )
 
         # masked-image embedding
+        self.use_mask = False 
         if "mask" in self.video_compositions:
+            self.use_mask = True 
             self.masked_embedding = (
                 nn.SequentialCell(
                     nn.Conv2d(4, concat_dim * 4, 3, pad_mode="pad", padding=1, has_bias=True),
@@ -1338,7 +1351,9 @@ class UNetSD_temporal(nn.Cell):
             )
 
         # sketch embedding
+        self.use_sketch = False
         if "sketch" in self.video_compositions:
+            self.use_sketch = True 
             self.sketch_embedding = nn.SequentialCell(
                 nn.Conv2d(1, concat_dim * 4, 3, pad_mode="pad", padding=1, has_bias=True),
                 nn.SiLU(),
@@ -1358,7 +1373,9 @@ class UNetSD_temporal(nn.Cell):
                 depth=adapter_transformer_layers,
             )
 
+        self.use_single_sketch = False
         if "single_sketch" in self.video_compositions:
+            self.use_single_sketch = True 
             self.single_sketch_embedding = nn.SequentialCell(
                 nn.Conv2d(1, concat_dim * 4, 3, pad_mode="pad", padding=1, has_bias=True),
                 nn.SiLU(),
@@ -1377,8 +1394,10 @@ class UNetSD_temporal(nn.Cell):
                 dropout_ffn=0.05,
                 depth=adapter_transformer_layers,
             )
-
+        
+        self.use_local_image = False
         if "local_image" in self.video_compositions:
+            self.use_local_image = True 
             self.local_image_embedding = nn.SequentialCell(
                 nn.Conv2d(3, concat_dim * 4, 3, pad_mode="pad", padding=1, has_bias=True),
                 nn.SiLU(),
@@ -1421,12 +1440,25 @@ class UNetSD_temporal(nn.Cell):
         # init_block = [nn.Conv2d(self.in_dim + concat_dim, dim, 3, padding=1)]
         if cfg.resume:
             self.pre_image = nn.SequentialCell()
-            init_block = [nn.Conv2d(self.in_dim + concat_dim, dim, 3, pad_mode="pad", padding=1, has_bias=True)]
+            '''
+            init_block = [
+                            nn.CellList(
+                                [
+                                    nn.Conv2d(self.in_dim + concat_dim, dim, 3, pad_mode="pad", padding=1, has_bias=True)
+                                ]
+                            )
+                        ]
+            '''
+            init_block = [
+                    nn.Conv2d(self.in_dim + concat_dim, dim, 3, pad_mode="pad", padding=1, has_bias=True)
+                    ]
         else:
             self.pre_image = nn.SequentialCell(
                 nn.Conv2d(self.in_dim + concat_dim, self.in_dim, 1, padding=0, has_bias=True)
             )
-            init_block = [nn.Conv2d(self.in_dim, dim, 3, pad_mode="pad", padding=1, has_bias=True)]
+            init_block = [
+                    nn.Conv2d(self.in_dim, dim, 3, pad_mode="pad", padding=1, has_bias=True)
+                        ]
 
         # need an initial temporal attention?
         if temporal_attention:
@@ -1519,8 +1551,9 @@ class UNetSD_temporal(nn.Cell):
                     shortcut_dims.append(out_dim)
                     scale /= 2.0
                     # block.append(TemporalConvBlockV1(out_dim,dropout=dropout,use_image_dataset=use_image_dataset))
-                    input_blocks.append(downsample)
-        self.input_blocks = nn.SequentialCell(input_blocks)
+                    input_blocks.append(nn.CellList([downsample])) # TODO: wrap to cell list for graph mode 
+        #self.input_blocks = nn.SequentialCell(input_blocks) # TODO: why make it sequential cell? since we will run it block by block
+        self.input_blocks = nn.CellList(input_blocks) # TODO: cell list for graph mode
 
         # middle
         middle_block = [
@@ -1693,7 +1726,7 @@ class UNetSD_temporal(nn.Cell):
         assert self.inpainting or masked is None, "inpainting is not supported"
 
         batch, c, f, h, w = x.shape
-        self.batch = batch
+        #self.batch = batch # not supported in graph mode
 
         # image and video joint training, if mask_last_frame_num is set, prob_focus_present will be ignored
         if mask_last_frame_num > 0:
@@ -1726,36 +1759,37 @@ class UNetSD_temporal(nn.Cell):
             # DropPath mask
             # b c f h w -> b f c h w -> (b f) c h w
             depth = ops.transpose(depth, (0, 2, 1, 3, 4))
-            depth = ops.reshape(depth, (-1, *depth.shape[2:]))
+            depth = ops.reshape(depth, (-1, depth.shape[2], depth.shape[2], depth.shape[4]))
             depth = self.depth_embedding(depth)
             h = depth.shape[2]
             # (b f) c h w -> b f c h w -> b h w f c -> (b h w) f c
-            depth = ops.reshape(depth, (batch, depth.shape[0] // batch, *depth.shape[1:]))
+            depth = ops.reshape(depth, (batch, depth.shape[0] // batch, depth.shape[1], depth.shape[2], depth.shape[3]))
             depth = ops.transpose(depth, (0, 3, 4, 1, 2))
-            depth = ops.reshape(depth, (-1, *depth.shape[3:]))
+            depth = ops.reshape(depth, (-1, depth.shape[3], depth.shape[4]))
             depth = self.depth_embedding_after(depth)
 
             # (b h w) f c -> b h w f c -> b c f h w
-            depth = ops.reshape(depth, (batch, h, depth.shape[0] // (batch * h), *depth.shape[1:]))
+            depth = ops.reshape(depth, (batch, h, depth.shape[0] // (batch * h), depth.shape[1], depth.shape[2]))
             depth = ops.transpose(depth, (0, 4, 3, 1, 2))
             concat = concat + misc_dropout(depth)
+        #TODO: add else concat = concat? for graph mode?
 
         # local_image_embedding
         if local_image is not None:
             # b c f h w -> b f c h w -> (b f) c h w
             local_image = ops.transpose(local_image, (0, 2, 1, 3, 4))
-            local_image = ops.reshape(local_image, (-1, *local_image.shape[2:]))
+            local_image = ops.reshape(local_image, (-1, local_image.shape[2], local_image.shape[3], local_image.shape[4]))
             local_image = self.local_image_embedding(local_image)
 
             h = local_image.shape[2]
             # (b f) c h w -> b f c h w -> b h w f c -> (b h w) f c
-            local_image = ops.reshape(local_image, (batch, local_image.shape[0] // batch, *local_image.shape[1:]))
+            local_image = ops.reshape(local_image, (batch, local_image.shape[0] // batch, local_image.shape[1], local_image.shape[2], local_image.shape[3]))
             local_image = ops.transpose(local_image, (0, 3, 4, 1, 2))
-            local_image = ops.reshape(local_image, (-1, *local_image.shape[3:]))
+            local_image = ops.reshape(local_image, (-1, local_image.shape[3],local_image.shape[4] ))
             local_image = self.local_image_embedding_after(local_image)
             # (b h w) f c -> b h w f c -> b c f h w
             local_image = ops.reshape(
-                local_image, (batch, h, local_image.shape[0] // (batch * h), *local_image.shape[1:])
+                local_image, (batch, h, local_image.shape[0] // (batch * h), local_image.shape[1], local_image.shape[2])
             )
             local_image = ops.transpose(local_image, (0, 4, 3, 1, 2))
             concat = concat + misc_dropout(local_image)
@@ -1763,17 +1797,17 @@ class UNetSD_temporal(nn.Cell):
         if motion is not None:
             # b c f h w -> b f c h w -> (b f) c h w
             motion = ops.transpose(motion, (0, 2, 1, 3, 4))
-            motion = ops.reshape(motion, (-1, *motion.shape[2:]))
+            motion = ops.reshape(motion, (-1, motion.shape[2], motion.shape[3], motion.shape[4]))
             motion = self.motion_embedding(motion)
 
             h = motion.shape[2]
             # (b f) c h w -> b f c h w -> b h w f c -> (b h w) f c
-            motion = ops.reshape(motion, (batch, motion.shape[0] // batch, *motion.shape[1:]))
+            motion = ops.reshape(motion, (batch, motion.shape[0] // batch, motion.shape[1], motion.shape[2], motion.shape[3]))
             motion = ops.transpose(motion, (0, 3, 4, 1, 2))
-            motion = ops.reshape(motion, (-1, *motion.shape[3:]))
+            motion = ops.reshape(motion, (-1, motion.shape[3], motion.shape[4]))
             motion = self.motion_embedding_after(motion)
             # (b h w) f c -> b h w f c -> b c f h w
-            motion = ops.reshape(motion, (batch, h, motion.shape[0] // (batch * h), *motion.shape[1:]))
+            motion = ops.reshape(motion, (batch, h, motion.shape[0] // (batch * h), motion.shape[1], motion.shape[2]))
             motion = ops.transpose(motion, (0, 4, 3, 1, 2))
 
             if hasattr(self.cfg, "p_zero_motion_alone") and self.cfg.p_zero_motion_alone and self.training:
@@ -1788,17 +1822,17 @@ class UNetSD_temporal(nn.Cell):
             # DropPath mask
             # b c f h w -> b f c h w -> (b f) c h w
             canny = ops.transpose(canny, (0, 2, 1, 3, 4))
-            canny = ops.reshape(canny, (-1, *canny.shape[2:]))
+            canny = ops.reshape(canny, (-1, canny.shape[2], canny.shape[3], canny.shape[4]))
             canny = self.canny_embedding(canny)
 
             h = canny.shape[2]
             # (b f) c h w -> b f c h w -> b h w f c -> (b h w) f c
-            canny = ops.reshape(canny, (batch, canny.shape[0] // batch, *canny.shape[1:]))
+            canny = ops.reshape(canny, (batch, canny.shape[0] // batch, canny.shape[1], canny.shape[2], canny.shape[3]))
             canny = ops.transpose(canny, (0, 3, 4, 1, 2))
-            canny = ops.reshape(canny, (-1, *canny.shape[3:]))
+            canny = ops.reshape(canny, (-1, canny.shape[3], canny.shape[4]))
             canny = self.canny_embedding_after(canny)
             # (b h w) f c -> b h w f c -> b c f h w
-            canny = ops.reshape(canny, (batch, h, canny.shape[0] // (batch * h), *canny.shape[1:]))
+            canny = ops.reshape(canny, (batch, h, canny.shape[0] // (batch * h), canny.shape[1], canny.shape[2]))
             canny = ops.transpose(canny, (0, 4, 3, 1, 2))
             concat = concat + misc_dropout(canny)
 
@@ -1806,17 +1840,17 @@ class UNetSD_temporal(nn.Cell):
             # DropPath mask
             # b c f h w -> b f c h w -> (b f) c h w
             sketch = ops.transpose(sketch, (0, 2, 1, 3, 4))
-            sketch = ops.reshape(sketch, (-1, *sketch.shape[2:]))
+            sketch = ops.reshape(sketch, (-1, sketch.shape[2], sketch.shape[3], sketch.shape[4]))
             sketch = self.sketch_embedding(sketch)
 
             h = sketch.shape[2]
             # (b f) c h w -> b f c h w -> b h w f c -> (b h w) f c
-            sketch = ops.reshape(sketch, (batch, sketch.shape[0] // batch, *sketch.shape[1:]))
+            sketch = ops.reshape(sketch, (batch, sketch.shape[0] // batch, sketch.shape[1], sketch.shape[2], sketch.shape[3]))
             sketch = ops.transpose(sketch, (0, 3, 4, 1, 2))
-            sketch = ops.reshape(sketch, (-1, *sketch.shape[3:]))
+            sketch = ops.reshape(sketch, (-1, sketch.shape[3], sketch.shape[4]))
             sketch = self.sketch_embedding_after(sketch)
             # (b h w) f c -> b h w f c -> b c f h w
-            sketch = ops.reshape(sketch, (batch, h, sketch.shape[0] // (batch * h), *sketch.shape[1:]))
+            sketch = ops.reshape(sketch, (batch, h, sketch.shape[0] // (batch * h), sketch.shape[1], sketch.shape[2]))
             sketch = ops.transpose(sketch, (0, 4, 3, 1, 2))
             concat = concat + misc_dropout(sketch)
 
@@ -1824,20 +1858,20 @@ class UNetSD_temporal(nn.Cell):
             # DropPath mask
             # b c f h w -> b f c h w -> (b f) c h w
             single_sketch = ops.transpose(single_sketch, (0, 2, 1, 3, 4))
-            single_sketch = ops.reshape(single_sketch, (-1, *single_sketch.shape[2:]))
+            single_sketch = ops.reshape(single_sketch, (-1, single_sketch.shape[2], single_sketch.shape[3], single_sketch.shape[4]))
             single_sketch = self.single_sketch_embedding(single_sketch)
 
             h = single_sketch.shape[2]
             # (b f) c h w -> b f c h w -> b h w f c -> (b h w) f c
             single_sketch = ops.reshape(
-                single_sketch, (batch, single_sketch.shape[0] // batch, *single_sketch.shape[1:])
+                single_sketch, (batch, single_sketch.shape[0] // batch, single_sketch.shape[1], single_sketch.shape[2], single_sketch.shape[3])
             )
             single_sketch = ops.transpose(single_sketch, (0, 3, 4, 1, 2))
-            single_sketch = ops.reshape(single_sketch, (-1, *single_sketch.shape[3:]))
+            single_sketch = ops.reshape(single_sketch, (-1, single_sketch.shape[3], single_sketch.shape[4]))
             single_sketch = self.single_sketch_embedding_after(single_sketch)
             # (b h w) f c -> b h w f c -> b c f h w
             single_sketch = ops.reshape(
-                single_sketch, (batch, h, single_sketch.shape[0] // (batch * h), *single_sketch.shape[1:])
+                single_sketch, (batch, h, single_sketch.shape[0] // (batch * h), single_sketch.shape[1], single_sketch.shape[2])
             )
             single_sketch = ops.transpose(single_sketch, (0, 4, 3, 1, 2))
             concat = concat + misc_dropout(single_sketch)
@@ -1846,29 +1880,30 @@ class UNetSD_temporal(nn.Cell):
             # DropPath mask
             # b c f h w -> b f c h w -> (b f) c h w
             masked = ops.transpose(masked, (0, 2, 1, 3, 4))
-            masked = ops.reshape(masked, (-1, *masked.shape[2:]))
+            masked = ops.reshape(masked, (-1, masked.shape[2], masked.shape[3], masked.shape[4]))
             masked = self.masked_embedding(masked)
 
             h = masked.shape[2]
             # (b f) c h w -> b f c h w -> b h w f c -> (b h w) f c
-            masked = ops.reshape(masked, (batch, masked.shape[0] // batch, *masked.shape[1:]))
+            masked = ops.reshape(masked, (batch, masked.shape[0] // batch, masked.shape[1], masked.shape[2], masked.shape[3]))
             masked = ops.transpose(masked, (0, 3, 4, 1, 2))
-            masked = ops.reshape(masked, (-1, *masked.shape[3:]))
+            masked = ops.reshape(masked, (-1, masked.shape[3], masked.shape[4]))
             masked = self.mask_embedding_after(masked)
             # (b h w) f c -> b h w f c -> b c f h w
-            masked = ops.reshape(masked, (batch, h, masked.shape[0] // (batch * h), *masked.shape[1:]))
+            masked = ops.reshape(masked, (batch, h, masked.shape[0] // (batch * h), masked.shape[1], masked.shape[2]))
             masked = ops.transpose(masked, (0, 4, 3, 1, 2))
             concat = concat + misc_dropout(masked)
 
         x = ops.cat([x, concat], axis=1)
         # b c f h w -> b f c h w -> (b f) c h w
         x = ops.transpose(x, (0, 2, 1, 3, 4))
-        x = ops.reshape(x, (-1, *x.shape[2:]))
+        x = ops.reshape(x, (-1, x.shape[2], x.shape[3], x.shape[4]))
         x = self.pre_image(x)
         # (b f) c h w -> b f c h w -> b c f h w
-        x = ops.reshape(x, (batch, x.shape[0] // batch, *x.shape[1:]))
+        x = ops.reshape(x, (batch, x.shape[0] // batch, x.shape[1], x.shape[2], x.shape[3]))
         x = ops.transpose(x, (0, 2, 1, 3, 4))
 
+        print("D--: reshape" )
         # embeddings
         if self.use_fps_condition and fps is not None:
             e = self.time_embed(sinusoidal_embedding(t, self.dim)) + self.fps_embedding(
@@ -1899,17 +1934,26 @@ class UNetSD_temporal(nn.Cell):
         # always in shape (b f) c h w, except for temporal layer
         # b c f h w -> b f c h w -> (b f) c h w
         x = ops.transpose(x, (0, 2, 1, 3, 4))
-        x = ops.reshape(x, (-1, *x.shape[2:]))
+        x = ops.reshape(x, (-1, x.shape[2], x.shape[3], x.shape[4]))
+        print("D--: emb " )
+
         # encoder
         xs = []
-        for block in self.input_blocks:
-            x = self._forward_single(block, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask)
+        # TODO: refer to SD writing, use two for loop, avoid recursive func
+        for i, celllist in enumerate(self.input_blocks, 1):
+            print('D--: input block ', i)
+            for block in celllist:
+                x = self._forward_single(block, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask, batch=batch)
             xs.append(x)
 
+            # TODO: why miss if features_adapter and i % 3 == 0: ?
+        
+        print("D--: enc " )
         # middle
         for block in self.middle_block:
-            x = self._forward_single(block, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask)
+            x = self._forward_single(block, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask, batch=batch)
 
+        print("D--: mid " )
         # decoder
         for block in self.output_blocks:
             x = ops.cat([x, xs.pop()], axis=1)
@@ -1922,34 +1966,38 @@ class UNetSD_temporal(nn.Cell):
                 focus_present_mask,
                 video_mask,
                 reference=xs[-1] if len(xs) > 0 else None,
+                batch=batch,
             )
 
+        print("D--: dec" )
         # head
         x = self.out(x)
 
+        print("D--: out" )
         # reshape back to (b c f h w)
         # (b f) c h w -> b f c h w -> b c f h w
-        x = ops.reshape(x, (batch, x.shape[0] // batch, *x.shape[1:]))
+        x = ops.reshape(x, (batch, x.shape[0] // batch, x.shape[1], x.shape[2], x.shape[3]))
         x = ops.transpose(x, (0, 2, 1, 3, 4))
         return x
-
-    def _forward_single(self, module, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask, reference=None):
+    
+    #@ms.jit # TODO: add jit after debug
+    def _forward_single(self, module, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask, reference=None, batch=1):
         if self.use_checkpoint:
             raise NotImplementedError("Activation checkpointing is not supported for now!")
         if isinstance(module, ResidualBlock):
             x = module(x, e, reference)
         elif isinstance(module, ResBlock):
-            x = module(x, e, self.batch)
+            x = module(x, e, batch)
         elif isinstance(module, SpatialTransformer):
             x = module(x, context)
         elif isinstance(module, TemporalTransformer):
             # (b f) c h w -> b f c h w -> b c f h w
-            x = ops.reshape(x, (self.batch, x.shape[0] // self.batch, *x.shape[1:]))
+            x = ops.reshape(x, (batch, x.shape[0] // batch, x.shape[1], x.shape[2], x.shape[3]))
             x = ops.transpose(x, (0, 2, 1, 3, 4))
             x = module(x, context)
             # b c f h w -> b f c h w -> (b f) c h w
             x = ops.transpose(x, (0, 2, 1, 3, 4))
-            x = ops.reshape(x, (-1, *x.shape[2:]))
+            x = ops.reshape(x, (-1, x.shape[2], x.shape[3], x.shape[4]))
         elif isinstance(module, CrossAttention):
             x = module(x, context)
         elif isinstance(module, MemoryEfficientCrossAttention):
@@ -1966,40 +2014,41 @@ class UNetSD_temporal(nn.Cell):
             x = module(x, reference)
         elif isinstance(module, TemporalAttentionBlock):
             # (b f) c h w -> b f c h w -> b c f h w
-            x = ops.reshape(x, (self.batch, x.shape[0] // self.batch, *x.shape[1:]))
+            x = ops.reshape(x, (batch, x.shape[0] // batch, x.shape[1], x.shape[2], x.shape[3]))
             x = ops.transpose(x, (0, 2, 1, 3, 4))
             x = module(x, time_rel_pos_bias, focus_present_mask, video_mask)
             # b c f h w -> b f c h w -> (b f) c h w
             x = ops.transpose(x, (0, 2, 1, 3, 4))
-            x = ops.reshape(x, (-1, *x.shape[2:]))
+            x = ops.reshape(x, (-1, x.shape[2], x.shape[3], x.shape[4]))
         elif isinstance(module, TemporalAttentionMultiBlock):
             # (b f) c h w -> b f c h w -> b c f h w
-            x = ops.reshape(x, (self.batch, x.shape[0] // self.batch, *x.shape[1:]))
+            x = ops.reshape(x, (batch, x.shape[0] // batch, x.shape[1], x.shape[2], x.shape[3]))
             x = ops.transpose(x, (0, 2, 1, 3, 4))
             x = module(x, time_rel_pos_bias, focus_present_mask, video_mask)
             # b c f h w -> b f c h w -> (b f) c h w
             x = ops.transpose(x, (0, 2, 1, 3, 4))
-            x = ops.reshape(x, (-1, *x.shape[2:]))
+            x = ops.reshape(x, (-1, x.shape[2], x.shape[3], x.shape[4]))
         elif isinstance(module, TemporalConvBlockV0):
             # (b f) c h w -> b f c h w -> b c f h w
-            x = ops.reshape(x, (self.batch, x.shape[0] // self.batch, *x.shape[1:]))
+            x = ops.reshape(x, (batch, x.shape[0] // batch, x.shape[1], x.shape[2], x.shape[3]))
             x = ops.transpose(x, (0, 2, 1, 3, 4))
             x = module(x)
             # b c f h w -> b f c h w -> (b f) c h w
             x = ops.transpose(x, (0, 2, 1, 3, 4))
-            x = ops.reshape(x, (-1, *x.shape[2:]))
+            x = ops.reshape(x, (-1, x.shape[2], x.shape[3], x.shape[4]))
         elif isinstance(module, TemporalConvBlockV1):
             # (b f) c h w -> b f c h w -> b c f h w
-            x = ops.reshape(x, (self.batch, x.shape[0] // self.batch, *x.shape[1:]))
+            x = ops.reshape(x, (batch, x.shape[0] // batch, x.shape[1], x.shape[2], x.shape[3]))
             x = ops.transpose(x, (0, 2, 1, 3, 4))
             x = module(x)
             # b c f h w -> b f c h w -> (b f) c h w
             x = ops.transpose(x, (0, 2, 1, 3, 4))
-            x = ops.reshape(x, (-1, *x.shape[2:]))
+            x = ops.reshape(x, (-1, x.shape[2], x.shape[3], x.shape[4]))
         elif isinstance(module, nn.CellList):
+            print("D--: meet celllist: ", module)
             for block in module:
                 x = self._forward_single(
-                    block, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask, reference
+                    block, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask, reference, batch=batch,
                 )
         else:
             x = module(x)

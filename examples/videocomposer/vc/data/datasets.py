@@ -7,6 +7,9 @@ import numpy as np
 from PIL import Image
 
 from ..annotator.mask import make_irregular_mask, make_rectangle_mask, make_uncrop
+
+enable_motion = 1 #os.getenv("ENABLE_MOTION", default=1)
+
 from ..annotator.motion import extract_motion_vectors
 
 __all__ = [
@@ -63,6 +66,7 @@ class VideoDataset(object):
         video_key, cap_txt = self.video_cap_pairs[index]
 
         feature_framerate = self.feature_framerate
+        # TODO: allow output text only
         if os.path.exists(video_key):
             ref_frame, vit_image, video_data, misc_data, mv_data = self._get_video_train_data(
                 video_key, feature_framerate, self.cfg.mvs_visual

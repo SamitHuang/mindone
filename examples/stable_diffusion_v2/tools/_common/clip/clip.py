@@ -26,7 +26,7 @@ class CLIPModel(nn.Cell):
         config (CLIPConfig): The config of clip model, which could be obtained by CLIPConfig class.
     """
 
-    def __init__(self, config: CLIPConfig):
+    def __init__(self, config: CLIPConfig, pretrained=True):
         super().__init__()
         self.dtype = self.get_dtype(config.dtype)
         self.cross_entropy = nn.SoftmaxCrossEntropyWithLogits(reduction="mean", sparse=True)
@@ -78,8 +78,9 @@ class CLIPModel(nn.Cell):
         )
         self.logit_scale = Parameter(Tensor(np.log(1 / 0.07)).astype(self.dtype))
         self.exp = ops.Exp()
-
-        self.load_checkpoint(config)
+        
+        if pretrained:
+            self.load_checkpoint(config)
 
     def get_dtype(self, dtype: str):
         """Get_dtype"""
