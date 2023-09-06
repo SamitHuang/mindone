@@ -11,12 +11,12 @@ from ldm.util import count_params
 def test():
     from vc.config.base import cfg
 
-    ms.set_context(mode=1)
+    ms.set_context(mode=0)
 
     # [model] unet
 
     cfg.video_compositions = ["text"] #, "depthmap"]
-    cfg.temporal_attention = False # try disable temporal attn and check graph and time
+    cfg.temporal_attention = True # try disable temporal attn and check graph and time
 
     model = UNetSD_temporal(
             cfg=cfg,
@@ -45,6 +45,7 @@ def test():
             #black_image_feature=black_image_feature,
         )
     model = model.set_train(False).to_float(ms.float32)
+    model.load_state_dict("./model_weights/non_ema_228000.ckpt", text_to_video_pretrain=False)
 
     #print(int(sum(p.numel() for k, p in model.named_parameters()) / (1024**2)), "M parameters")
     num_params = count_params(model)[0]
@@ -52,20 +53,20 @@ def test():
     
     # prepare inputs
     batch, c, f, h, w = 1, 4, 16, 128//4, 128//4
-    latent_frames = np.ones([batch, c, f, h, w]) 
+    latent_frames = np.ones([batch, c, f, h, w])  / 2.0
     x_t = latent_frames = ms.Tensor(latent_frames)
 
     txt_emb_dim = cfg.unet_context_dim
     seq_len = 77
-    txt_emb = np.ones([batch, seq_len, txt_emb_dim]) 
+    txt_emb = np.ones([batch, seq_len, txt_emb_dim]) / 2.0
     y = txt_emb = ms.Tensor(txt_emb)
     
-    step = 10
+    step = 50
     t = ops.full((batch,), step, dtype=ms.int64) # [t, t, ...]
     
     noise = model(x_t, t, y)
 
-    print(noise.sum())
+    print(noise.max(), noise.min())
 
 if __name__=='__main__':
     test() 

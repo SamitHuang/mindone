@@ -992,7 +992,7 @@ class Resample(nn.Cell):
 
     def construct(self, x, reference=None):
         if self.mode == "upsample":
-            assert reference is not None
+            #assert reference is not None
             x = ops.interpolate(x, size=reference.shape[-2:], mode="nearest")
         elif self.mode == "downsample":
             x = ops.adaptive_avg_pool2d(x, output_size=tuple(u // 2 for u in x.shape[-2:]))
@@ -1945,29 +1945,34 @@ class UNetSD_temporal(nn.Cell):
             for block in celllist:
                 x = self._forward_single(block, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask, batch=batch)
             xs.append(x)
-
+            print("D--: input blocks xs: ", len(xs))
             # TODO: why miss if features_adapter and i % 3 == 0: ?
         
         print("D--: enc " )
         # middle
-        for block in self.middle_block:
-            x = self._forward_single(block, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask, batch=batch)
+        for module in self.middle_block:
+            x = self._forward_single(module, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask, batch=batch)
 
         print("D--: mid " )
         # decoder
-        for block in self.output_blocks:
-            x = ops.cat([x, xs.pop()], axis=1)
-            x = self._forward_single(
-                block,
-                x,
-                e,
-                context,
-                time_rel_pos_bias,
-                focus_present_mask,
-                video_mask,
-                reference=xs[-1] if len(xs) > 0 else None,
-                batch=batch,
-            )
+        for i, celllist in enumerate(self.output_blocks, 1):
+            print("D--: output block: ", i, "unconsumed input features: ", len(xs))
+            #x = ops.cat([x, xs.pop()], axis=1)
+            print("D--: xs[i], ", len(xs), type(xs[-i]))
+            x = ops.cat([x, xs[-i]], axis=1)
+            for block in celllist:  # 12 blocks in total
+                x = self._forward_single(
+                    block,
+                    x,
+                    e,
+                    context,
+                    time_rel_pos_bias,
+                    focus_present_mask,
+                    video_mask,
+                    #reference=xs[-1] if len(xs) > 0 else None,
+                    reference=xs[-i-1] if i<len(xs) else None,
+                    batch=batch,
+                )
 
         print("D--: dec" )
         # head
@@ -2044,12 +2049,12 @@ class UNetSD_temporal(nn.Cell):
             # b c f h w -> b f c h w -> (b f) c h w
             x = ops.transpose(x, (0, 2, 1, 3, 4))
             x = ops.reshape(x, (-1, x.shape[2], x.shape[3], x.shape[4]))
-        elif isinstance(module, nn.CellList):
-            print("D--: meet celllist: ", module)
-            for block in module:
-                x = self._forward_single(
-                    block, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask, reference, batch=batch,
-                )
+        #elif isinstance(module, nn.CellList):
+        #    print("D--: meet celllist: ", module)
+        #    for block in module:
+        #        x = self._forward_single(
+        #            block, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask, reference, batch=batch,
+        #        )
         else:
             x = module(x)
         return x
