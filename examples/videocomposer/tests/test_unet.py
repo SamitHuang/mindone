@@ -2,17 +2,52 @@ from vc.models import UNetSD_temporal
 import mindspore as ms
 from mindspore import ops
 import numpy as np
+from copy import deepcopy
+import difflib
+import time
 
 import sys
 sys.path.append("../stable_diffusion_v2/")
 from ldm.util import count_params
+from ldm.modules.train.tools import set_random_seed
+
+import logging
+logger = logging.getLogger(__name__)
+from ldm.modules.logger import set_logger
+
+set_logger(name="", output_dir="./tests")
+
+
+def auto_map(model, param_dict):
+    """Raname part of the param_dict such that names from checkpoint and model are consistent"""
+    updated_param_dict = deepcopy(param_dict)
+    net_param = model.get_parameters()
+    ckpt_param = list(updated_param_dict.keys())
+    remap = {}
+    for param in net_param:
+        if param.name not in ckpt_param:
+            logger.info(f'Cannot find a param to load: {param.name}')
+            poss = difflib.get_close_matches(param.name, ckpt_param, n=3, cutoff=0.6)
+            if len(poss) > 0:
+                logger.info(f'=> Find most matched param: {poss[0]},  loaded')
+                updated_param_dict[param.name] = updated_param_dict.pop(poss[0])  # replace
+                remap[param.name] = poss[0]
+            else:
+                raise ValueError('Cannot find any matching param from: ', ckpt_param)
+
+    if remap != {}:
+        logger.warning('Auto mapping succeed. Please check the found mapping names to ensure correctness')
+        logger.info('\tNet Param\t<---\tCkpt Param')
+        for k in remap:
+            logger.info(f'\t{k}\t<---\t{remap[k]}')
+    return updated_param_dict
 
 
 def test():
     from vc.config.base import cfg
 
+    set_random_seed(42)
     ms.set_context(mode=0)
-
     # [model] unet
 
     cfg.video_compositions = ["text"] #, "depthmap"]
@@ -45,14 +80,20 @@ def test():
             #black_image_feature=black_image_feature,
         )
     model = model.set_train(False).to_float(ms.float32)
-    model.load_state_dict("./model_weights/non_ema_228000.ckpt", text_to_video_pretrain=False)
+    ckpt_path = "./model_weights/non_ema_228000.ckpt"
+    #model.load_state_dict(ckpt_path, text_to_video_pretrain=False)
+    param_dict = ms.load_checkpoint(ckpt_path)
+    param_dict = auto_map(model, param_dict)
+    param_not_load, ckpt_not_load = ms.load_param_into_net(model, param_dict, strict_load=True)
+    print("Net params not load: ", param_not_load)
+    print("Ckpt params not used: ", ckpt_not_load)
 
     #print(int(sum(p.numel() for k, p in model.named_parameters()) / (1024**2)), "M parameters")
     num_params = count_params(model)[0]
     print("UNet params: {:,}".format(num_params))
     
     # prepare inputs
-    batch, c, f, h, w = 1, 4, 16, 128//4, 128//4
+    batch, c, f, h, w = 1, 4, 16, 128//8, 128//8
     latent_frames = np.ones([batch, c, f, h, w])  / 2.0
     x_t = latent_frames = ms.Tensor(latent_frames)
 
@@ -64,9 +105,17 @@ def test():
     step = 50
     t = ops.full((batch,), step, dtype=ms.int64) # [t, t, ...]
     
-    noise = model(x_t, t, y)
-
-    print(noise.max(), noise.min())
+    time_cost = []
+    trials = 3
+    for i in range(trials): 
+        s = time.time()
+        noise = model(x_t, t, y)
+        dur = time.time()-s
+        print("infer res: ", noise.max(), noise.min())
+        print("time cost: ", dur)
+        time_cost.append(dur)
+    
+    print("Time cost: ", time_cost)
 
 if __name__=='__main__':
     test() 

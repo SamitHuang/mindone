@@ -711,7 +711,7 @@ class TemporalAttentionBlock(nn.Cell):
         # ... n (h d) -> ... n h d -> ... h n d
         q, k, v = qkv[0], qkv[1], qkv[2]
         permute_idx = tuple(range(q.ndim - 3)) + (q.ndim - 2, q.ndim - 3, q.ndim - 1)
-        print("D--, q shape: ", q.shape)
+        #print("D--, q shape: ", q.shape)
         q = ops.reshape(q, (q.shape[0], q.shape[1], q.shape[2], self.heads, q.shape[-1] // self.heads))
         q = ops.transpose(q, permute_idx)
         k = ops.reshape(k, (k.shape[0], k.shape[1], k.shape[2], self.heads, k.shape[-1] // self.heads))
@@ -1903,7 +1903,7 @@ class UNetSD_temporal(nn.Cell):
         x = ops.reshape(x, (batch, x.shape[0] // batch, x.shape[1], x.shape[2], x.shape[3]))
         x = ops.transpose(x, (0, 2, 1, 3, 4))
 
-        print("D--: reshape" )
+        #print("D--: reshape" )
         # embeddings
         if self.use_fps_condition and fps is not None:
             e = self.time_embed(sinusoidal_embedding(t, self.dim)) + self.fps_embedding(
@@ -1935,17 +1935,17 @@ class UNetSD_temporal(nn.Cell):
         # b c f h w -> b f c h w -> (b f) c h w
         x = ops.transpose(x, (0, 2, 1, 3, 4))
         x = ops.reshape(x, (-1, x.shape[2], x.shape[3], x.shape[4]))
-        print("D--: emb " )
+        #print("D--: emb " )
 
         # encoder
         xs = []
         # TODO: refer to SD writing, use two for loop, avoid recursive func
         for i, celllist in enumerate(self.input_blocks, 1):
-            print('D--: input block ', i)
+            #print('D--: input block ', i)
             for block in celllist:
                 x = self._forward_single(block, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask, batch=batch)
             xs.append(x)
-            print("D--: input blocks xs: ", len(xs))
+            #print("D--: input blocks xs: ", len(xs))
             # TODO: why miss if features_adapter and i % 3 == 0: ?
         
         print("D--: enc " )
@@ -1956,9 +1956,9 @@ class UNetSD_temporal(nn.Cell):
         print("D--: mid " )
         # decoder
         for i, celllist in enumerate(self.output_blocks, 1):
-            print("D--: output block: ", i, "unconsumed input features: ", len(xs))
+            #print("D--: output block: ", i, "unconsumed input features: ", len(xs))
             #x = ops.cat([x, xs.pop()], axis=1)
-            print("D--: xs[i], ", len(xs), type(xs[-i]))
+            #print("D--: xs[i], ", len(xs), type(xs[-i]))
             x = ops.cat([x, xs[-i]], axis=1)
             for block in celllist:  # 12 blocks in total
                 x = self._forward_single(
