@@ -17,7 +17,7 @@ __all__ = [
 _logger = logging.getLogger(__name__)
 
 
-class VideoDataset(object):
+class VideoDatasetForTrain(object):
     def __init__(
         self,
         cfg=None,
@@ -33,6 +33,8 @@ class VideoDataset(object):
         vit_image_size=336,
         misc_size=384,
         mvs_visual=False,
+        tokenizer=None,
+        
     ):
         '''
         Args: 
@@ -41,6 +43,7 @@ class VideoDataset(object):
 
         self.cfg = cfg
 
+        self.tokenizer = tokenizer
         self.max_words = max_words
         self.feature_framerate = feature_framerate
         self.max_frames = max_frames
@@ -60,7 +63,13 @@ class VideoDataset(object):
         else: 
             self.video_cap_pairs = [[self.cfg.input_video, self.cfg.input_text_desc]]
 
+        self.tokenizer = tokenizer # bpe
     
+    def tokenize(self, text):
+        tokens = self.tokenizer(text, padding="max_length", max_length=77)["input_ids"]
+
+        return tokens
+
     def __len__(self):
         return len(self.video_cap_pairs)
 
@@ -69,12 +78,11 @@ class VideoDataset(object):
 
         feature_framerate = self.feature_framerate
         if os.path.exists(video_key):
-            ref_frame, vit_image, video_data, misc_data, mv_data = self._get_video_train_data(
+            vit_image, video_data, misc_data, mv_data = self._get_video_train_data(
                 video_key, feature_framerate, self.mvs_visual
             )
         else:  # use dummy data
             _logger.warning(f"The video path: {video_key} does not exist or no video dir provided!")
-            ref_frame = np.zeros((3, self.vit_image_size, self.vit_image_size), dtype=np.float32)
             vit_image = np.zeros((3, self.vit_image_size, self.vit_image_size), dtype=np.float32)  # noqa
             video_data = np.zeros((self.max_frames, 3, self.image_resolution, self.image_resolution), dtype=np.float32)
             misc_data = np.zeros((self.max_frames, 3, self.misc_size, self.misc_size), dtype=np.float32)
@@ -92,7 +100,13 @@ class VideoDataset(object):
         mask = np.expand_dims(np.expand_dims(mask, axis=0), axis=0)
         mask = np.repeat(mask, repeats=self.max_frames, axis=0)
         
-        return ref_frame, cap_txt, video_data, misc_data, feature_framerate, mask, mv_data
+        # adapt for training, output element must map the order of model construct input
+        caption_tokens = self.tokenize(cap_txt)
+        style_image = vit_image
+        single_image = misc_data[:1].copy() # [1, 3, h, w] 
+    
+        return video_data, caption_tokens, feature_framerate, vit_image, mv_data, single_image, mask, misc_data 
+            
 
     def _get_video_train_data(self, video_key, feature_framerate, viz_mv):
         filename = video_key
@@ -130,9 +144,7 @@ class VideoDataset(object):
             misc_data[: len(frames), ...] = misc_imgs
             mv_data[: len(frames), ...] = mvs
 
-        ref_frame = vit_image
-
-        return ref_frame, vit_image, video_data, misc_data, mv_data
+        return vit_image, video_data, misc_data, mv_data
 
 
 def get_video_paths_captions(data_dir):

@@ -9,6 +9,13 @@ import yaml
 _logger = logging.getLogger(__name__)
 
 
+def str2bool(b):
+    if b.lower() not in ["false", "true"]:
+        raise Exception("Invalid Bool Value")
+    if b.lower() in ["false"]:
+        return False
+    return True
+
 class Config(object):
     def __init__(self, load=True, cfg_dict=None, cfg_level=None):
         self._level = "cfg" + ("." + cfg_level if cfg_level is not None else "")
@@ -83,6 +90,11 @@ class Config(object):
             default=None,
             nargs=argparse.REMAINDER,
         )
+        # new args for mindspore
+        parser.add_argument("--use_parallel", default=False, type=str2bool, help="use parallel")
+        parser.add_argument(
+            "--ms_mode", type=int, default=0, help="Running in GRAPH_MODE(0) or PYNATIVE_MODE(1) (default=0)"
+        )
         return parser.parse_args()
 
     def _path_join(self, path_list):
@@ -106,6 +118,7 @@ class Config(object):
             else:
                 with open(os.path.realpath(__file__).split("/")[-3] + "/configs/base.yaml", "r") as f:
                     cfg = yaml.load(f.read(), Loader=yaml.SafeLoader)
+            print("D--: ", cfg)
         return cfg
 
     def _load_yaml(self, args, file_name=""):

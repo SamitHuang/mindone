@@ -479,7 +479,7 @@ class UNetSD_temporal(nn.Cell):
         cfg,
         in_dim=7,
         dim=512,
-        y_dim=512,
+        y_dim=512, # not used?
         context_dim=512,
         hist_dim=156,
         concat_dim=8,
@@ -1029,7 +1029,7 @@ class UNetSD_temporal(nn.Cell):
         # zero out the last layer params
         self.out[-1].weight.set_data(init.initializer("zeros", self.out[-1].weight.shape, self.out[-1].weight.dtype))
 
-    def load_state_dict(self, path, text_to_video_pretrain):
+    def load_state_dict(self, path, text_to_video_pretrain=False):
         def prune_weights(sd):
             return {key: p for key, p in sd.items() if "input_blocks.0.0" not in key}
 
@@ -1055,9 +1055,9 @@ class UNetSD_temporal(nn.Cell):
         y=None,
         zero_y=None,
         depth=None,
-        image=None,
+        image=None,  # Style Image encoded by clip-vit, shape: [bs, 1, 1024]
         motion=None,
-        local_image=None,
+        local_image=None, # Single Image, i.e. start driving image, shape: 
         single_sketch=None,
         masked=None,
         canny=None,
