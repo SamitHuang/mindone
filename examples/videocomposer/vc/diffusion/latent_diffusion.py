@@ -104,9 +104,9 @@ class LatentDiffusion(nn.Cell):
             self.scale_factor = scale_factor
         else:
             self.register_buffer("scale_factor", Tensor(scale_factor))
-        self.first_stage_model = vae
-        self.cond_text_model = clip_text_encoder
-        self.cond_style_model = clip_image_encoder
+        self.first_stage_model = self.vae = vae
+        self.cond_text_model = self.clip_text_encoder = clip_text_encoder
+        self.cond_style_model = self.clip_image_encoder = clip_image_encoder
         self.unet = unet
         if self.cond_stage_trainable:
             # unfreeze text encoder if want to finetune it
@@ -239,44 +239,53 @@ class LatentDiffusion(nn.Cell):
         )
         
         # 2. prepare input latent frames z
-        # (bs f c h w) -> (bs*f c h w) -> (bs*f c h//8 w//8) -> (b c f h//8 w//8)
+        # (bs f c h w) -> (bs*f c h w) -> (bs*f z h//8 w//8) -> (b z f h//8 w//8)
         b, f, c, h_vid, w_vid = x.shape
-        x = x.reshape(x, (-1, c, h_vid, w_vid))
+        x = ops.reshape(x, (-1, c, h_vid, w_vid))
+        print("D--: vae input x shape", x.shape)
         z = ops.stop_gradient(
                 self.scale_factor * self.vae.encode(x)
                 )
-        z = ops.reshape(z, (b, c, f, z.shape[-2], z.shape[-1])) 
+        z = ops.reshape(z, (b, z.shape[1], f, z.shape[2], z.shape[3])) 
+        print("D--: vae output z shape: ", z.shape)
 
         # 3. prepare conditions 
 
         # 3.1 text embedding
         # (bs 77) -> (bs 77 1024)
+        print("D--: clip text encoder input shape: ", text_tokens.shape)
         if self.cond_stage_trainable:
-            cond_text = self.clip_text_encoder(text_tokens)
+            text_emb = self.clip_text_encoder(text_tokens)
         else:
-            cond_text = ops.stop_gradient(
+            text_emb = ops.stop_gradient(
                             self.clip_text_encoder(text_tokens)
                             )
-        
+        print("D--: clip text encoder output shape: ", text_emb.shape)
+
         # 3.2 image style embedding
-        # (bs 3 224 224) -> (bs 1 1024) -> (bs 1 1 1024) # ViT-h preprocess has been applied in dataloader
-        cond_style = ops.stop_gradient(
+        # (bs 3 224 224) -> (bs 1 1024) -> (bs 1 1 1024) -> (bs 1 1024)
+        # ViT-h preprocess has been applied in dataloader
+        print("D--: style image input shape: ", style_image.shape)
+        style_emb = ops.stop_gradient(
                         self.clip_image_encoder(style_image)
                         )
-        cond_style = ops.unsqueeze(cond_style, 1)
+        style_emb = ops.unsqueeze(style_emb, 1)
+        print("D--: style embedding shape: : ", style_emb.shape)
 
         # 3.3 motion vectors
         # (bs f 2 h w) ->  (bs 2 f h w)
         motion_vectors = ops.transpose(motion_vectors, (0, 2, 1, 3, 4))
+        print("D--: motion vectors shape: : ", motion_vectors.shape)
 
         # 3.4 single image # TODO: change adapter to output single image
-        # (bs c h w) -> (bs 1 c h w) -> (bs f c h w) -> (bs c f h w)  
+        # (bs 1 c h w) -> (bs f c h w) -> (bs c f h w)  
         # TODO: if these tile and reshape operation is slow in MS graph, try to move to dataloader part and run with CPU.
         single_image = ops.tile(
-                ops.unsqueeze(single_image, 1),
+                single_image, #ops.unsqueeze(single_image, 1),
                 (1, f, 1, 1, 1)
                 )
         single_image= ops.transpose(single_image, (0, 2, 1, 3, 4))
+        print("D--: single image shape : ", single_image.shape)
 
         # 3.5 fps
         # 3.6 depth,
@@ -285,7 +294,7 @@ class LatentDiffusion(nn.Cell):
         
         # 4. diffusion forward and loss compute 
         # TODO: group all conditions into dict cond_kwargs = {'y': .., ''}
-        loss = self.p_losses(x, t, text_emb=cond_text, style_emb=cond_style, motion_vectors=motion_vectors, single_image=single_image, fps=fps)
+        loss = self.p_losses(z, t, text_emb=text_emb, style_emb=style_emb, motion_vectors=motion_vectors, single_image=single_image, fps=fps)
 
         return loss
 
@@ -325,6 +334,13 @@ class LatentDiffusion(nn.Cell):
 
         return loss
     
+    # TODO: try improve efficiency
+    def q_sample(self, x_start, t, noise):
+        return (
+            extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
+            + extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
+        )
+
     # TODO: get loss func in init, and just call loss_func(pred, target)
     def get_loss(self, pred, target, mean=True):
         if self.loss_type == "l1":

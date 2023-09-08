@@ -9,6 +9,7 @@ from utils.download import download_checkpoint
 import mindspore as ms
 import mindspore.common.initializer as init
 from mindspore import nn, ops
+from mindspore.numpy import ones
 
 from ..utils.pt2ms import load_pt_weights_in_model
 from .attention import (
@@ -432,7 +433,7 @@ class Downsample(nn.Cell):
         return self.op(x)
 
 
-class DropPath(nn.Cell):
+class DropPathWithSampleControl(nn.Cell):
     r"""DropPath but without rescaling and supports optional all-zero and/or all-keep."""
 
     def __init__(self, p):
@@ -471,6 +472,28 @@ class DropPath(nn.Cell):
         assert src.shape[0] == dst.shape[0]
         shape = (dst.shape[0],) + (1,) * (dst.ndim - 1)
         return src.view(shape)
+
+
+class DropPath(nn.Cell):
+    """Original DropPath (Stochastic Depth) regularization layers"""
+    def __init__(
+        self,
+        drop_prob: float = 0.0,
+        scale_by_keep: bool = True,
+    ) -> None:
+        super().__init__()
+        self.keep_prob = 1.0 - drop_prob
+        self.scale_by_keep = scale_by_keep
+        self.dropout = nn.Dropout(1-drop_prob) if is_old_ms_version() else nn.Dropout(p=drop_prob)
+
+    def construct(self, x: ms.Tensor) -> ms.Tensor:
+        if self.keep_prob == 1.0 or not self.training:
+            return x
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+        random_tensor = self.dropout(ones(shape))
+        if not self.scale_by_keep:
+            random_tensor = ops.mul(random_tensor, self.keep_prob)
+        return x * random_tensor
 
 
 class UNetSD_temporal(nn.Cell):
@@ -539,7 +562,7 @@ class UNetSD_temporal(nn.Cell):
         self.training = training
         self.inpainting = inpainting
         self.video_compositions = video_compositions
-        self.misc_dropout = misc_dropout
+        #self.misc_dropout = misc_dropout
         self.p_all_zero = p_all_zero
         self.p_all_keep = p_all_keep
 
@@ -1029,6 +1052,8 @@ class UNetSD_temporal(nn.Cell):
         # zero out the last layer params
         self.out[-1].weight.set_data(init.initializer("zeros", self.out[-1].weight.shape, self.out[-1].weight.dtype))
 
+        print("D---: unet training: ", self.training)
+
     def load_state_dict(self, path, text_to_video_pretrain=False):
         def prune_weights(sd):
             return {key: p for key, p in sd.items() if "input_blocks.0.0" not in key}
@@ -1089,18 +1114,27 @@ class UNetSD_temporal(nn.Cell):
             time_rel_pos_bias = None
 
         # all-zero and all-keep masks
+        # TODO: re-implement the following sample-wise all condition keep/drop and droppath for graph mode.
+        # During the second stage pre-training, we adhere to [26], using a probability of 0.1 to keep all conditions, a probability of 0.1 to discard all conditions, and an independent probability of 0.5 to keep or discard a specific condition. 
+        '''
         zero = ops.zeros(batch, dtype=ms.bool_)
         keep = ops.zeros(batch, dtype=ms.bool_)
+        print("D--: in construct: training: ", self.training)
         if self.training:
             nzero = (ops.rand(batch) < self.p_all_zero).sum()
             nkeep = (ops.rand(batch) < self.p_all_keep).sum()
             index = ops.randperm(batch)
-            zero[index[0:nzero]] = True
-            keep[index[nzero : nzero + nkeep]] = True
+            if nzero > 0:
+                zero[index[:nzero]] = True
+            if nkeep > 0:
+                keep[index[nzero : nzero + nkeep]] = True
+            print("D--: enter training random keep and zero-out: ", zero, keep)
         assert not zero.any() and not keep.any()
         misc_dropout = partial(self.misc_dropout, zero=zero, keep=keep)
+        '''
+        misc_dropout = self.misc_dropout
 
-        concat = x.new_zeros((batch, self.concat_dim, f, h, w))
+        concat = x.new_zeros((batch, self.concat_dim, f, h, w)) # TODO: 
 
         def rearrange_conditions(x, stage, batch, h):
             if stage == 0:
@@ -1138,7 +1172,7 @@ class UNetSD_temporal(nn.Cell):
             local_image = rearrange_conditions(local_image, 1, batch, h)
             local_image = self.local_image_embedding_after(local_image)
             local_image = rearrange_conditions(local_image, 2, batch, h)
-            concat = concat + misc_dropout(local_image)
+            concat = concat + misc_dropout(local_image) #TODO: why use dropout even in training 
 
         if motion is not None:
             motion = rearrange_conditions(motion, 0, batch, h)
