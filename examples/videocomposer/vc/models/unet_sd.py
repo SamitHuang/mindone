@@ -29,6 +29,7 @@ from .attention import (
 )
 from .rotary_embedding import RotaryEmbedding
 from .stc_encoder import Transformer_v2
+from .droppath import DropPath
 
 logger = logging.getLogger(__name__)
 
@@ -433,69 +434,6 @@ class Downsample(nn.Cell):
         return self.op(x)
 
 
-class DropPathWithSampleControl(nn.Cell):
-    r"""DropPath but without rescaling and supports optional all-zero and/or all-keep."""
-
-    def __init__(self, p):
-        super(DropPath, self).__init__()
-        self.p = p
-
-    def construct(self, *args, zero=None, keep=None):
-        if not self.training:
-            return args[0] if len(args) == 1 else args
-
-        # params
-        x = args[0]
-        b = x.shape[0]
-        n = (ops.rand(b) < self.p).sum()
-
-        # non-zero and non-keep mask
-        mask = x.new_ones(b, dtype=ms.bool_)
-        if keep is not None:
-            mask[keep] = False
-        if zero is not None:
-            mask[zero] = False
-
-        # drop-path index
-        index = ops.nonzero(mask).t()[0]  # special case for ops.nonzero, that the input is 1-d tensor
-        index = index[ops.randperm(len(index))[:n]]
-        if zero is not None:
-            index = ops.cat([index, ops.nonzero(zero).t()[0]], axis=0)
-
-        # drop-path multiplier
-        multiplier = x.new_ones(b)
-        multiplier[index] = 0.0
-        output = tuple(u * self.broadcast(multiplier, u) for u in args)
-        return output[0] if len(args) == 1 else output
-
-    def broadcast(self, src, dst):
-        assert src.shape[0] == dst.shape[0]
-        shape = (dst.shape[0],) + (1,) * (dst.ndim - 1)
-        return src.view(shape)
-
-
-class DropPath(nn.Cell):
-    """Original DropPath (Stochastic Depth) regularization layers"""
-    def __init__(
-        self,
-        drop_prob: float = 0.0,
-        scale_by_keep: bool = True,
-    ) -> None:
-        super().__init__()
-        self.keep_prob = 1.0 - drop_prob
-        self.scale_by_keep = scale_by_keep
-        self.dropout = nn.Dropout(1-drop_prob) if is_old_ms_version() else nn.Dropout(p=drop_prob)
-
-    def construct(self, x: ms.Tensor) -> ms.Tensor:
-        if self.keep_prob == 1.0 or not self.training:
-            return x
-        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
-        random_tensor = self.dropout(ones(shape))
-        if not self.scale_by_keep:
-            random_tensor = ops.mul(random_tensor, self.keep_prob)
-        return x * random_tensor
-
-
 class UNetSD_temporal(nn.Cell):
     def __init__(
         self,
@@ -520,7 +458,6 @@ class UNetSD_temporal(nn.Cell):
         use_fps_condition=False,
         use_sim_mask=False,
         misc_dropout=0.5,
-        training=True,
         inpainting=True,
         video_compositions=["text", "mask"],
         p_all_zero=0.1,
@@ -557,12 +494,12 @@ class UNetSD_temporal(nn.Cell):
         self.use_image_dataset = use_image_dataset
         self.use_fps_condition = use_fps_condition
         self.use_sim_mask = use_sim_mask
-        self.training = training
         self.inpainting = inpainting
         self.video_compositions = video_compositions
-        #self.misc_dropout = misc_dropout
         self.p_all_zero = p_all_zero
         self.p_all_keep = p_all_keep
+        self.bernoulli0 = ops.Dropout(keep_prob=p_all_zero) # used to generate zero_mask for droppath on conditions
+        self.bernoulli1= ops.Dropout(keep_prob=p_all_keep)
 
         use_linear_in_temporal = False
         transformer_depth = 1
@@ -1050,7 +987,6 @@ class UNetSD_temporal(nn.Cell):
         # zero out the last layer params
         self.out[-1].weight.set_data(init.initializer("zeros", self.out[-1].weight.shape, self.out[-1].weight.dtype))
 
-        print("D---: unet training: ", self.training)
 
     def load_state_dict(self, path, text_to_video_pretrain=False):
         def prune_weights(sd):
@@ -1114,23 +1050,12 @@ class UNetSD_temporal(nn.Cell):
         # all-zero and all-keep masks
         # TODO: re-implement the following sample-wise all condition keep/drop and droppath for graph mode.
         # During the second stage pre-training, we adhere to [26], using a probability of 0.1 to keep all conditions, a probability of 0.1 to discard all conditions, and an independent probability of 0.5 to keep or discard a specific condition. 
-        '''
-        zero = ops.zeros(batch, dtype=ms.bool_)
-        keep = ops.zeros(batch, dtype=ms.bool_)
-        print("D--: in construct: training: ", self.training)
-        if self.training:
-            nzero = (ops.rand(batch) < self.p_all_zero).sum()
-            nkeep = (ops.rand(batch) < self.p_all_keep).sum()
-            index = ops.randperm(batch)
-            if nzero > 0:
-                zero[index[:nzero]] = True
-            if nkeep > 0:
-                keep[index[nzero : nzero + nkeep]] = True
-            print("D--: enter training random keep and zero-out: ", zero, keep)
-        assert not zero.any() and not keep.any()
-        misc_dropout = partial(self.misc_dropout, zero=zero, keep=keep)
-        '''
-        misc_dropout = self.misc_dropout
+        all_ones = ops.ones([batch, 1])
+        zero_mask = self.bernoulli0(all_ones)[0] * self.p_all_zero
+        keep_mask = self.bernoulli1(all_ones)[0] * self.p_all_keep 
+        print("D--: zero and keep mask: ", zero_mask, keep_mask)
+        #misc_droppath = partial(self.misc_dropout, zero_mask=zero_mask, keep_mask=keep_mask)
+        misc_droppath = self.misc_dropout
 
         concat = x.new_zeros((batch, self.concat_dim, f, h, w)) # TODO: 
 
@@ -1159,7 +1084,7 @@ class UNetSD_temporal(nn.Cell):
             depth = rearrange_conditions(depth, 1, batch, h)
             depth = self.depth_embedding_after(depth)
             depth = rearrange_conditions(depth, 2, batch, h)
-            concat = concat + misc_dropout(depth)
+            concat = concat + misc_droppath(depth, zero_mask=zero_mask, keep_mask=keep_mask)
 
         # local_image_embedding
         if local_image is not None:
@@ -1170,7 +1095,7 @@ class UNetSD_temporal(nn.Cell):
             local_image = rearrange_conditions(local_image, 1, batch, h)
             local_image = self.local_image_embedding_after(local_image)
             local_image = rearrange_conditions(local_image, 2, batch, h)
-            concat = concat + misc_dropout(local_image) #TODO: why use dropout even in training 
+            concat = concat + misc_droppath(local_image, zero_mask=zero_mask, keep_mask=keep_mask)
 
         if motion is not None:
             motion = rearrange_conditions(motion, 0, batch, h)
@@ -1186,7 +1111,7 @@ class UNetSD_temporal(nn.Cell):
                 motion = motion.masked_fill(motion_d, 0)
                 concat = concat + motion
             else:
-                concat = concat + misc_dropout(motion)
+                concat = concat + misc_droppath(motion, zero_mask=zero_mask, keep_mask=keep_mask)
 
         if canny is not None:
             # DropPath mask
@@ -1196,7 +1121,7 @@ class UNetSD_temporal(nn.Cell):
             canny = rearrange_conditions(canny, 1, batch, h)
             canny = self.canny_embedding_after(canny)
             canny = rearrange_conditions(canny, 2, batch, h)
-            concat = concat + misc_dropout(canny)
+            concat = concat + misc_droppath(canny, zero_mask=zero_mask, keep_mask=keep_mask)
 
         if sketch is not None:
             # DropPath mask
@@ -1206,7 +1131,7 @@ class UNetSD_temporal(nn.Cell):
             sketch = rearrange_conditions(sketch, 1, batch, h)
             sketch = self.sketch_embedding_after(sketch)
             sketch = rearrange_conditions(sketch, 2, batch, h)
-            concat = concat + misc_dropout(sketch)
+            concat = concat + misc_droppath(sketch, zero_mask=zero_mask, keep_mask=keep_mask)
 
         if single_sketch is not None:
             # DropPath mask
@@ -1216,7 +1141,7 @@ class UNetSD_temporal(nn.Cell):
             single_sketch = rearrange_conditions(single_sketch, 1, batch, h)
             single_sketch = self.single_sketch_embedding_after(single_sketch)
             single_sketch = rearrange_conditions(single_sketch, 2, batch, h)
-            concat = concat + misc_dropout(single_sketch)
+            concat = concat + misc_droppath(single_sketch, zero_mask=zero_mask, keep_mask=keep_mask)
 
         if masked is not None:
             # DropPath mask
@@ -1227,7 +1152,7 @@ class UNetSD_temporal(nn.Cell):
             masked = rearrange_conditions(masked, 1, batch, h)
             masked = self.mask_embedding_after(masked)
             masked = rearrange_conditions(masked, 2, batch, h)
-            concat = concat + misc_dropout(masked)
+            concat = concat + misc_droppath(masked, zero_mask=zero_mask, keep_mask=keep_mask)
 
         x = ops.cat([x, concat], axis=1)
         # b c f h w -> b f c h w -> (b f) c h w
@@ -1248,14 +1173,14 @@ class UNetSD_temporal(nn.Cell):
 
         # context = x.new_zeros((batch, 0, self.context_dim))  # empty tensor?
         if y is not None:
-            y_context = misc_dropout(y)
+            y_context = misc_droppath(y, zero_mask=zero_mask, keep_mask=keep_mask)
             context = y_context  # ops.cat([context, y_context], axis=1)
         else:
             y_context = zero_y.tile((batch, 1, 1))
             context = y_context  # ops.cat([context, y_context], axis=1)
 
         if image is not None:
-            image_context = misc_dropout(self.pre_image_condition(image))
+            image_context = misc_droppath(self.pre_image_condition(image), zero_mask=zero_mask, keep_mask=keep_mask)
             context = ops.cat([context, image_context], axis=1)
 
         # repeat f times for spatial e and context

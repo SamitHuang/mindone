@@ -15,21 +15,7 @@ from mindspore import ops
 _logger = logging.getLogger(__name__)
 
 # vc model
-'''
-class VideoComposerWrapper(nn.Cell):
-    def __init__(self, unet_with_stc, vae, clip_text_encoder, clip_image_encoder=None,
-            depth_net: nn.Cell=None, sketch_net: nn.Cell=None):
-        self.unet_with_stc = unet_with_stc
-        self.vae = vae
-        self.clip_text_encoder = clip_text_encoder
-        self.clip_image_encoder = clip_image_encoder
-        #self.depth_net = depth_net
-        #self.sketch_net = sketch_net
-
-    def construct(self, 
-            x, # latent video frames or noise 
-            timestep):
-'''
+#class VCModelWrapper()
 
 # net with loss + noise scheduling
 class LatentDiffusion(nn.Cell):
@@ -42,7 +28,7 @@ class LatentDiffusion(nn.Cell):
         use_fp16=True,
         num_timesteps_cond=1,
         cond_stage_trainable=False,
-        #conditioning_key=None,
+        conditions_to_train=None,
         scale_factor=0.18215, # scale vae encode z
         scale_by_std=False,
         parameterization="eps",
@@ -60,9 +46,14 @@ class LatentDiffusion(nn.Cell):
         learn_logvar=False, 
         logvar_init=0.0, # not used in training, used in inference sample
     ):
+        '''
+        '''
         super().__init__()
         # 0. pass args 
         self.cond_stage_trainable = cond_stage_trainable # clip text encoder trainable
+        if conditions_to_train is None:
+            conditions_to_train = []
+        self.conditions_to_train = conditions_to_train
 
         assert parameterization=="eps", 'currently only supporting eps preiction'
         self.parameterization = parameterization
@@ -232,6 +223,8 @@ class LatentDiffusion(nn.Cell):
             single_image can be derived from misc_data from dataloader
             detph_seq and sketch_seq can be extracted from misc_data for online process
         '''
+
+
         # 1. sample timestep, t ~ uniform(0, T)
         # (bs, )
         t = self.uniform_int(
@@ -242,40 +235,42 @@ class LatentDiffusion(nn.Cell):
         # (bs f c h w) -> (bs*f c h w) -> (bs*f z h//8 w//8) -> (b z f h//8 w//8)
         b, f, c, h_vid, w_vid = x.shape
         x = ops.reshape(x, (-1, c, h_vid, w_vid))
-        print("D--: vae input x shape", x.shape)
+        #print("D--: vae input x shape", x.shape)
         z = ops.stop_gradient(
                 self.scale_factor * self.vae.encode(x)
                 )
         z = ops.reshape(z, (b, z.shape[1], f, z.shape[2], z.shape[3])) 
-        print("D--: vae output z shape: ", z.shape)
+        #print("D--: vae output z shape: ", z.shape)
 
         # 3. prepare conditions 
 
         # 3.1 text embedding
         # (bs 77) -> (bs 77 1024)
-        print("D--: clip text encoder input shape: ", text_tokens.shape)
+        #print("D--: clip text encoder input shape: ", text_tokens.shape)
         if self.cond_stage_trainable:
             text_emb = self.clip_text_encoder(text_tokens)
         else:
             text_emb = ops.stop_gradient(
                             self.clip_text_encoder(text_tokens)
                             )
-        print("D--: clip text encoder output shape: ", text_emb.shape)
+        #print("D--: clip text encoder output shape: ", text_emb.shape)
 
         # 3.2 image style embedding
         # (bs 3 224 224) -> (bs 1 1024) -> (bs 1 1 1024) -> (bs 1 1024)
         # ViT-h preprocess has been applied in dataloader
-        print("D--: style image input shape: ", style_image.shape)
+        #print("D--: style image input shape: ", style_image.shape)
         style_emb = ops.stop_gradient(
                         self.clip_image_encoder(style_image)
                         )
         style_emb = ops.unsqueeze(style_emb, 1)
-        print("D--: style embedding shape: : ", style_emb.shape)
+        #print("D--: style embedding shape: : ", style_emb.shape)
 
         # 3.3 motion vectors
         # (bs f 2 h w) ->  (bs 2 f h w)
-        motion_vectors = ops.transpose(motion_vectors, (0, 2, 1, 3, 4))
-        print("D--: motion vectors shape: : ", motion_vectors.shape)
+        motion_vectors = ops.stop_gradient( 
+                    ops.transpose(motion_vectors, (0, 2, 1, 3, 4))
+                    )
+        #print("D--: motion vectors shape: : ", motion_vectors.shape)
 
         # 3.4 single image # TODO: change adapter to output single image
         # (bs 1 c h w) -> (bs f c h w) -> (bs c f h w)  
@@ -284,13 +279,21 @@ class LatentDiffusion(nn.Cell):
                 single_image, #ops.unsqueeze(single_image, 1),
                 (1, f, 1, 1, 1)
                 )
-        single_image= ops.transpose(single_image, (0, 2, 1, 3, 4))
-        print("D--: single image shape : ", single_image.shape)
+        single_image=ops.stop_gradient(
+                ops.transpose(single_image, (0, 2, 1, 3, 4))
+                )
+        #print("D--: single image shape : ", single_image.shape)
 
         # 3.5 fps
-        # 3.6 depth,
-        #depth = self.midas((misc_images - 0.5) / 0.5)
-        #depth = (depth / self.depth_std).clamp(0, self.depth_clamp)
+        # 3.6 depth
+        #if 'depthmap' in self.conditions_to_train:
+        #    depth = ops.stop_grdient( self.midas((misc_images - 0.5) / 0.5))
+        #    depth = ops.stop_gradient( (depth / self.depth_std).clamp(0, self.depth_clamp))
+        #else:
+        #    depth = None
+
+        # 3.7 sketch
+        #if 'sketch' in self.conditions_to_train:
         
         # 4. diffusion forward and loss compute 
         # TODO: group all conditions into dict cond_kwargs = {'y': .., ''}

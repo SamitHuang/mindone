@@ -110,11 +110,6 @@ class VideoDatasetForTrain(object):
         single_image = misc_data[:1].copy() # [1, 3, h, w] 
     
         return video_data, caption_tokens, feature_framerate, vit_image, mv_data, single_image, mask, misc_data 
-            
-cfg.video_compositions = ["text":"cap", "mask", "depthmap", "sketch", "motion", "image", "local_image", "single_sketch"]
-cfg.conditions_for_train = ["text", "motion", "image", "local_image"] # image -> style_image, loca-image -> single_image
-
-cond_name_map = {}
 
     def _get_video_train_data(self, video_key, feature_framerate, viz_mv):
         filename = video_key
