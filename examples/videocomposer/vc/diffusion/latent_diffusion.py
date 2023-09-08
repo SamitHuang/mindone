@@ -324,9 +324,7 @@ class LatentDiffusion(nn.Cell):
             fps=fps,
         )
 
-        target = noise
-
-        loss_simple = self.get_loss(noise_pred, target, mean=False).mean([1, 2, 3, 4])
+        loss_simple = self.get_loss(noise_pred, noise, mean=False).mean([1, 2, 3, 4])
 
         logvar_t = self.logvar[t]
         loss = loss_simple / ops.exp(logvar_t) + logvar_t

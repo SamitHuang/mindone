@@ -502,7 +502,6 @@ class UNetSD_temporal(nn.Cell):
         cfg,
         in_dim=7,
         dim=512,
-        y_dim=512, # not used?
         context_dim=512,
         hist_dim=156,
         concat_dim=8,
@@ -539,7 +538,6 @@ class UNetSD_temporal(nn.Cell):
         self.cfg = cfg
         self.in_dim = in_dim
         self.dim = dim
-        self.y_dim = y_dim
         self.context_dim = context_dim
         self.hist_dim = hist_dim
         self.concat_dim = concat_dim
@@ -1371,7 +1369,6 @@ if __name__ == "__main__":
         cfg,
         in_dim=cfg.unet_in_dim,
         dim=cfg.unet_dim,
-        y_dim=cfg.unet_y_dim,
         context_dim=cfg.unet_context_dim,
         out_dim=cfg.unet_out_dim,
         dim_mult=cfg.unet_dim_mult,

@@ -37,7 +37,7 @@ class VideoDatasetForTrain(object):
         misc_size=384,
         mvs_visual=False,
         tokenizer=None,
-        
+        conditions_for_train=None, 
     ):
         '''
         Args: 
@@ -58,6 +58,7 @@ class VideoDatasetForTrain(object):
         self.vit_image_size = vit_image_size
         self.misc_size = misc_size
         self.mvs_visual = mvs_visual
+        self.conditions_for_train = conditions_for_train
         
         if root_dir is not None:
             video_paths, captions = get_video_paths_captions(root_dir)
@@ -110,6 +111,10 @@ class VideoDatasetForTrain(object):
     
         return video_data, caption_tokens, feature_framerate, vit_image, mv_data, single_image, mask, misc_data 
             
+cfg.video_compositions = ["text":"cap", "mask", "depthmap", "sketch", "motion", "image", "local_image", "single_sketch"]
+cfg.conditions_for_train = ["text", "motion", "image", "local_image"] # image -> style_image, loca-image -> single_image
+
+cond_name_map = {}
 
     def _get_video_train_data(self, video_key, feature_framerate, viz_mv):
         filename = video_key
@@ -190,11 +195,12 @@ def build_dataset(cfg, device_num, rank_id, tokenizer):
 
     dataloader = ds.GeneratorDataset(
         source=dataset,
-        column_names=["video_data", "cap_tokens", "feature_framerate", "vit_image", "mv_data", "single_image", "mask", "misc_data"],
+        column_names=["video_data", "caption_tokens", "feature_framerate", "vit_image", "mv_data", "single_image", "mask", "misc_data"],
         num_shards=device_num,
         shard_id=rank_id,
         python_multiprocessing=False,  # TODO: check
         shuffle=cfg.shuffle, 
+        num_parallel_workers=1,
     )
 
     dl = dataloader.batch(cfg.batch_size,

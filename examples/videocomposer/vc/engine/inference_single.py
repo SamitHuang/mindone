@@ -272,7 +272,6 @@ def prepare_autoencoder_unet(cfg, zero_y=None, black_image_feature=None, version
             in_dim=cfg.unet_in_dim,
             concat_dim=cfg.unet_concat_dim,
             dim=cfg.unet_dim,
-            y_dim=cfg.unet_y_dim,
             context_dim=cfg.unet_context_dim,
             out_dim=cfg.unet_out_dim,
             dim_mult=cfg.unet_dim_mult,
