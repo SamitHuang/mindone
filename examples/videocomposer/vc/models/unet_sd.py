@@ -433,6 +433,10 @@ class Downsample(nn.Cell):
         assert x.shape[1] == self.channels
         return self.op(x)
 
+def get_kernel_size_and_stride(input_size, output_size):
+    stride = floor(input_size / (output_size - 1))
+    kernel_size = input_size - (output_size - 1) * stride
+    return kernel_size, stride
 
 class UNetSD_temporal(nn.Cell):
     def __init__(
@@ -465,7 +469,9 @@ class UNetSD_temporal(nn.Cell):
         zero_y=None,
         black_image_feature=None,
         use_fp16=False,
+        use_adaptive_pool=True,
     ):
+        self.use_adaptive_pool=use_adaptive_pool
         embed_dim = dim * 4
         num_heads = num_heads if num_heads else dim // 32
         super(UNetSD_temporal, self).__init__()
@@ -498,8 +504,8 @@ class UNetSD_temporal(nn.Cell):
         self.video_compositions = video_compositions
         self.p_all_zero = p_all_zero
         self.p_all_keep = p_all_keep
-        self.bernoulli0 = ops.Dropout(keep_prob=p_all_zero) # used to generate zero_mask for droppath on conditions
-        self.bernoulli1= ops.Dropout(keep_prob=p_all_keep)
+        #self.bernoulli0 = ops.Dropout(keep_prob=p_all_zero) # used to generate zero_mask for droppath on conditions
+        #self.bernoulli1= ops.Dropout(keep_prob=p_all_keep)
 
         use_linear_in_temporal = False
         transformer_depth = 1
@@ -525,12 +531,12 @@ class UNetSD_temporal(nn.Cell):
             nn.Dense(1024, 1024).to_float(self.dtype),
         )
 
-        # depth embedding
+        # depth embedding: 384x384
         if "depthmap" in self.video_compositions:
             self.depth_embedding = nn.SequentialCell(
                 nn.Conv2d(1, concat_dim * 4, 3, pad_mode="pad", padding=1, has_bias=True).to_float(self.dtype),
                 nn.SiLU().to_float(self.dtype),
-                nn.AdaptiveAvgPool2d((128, 128)),
+                nn.AdaptiveAvgPool2d((128, 128)) if self.use_adaptive_pool else nn.AvgPool2d(kernel_size=3, stride=3),
                 nn.Conv2d(
                     concat_dim * 4, concat_dim * 4, 3, stride=2, pad_mode="pad", padding=1, has_bias=True
                 ).to_float(self.dtype),
@@ -550,12 +556,14 @@ class UNetSD_temporal(nn.Cell):
                 depth=adapter_transformer_layers,
                 dtype=self.dtype,
             )
-
+        
+        # motion: 256x256
         if "motion" in self.video_compositions:
+            #ks, st = get_kernel_size_and_stride(256, 128)
             self.motion_embedding = nn.SequentialCell(
                 nn.Conv2d(2, concat_dim * 4, 3, pad_mode="pad", padding=1, has_bias=True).to_float(self.dtype),
                 nn.SiLU().to_float(self.dtype),
-                nn.AdaptiveAvgPool2d((128, 128)),
+                nn.AdaptiveAvgPool2d((128, 128)) if self.use_adaptive_pool else nn.AvgPool2d(kernel_size=2, stride=2),
                 nn.Conv2d(
                     concat_dim * 4, concat_dim * 4, 3, stride=2, pad_mode="pad", padding=1, has_bias=True
                 ).to_float(self.dtype),
@@ -576,12 +584,13 @@ class UNetSD_temporal(nn.Cell):
                 dtype=self.dtype,
             )
 
-        # canny embedding
+        # canny embedding: 384x384 
+        #ks, st = get_kernel_size_and_stride(cfg.misc_size, 128)
         if "canny" in self.video_compositions:
             self.canny_embedding = nn.SequentialCell(
                 nn.Conv2d(1, concat_dim * 4, 3, pad_mode="pad", padding=1, has_bias=True).to_float(self.dtype),
                 nn.SiLU().to_float(self.dtype),
-                nn.AdaptiveAvgPool2d((128, 128)),
+                nn.AdaptiveAvgPool2d((128, 128)) if self.use_adaptive_pool else nn.AvgPool2d(kernel_size=3, stride=3),
                 nn.Conv2d(
                     concat_dim * 4, concat_dim * 4, 3, stride=2, pad_mode="pad", padding=1, has_bias=True
                 ).to_float(self.dtype),
@@ -602,13 +611,13 @@ class UNetSD_temporal(nn.Cell):
                 dtype=self.dtype,
             )
 
-        # masked-image embedding
+        # masked-image embedding - 384x384
         if "mask" in self.video_compositions:
             self.masked_embedding = (
                 nn.SequentialCell(
                     nn.Conv2d(4, concat_dim * 4, 3, pad_mode="pad", padding=1, has_bias=True).to_float(self.dtype),
                     nn.SiLU().to_float(self.dtype),
-                    nn.AdaptiveAvgPool2d((128, 128)),
+                    nn.AdaptiveAvgPool2d((128, 128)) if self.use_adaptive_pool else nn.AvgPool2d(kernel_size=3, stride=3),
                     nn.Conv2d(
                         concat_dim * 4, concat_dim * 4, 3, stride=2, pad_mode="pad", padding=1, has_bias=True
                     ).to_float(self.dtype),
@@ -632,12 +641,12 @@ class UNetSD_temporal(nn.Cell):
                 dtype=self.dtype,
             )
 
-        # sketch embedding
+        # sketch embedding - 384x384  TODO: double check size  
         if "sketch" in self.video_compositions:
             self.sketch_embedding = nn.SequentialCell(
                 nn.Conv2d(1, concat_dim * 4, 3, pad_mode="pad", padding=1, has_bias=True).to_float(self.dtype),
                 nn.SiLU().to_float(self.dtype),
-                nn.AdaptiveAvgPool2d((128, 128)),
+                nn.AdaptiveAvgPool2d((128, 128)) if self.use_adaptive_pool else nn.AvgPool2d(kernel_size=3, stride=3),
                 nn.Conv2d(
                     concat_dim * 4, concat_dim * 4, 3, stride=2, pad_mode="pad", padding=1, has_bias=True
                 ).to_float(self.dtype),
@@ -657,12 +666,13 @@ class UNetSD_temporal(nn.Cell):
                 depth=adapter_transformer_layers,
                 dtype=self.dtype,
             )
-
+        
+        # single sketch: 384x384
         if "single_sketch" in self.video_compositions:
             self.single_sketch_embedding = nn.SequentialCell(
                 nn.Conv2d(1, concat_dim * 4, 3, pad_mode="pad", padding=1, has_bias=True).to_float(self.dtype),
                 nn.SiLU().to_float(self.dtype),
-                nn.AdaptiveAvgPool2d((128, 128)),
+                nn.AdaptiveAvgPool2d((128, 128)) if self.use_adaptive_pool else nn.AvgPool2d(kernel_size=3, stride=3),
                 nn.Conv2d(
                     concat_dim * 4, concat_dim * 4, 3, stride=2, pad_mode="pad", padding=1, has_bias=True
                 ).to_float(self.dtype),
@@ -683,11 +693,12 @@ class UNetSD_temporal(nn.Cell):
                 dtype=self.dtype,
             )
 
+        # local image / single image, 384
         if "local_image" in self.video_compositions:
             self.local_image_embedding = nn.SequentialCell(
                 nn.Conv2d(3, concat_dim * 4, 3, pad_mode="pad", padding=1, has_bias=True).to_float(self.dtype),
                 nn.SiLU().to_float(self.dtype),
-                nn.AdaptiveAvgPool2d((128, 128)),
+                nn.AdaptiveAvgPool2d((128, 128)) if self.use_adaptive_pool else nn.AvgPool2d(kernel_size=3, stride=3),
                 nn.Conv2d(
                     concat_dim * 4, concat_dim * 4, 3, stride=2, pad_mode="pad", padding=1, has_bias=True
                 ).to_float(self.dtype),
@@ -1050,11 +1061,14 @@ class UNetSD_temporal(nn.Cell):
         # all-zero and all-keep masks
         # TODO: re-implement the following sample-wise all condition keep/drop and droppath for graph mode.
         # During the second stage pre-training, we adhere to [26], using a probability of 0.1 to keep all conditions, a probability of 0.1 to discard all conditions, and an independent probability of 0.5 to keep or discard a specific condition. 
+        '''
         all_ones = ops.ones([batch, 1])
-        zero_mask = self.bernoulli0(all_ones)[0] * self.p_all_zero
+        # TODO: it seems the sampled zero and keep mask are either all 0 or all 1 
+        zero_mask = self.bernoulli0(all_ones)[0] * self.p_all_zero  
         keep_mask = self.bernoulli1(all_ones)[0] * self.p_all_keep 
         print("D--: zero and keep mask: ", zero_mask, keep_mask)
         #misc_droppath = partial(self.misc_dropout, zero_mask=zero_mask, keep_mask=keep_mask)
+        '''
         misc_droppath = self.misc_dropout
 
         concat = x.new_zeros((batch, self.concat_dim, f, h, w)) # TODO: 
@@ -1084,7 +1098,8 @@ class UNetSD_temporal(nn.Cell):
             depth = rearrange_conditions(depth, 1, batch, h)
             depth = self.depth_embedding_after(depth)
             depth = rearrange_conditions(depth, 2, batch, h)
-            concat = concat + misc_droppath(depth, zero_mask=zero_mask, keep_mask=keep_mask)
+            #concat = concat + misc_droppath(depth, zero_mask=zero_mask, keep_mask=keep_mask)
+            concat = concat + misc_droppath(depth)
 
         # local_image_embedding
         if local_image is not None:
@@ -1095,7 +1110,8 @@ class UNetSD_temporal(nn.Cell):
             local_image = rearrange_conditions(local_image, 1, batch, h)
             local_image = self.local_image_embedding_after(local_image)
             local_image = rearrange_conditions(local_image, 2, batch, h)
-            concat = concat + misc_droppath(local_image, zero_mask=zero_mask, keep_mask=keep_mask)
+            #concat = concat + misc_droppath(local_image, zero_mask=zero_mask, keep_mask=keep_mask)
+            concat = concat + misc_droppath(local_image)
 
         if motion is not None:
             motion = rearrange_conditions(motion, 0, batch, h)
@@ -1111,7 +1127,8 @@ class UNetSD_temporal(nn.Cell):
                 motion = motion.masked_fill(motion_d, 0)
                 concat = concat + motion
             else:
-                concat = concat + misc_droppath(motion, zero_mask=zero_mask, keep_mask=keep_mask)
+                #concat = concat + misc_droppath(motion, zero_mask=zero_mask, keep_mask=keep_mask)
+                concat = concat + misc_droppath(motion)
 
         if canny is not None:
             # DropPath mask
@@ -1121,7 +1138,8 @@ class UNetSD_temporal(nn.Cell):
             canny = rearrange_conditions(canny, 1, batch, h)
             canny = self.canny_embedding_after(canny)
             canny = rearrange_conditions(canny, 2, batch, h)
-            concat = concat + misc_droppath(canny, zero_mask=zero_mask, keep_mask=keep_mask)
+            #concat = concat + misc_droppath(canny, zero_mask=zero_mask, keep_mask=keep_mask)
+            concat = concat + misc_droppath(canny)
 
         if sketch is not None:
             # DropPath mask
@@ -1131,7 +1149,8 @@ class UNetSD_temporal(nn.Cell):
             sketch = rearrange_conditions(sketch, 1, batch, h)
             sketch = self.sketch_embedding_after(sketch)
             sketch = rearrange_conditions(sketch, 2, batch, h)
-            concat = concat + misc_droppath(sketch, zero_mask=zero_mask, keep_mask=keep_mask)
+            #concat = concat + misc_droppath(sketch, zero_mask=zero_mask, keep_mask=keep_mask)
+            concat = concat + misc_droppath(sketch)
 
         if single_sketch is not None:
             # DropPath mask
@@ -1141,7 +1160,8 @@ class UNetSD_temporal(nn.Cell):
             single_sketch = rearrange_conditions(single_sketch, 1, batch, h)
             single_sketch = self.single_sketch_embedding_after(single_sketch)
             single_sketch = rearrange_conditions(single_sketch, 2, batch, h)
-            concat = concat + misc_droppath(single_sketch, zero_mask=zero_mask, keep_mask=keep_mask)
+            #concat = concat + misc_droppath(single_sketch, zero_mask=zero_mask, keep_mask=keep_mask)
+            concat = concat + misc_droppath(single_sketch)
 
         if masked is not None:
             # DropPath mask
@@ -1152,7 +1172,8 @@ class UNetSD_temporal(nn.Cell):
             masked = rearrange_conditions(masked, 1, batch, h)
             masked = self.mask_embedding_after(masked)
             masked = rearrange_conditions(masked, 2, batch, h)
-            concat = concat + misc_droppath(masked, zero_mask=zero_mask, keep_mask=keep_mask)
+            #concat = concat + misc_droppath(masked, zero_mask=zero_mask, keep_mask=keep_mask)
+            concat = concat + misc_droppath(masked)
 
         x = ops.cat([x, concat], axis=1)
         # b c f h w -> b f c h w -> (b f) c h w
@@ -1173,14 +1194,16 @@ class UNetSD_temporal(nn.Cell):
 
         # context = x.new_zeros((batch, 0, self.context_dim))  # empty tensor?
         if y is not None:
-            y_context = misc_droppath(y, zero_mask=zero_mask, keep_mask=keep_mask)
+            #y_context = misc_droppath(y, zero_mask=zero_mask, keep_mask=keep_mask)
+            y_context = misc_droppath(y)
             context = y_context  # ops.cat([context, y_context], axis=1)
         else:
             y_context = zero_y.tile((batch, 1, 1))
             context = y_context  # ops.cat([context, y_context], axis=1)
 
         if image is not None:
-            image_context = misc_droppath(self.pre_image_condition(image), zero_mask=zero_mask, keep_mask=keep_mask)
+            #image_context = misc_droppath(self.pre_image_condition(image), zero_mask=zero_mask, keep_mask=keep_mask)
+            image_context = misc_droppath(self.pre_image_condition(image))
             context = ops.cat([context, image_context], axis=1)
 
         # repeat f times for spatial e and context

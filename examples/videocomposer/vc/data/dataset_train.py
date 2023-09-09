@@ -193,9 +193,10 @@ def build_dataset(cfg, device_num, rank_id, tokenizer):
         column_names=["video_data", "caption_tokens", "feature_framerate", "vit_image", "mv_data", "single_image", "mask", "misc_data"],
         num_shards=device_num,
         shard_id=rank_id,
-        python_multiprocessing=False,  # TODO: check
+        python_multiprocessing=True,
         shuffle=cfg.shuffle, 
-        num_parallel_workers=1,
+        num_parallel_workers=2,
+        max_rowsize=32, # video data require larger rowsize
     )
 
     dl = dataloader.batch(cfg.batch_size,

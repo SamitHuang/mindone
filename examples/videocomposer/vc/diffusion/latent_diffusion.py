@@ -214,8 +214,9 @@ class LatentDiffusion(nn.Cell):
             style_image: style image (middle frame), resized and normalized to shape [bs, 3, 224, 224] in NCHW format, to clip vit-h input  
             fps: frame rate, shape (1,), int
             motion_vectors: motion vectors, shape (bs, F, 2, 256, 256) 
+            misc_images: (bs, F, 3, 384, 384)
             single_image: first frame, resized and norm to shape [bs, 1, 3, 384, 384], to STC encoder. (althogh 384, but AdaptiveAvgPool2d will output fixed size features) 
-            depth_seq: two cases: 1) depth maps for each video frame postprocessed to shape (bs, F, 1, 256, 256). 2)  video frames preprocessed to shape (bs, F, 3, 384, 384) for MiDas Net input.  
+            depth_seq: two cases: 1) depth maps for each video frame postprocessed to shape (bs, F, 1, 384, 384). 2)  video frames preprocessed to shape (bs, F, 3, 384, 384) for MiDas Net input.  
             sketch_seq: similar
             single_sketch: sketch of first frame
 
@@ -223,7 +224,6 @@ class LatentDiffusion(nn.Cell):
             single_image can be derived from misc_data from dataloader
             detph_seq and sketch_seq can be extracted from misc_data for online process
         '''
-
 
         # 1. sample timestep, t ~ uniform(0, T)
         # (bs, )
@@ -273,15 +273,13 @@ class LatentDiffusion(nn.Cell):
         #print("D--: motion vectors shape: : ", motion_vectors.shape)
 
         # 3.4 single image # TODO: change adapter to output single image
-        # (bs 1 c h w) -> (bs f c h w) -> (bs c f h w)  
+        # (bs 1 c h w) -> (bs f c h w) -> (bs c f 384 384)  
         # TODO: if these tile and reshape operation is slow in MS graph, try to move to dataloader part and run with CPU.
         single_image = ops.tile(
                 single_image, #ops.unsqueeze(single_image, 1),
                 (1, f, 1, 1, 1)
                 )
-        single_image=ops.stop_gradient(
-                ops.transpose(single_image, (0, 2, 1, 3, 4))
-                )
+        single_image=ops.transpose(single_image, (0, 2, 1, 3, 4))
         #print("D--: single image shape : ", single_image.shape)
 
         # 3.5 fps
@@ -350,9 +348,11 @@ class LatentDiffusion(nn.Cell):
                 loss = loss.mean()
         elif self.loss_type == "l2":
             if mean:
-                loss = nn.MSELoss(reduction="mean")(target, pred)
+                #loss = nn.MSELoss(reduction="mean")(target, pred)
+                loss = self.mse_mean(target, pred)
             else:
-                loss = nn.MSELoss(reduction="none")(target, pred)
+                #loss = nn.MSELoss(reduction="none")(target, pred)
+                loss = self.mse_none(target, pred)
         else:
             raise NotImplementedError("unknown loss type '{loss_type}'")
 

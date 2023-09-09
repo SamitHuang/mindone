@@ -35,6 +35,7 @@ unet_fp16 = UNetSD_temporal(
     zero_y=zero_y,
     black_image_feature=black_image_feature,
     use_fp16=True,
+    use_adaptive_pool=False,
 )
 unet_fp16.set_train(True)
 

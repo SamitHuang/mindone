@@ -1,10 +1,32 @@
 import mindspore as ms
 from mindspore import nn, ops
 from mindspore.ops import ones
+from .attention import (
+    BasicTransformerBlock,
+    CrossAttention,
+    FeedForward,
+    GroupNorm,
+    RelativePositionBias,
+    SpatialTransformer,
+    TemporalAttentionBlock,
+    TemporalAttentionMultiBlock,
+    TemporalConvBlock_v2,
+    TemporalTransformer,
+    default,
+    is_old_ms_version,
+    zero_module,
+)
 
-
-class DropPath(nn.Cell):
-    """DropPath (Stochastic Depth) regularization with determinstic mask """
+class DropPathWithControl(nn.Cell):
+    """DropPath (Stochastic Depth) regularization with determinstic mask 
+    Example:
+       bs = 8
+       batch_zero_control = ms.numpy.rand((bs, 1)) < p_all_zero
+       batch_keep_control = ms.numpy.rand((bs, 1)) < p_all_keep
+       dpc = DropPathWithControl(drop_prob=0.5)
+       x = ms.ops.ones((bs, 4))
+       dpc(x, zero_mask=batch_zero_control, keep_mask=batch_keep_control)
+    """
     def __init__(
         self,
         drop_prob: float = 0.0,
@@ -81,7 +103,6 @@ class DropPathFromVCPT(nn.Cell):
         shape = (dst.shape[0],) + (1,) * (dst.ndim - 1)
         return src.view(shape)
 
-''' Standard droppath
 class DropPath(nn.Cell):
     def __init__(
         self,
@@ -101,4 +122,3 @@ class DropPath(nn.Cell):
         if not self.scale_by_keep:
             random_tensor = ops.mul(random_tensor, self.keep_prob)
         return x * random_tensor
-'''

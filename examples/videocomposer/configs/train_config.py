@@ -120,7 +120,6 @@ if cfg.resume_optimizer:
     cfg.resume_optimizer = os.path.join(cfg.resume_check_dir, f"optimizer_step_{cfg.resume_step}.pt")
 
 # acceleration
-cfg.use_ema = True
 cfg.load_from = None
 cfg.use_checkpoint = False
 cfg.use_sharded_ddp = False
@@ -138,11 +137,13 @@ cfg.decay_steps = None # None for auto compute
 cfg.optim = "momentum" #'adamw'
 cfg.betas = [0.9, 0.98]
 cfg.weight_decay = 1e-6 # not mentioned in paper. let's start with small value
+cfg.use_ema = False
 cfg.ema_decay = 0.9999
+
 cfg.epochs = 50
-cfg.viz_interval = 1000
-cfg.ckpt_save_interval= 2 #1000
+cfg.ckpt_save_interval= 50 #1000 # only save last checkpoint for DEBUG
 cfg.ckpt_save_dir = 'outputs/train' # log will be saved here too
+cfg.viz_interval = 1000
 
 
 # logging

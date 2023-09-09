@@ -44,9 +44,9 @@ def test_dataset():
     dl = build_dataset(cfg, 1, 0, tokenizer)
     dl.get_dataset_size()
 
-    ms.set_context(mode=1)
+    ms.set_context(mode=0)
 
-    num_tries = 4
+    num_tries = 4*100
     start = time.time()
     times = []
     iterator = dl.create_dict_iterator()
