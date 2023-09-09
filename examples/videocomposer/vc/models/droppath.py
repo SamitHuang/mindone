@@ -17,6 +17,17 @@ from .attention import (
     zero_module,
 )
 
+
+def gen_zero_keep_mask(dist, bs):
+    # dist: [p_zero, p_keep, 1-(p_zero, p_keep)] 
+    #dist = ms.Tensor([p_zero, p_keep, 1-(p_zero+p_keep)])
+    handle_types = ops.multinomial(dist, bs)
+    zero_mask = handle_types == 0
+    keep_mask = handle_types == 1
+
+    return zero_mask, keep_mask
+    
+
 class DropPathWithControl(nn.Cell):
     """DropPath (Stochastic Depth) regularization with determinstic mask 
     Example:

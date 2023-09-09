@@ -44,5 +44,6 @@ t = ms.ops.ones((1,), dtype=ms.int64) * 900
 y = ms.ops.randn((1, 77, 1024), dtype=ms.float16)
 single_sketch = ms.ops.randn((1, 1, 16, 384, 384), dtype=ms.float32)
 
-out_fp16 = unet_fp16(xt, t, y=y, single_sketch=single_sketch).asnumpy()
+for i in range(20):
+    out_fp16 = unet_fp16(xt, t, y=y, single_sketch=single_sketch).asnumpy()
 print(out_fp16)

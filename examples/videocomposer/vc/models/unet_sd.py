@@ -29,7 +29,7 @@ from .attention import (
 )
 from .rotary_embedding import RotaryEmbedding
 from .stc_encoder import Transformer_v2
-from .droppath import DropPath
+from .droppath import DropPath, DropPathWithControl
 
 logger = logging.getLogger(__name__)
 
@@ -470,8 +470,11 @@ class UNetSD_temporal(nn.Cell):
         black_image_feature=None,
         use_fp16=False,
         use_adaptive_pool=True,
+        use_droppath_masking=True,
     ):
         self.use_adaptive_pool=use_adaptive_pool
+        self.use_droppath_masking=use_droppath_masking
+
         embed_dim = dim * 4
         num_heads = num_heads if num_heads else dim // 32
         super(UNetSD_temporal, self).__init__()
@@ -720,7 +723,8 @@ class UNetSD_temporal(nn.Cell):
             )
 
         # Condition Dropout
-        self.misc_dropout = DropPath(misc_dropout)
+        self.misc_dropout = DropPathWithControl(drop_prob=misc_dropout, scale_by_keep=False) if use_droppath_masking else DropPath(misc_dropout) 
+        self.type_dist = ms.Tensor([p_all_zero, p_all_keep, 1 - (p_all_zero + p_all_keep)]) # used to control keep/drop all conditions for a sample
 
         if temporal_attention and not USE_TEMPORAL_TRANSFORMER:
             self.rotary_emb = RotaryEmbedding(min(32, head_dim))
@@ -1069,6 +1073,13 @@ class UNetSD_temporal(nn.Cell):
         print("D--: zero and keep mask: ", zero_mask, keep_mask)
         #misc_droppath = partial(self.misc_dropout, zero_mask=zero_mask, keep_mask=keep_mask)
         '''
+        #if self.use_droppath_masking:
+        #zero_mask= ms.numpy.rand((batch, 1)) < self.p_all_zero
+        #keep_mask= ms.numpy.rand((batch, 1)) < self.p_all_keep # TODO: check, are they alway the same in graph??
+        sample_type = ops.multinomial(self.type_dist, batch)
+        zero_mask = sample_type == 0
+        keep_mask = sample_type == 1
+        print(f"D--: droppath zero mask: {zero_mask}, keep_mask: {keep_mask}")
         misc_droppath = self.misc_dropout
 
         concat = x.new_zeros((batch, self.concat_dim, f, h, w)) # TODO: 
@@ -1098,8 +1109,10 @@ class UNetSD_temporal(nn.Cell):
             depth = rearrange_conditions(depth, 1, batch, h)
             depth = self.depth_embedding_after(depth)
             depth = rearrange_conditions(depth, 2, batch, h)
-            #concat = concat + misc_droppath(depth, zero_mask=zero_mask, keep_mask=keep_mask)
-            concat = concat + misc_droppath(depth)
+            if self.use_droppath_masking:
+                concat = concat + misc_droppath(depth, zero_mask=zero_mask, keep_mask=keep_mask)
+            else:
+                concat = concat + misc_droppath(depth)
 
         # local_image_embedding
         if local_image is not None:
@@ -1110,8 +1123,11 @@ class UNetSD_temporal(nn.Cell):
             local_image = rearrange_conditions(local_image, 1, batch, h)
             local_image = self.local_image_embedding_after(local_image)
             local_image = rearrange_conditions(local_image, 2, batch, h)
-            #concat = concat + misc_droppath(local_image, zero_mask=zero_mask, keep_mask=keep_mask)
-            concat = concat + misc_droppath(local_image)
+
+            if self.use_droppath_masking:
+                concat = concat + misc_droppath(local_image, zero_mask=zero_mask, keep_mask=keep_mask)
+            else:
+                concat = concat + misc_droppath(local_image)
 
         if motion is not None:
             motion = rearrange_conditions(motion, 0, batch, h)
@@ -1127,8 +1143,10 @@ class UNetSD_temporal(nn.Cell):
                 motion = motion.masked_fill(motion_d, 0)
                 concat = concat + motion
             else:
-                #concat = concat + misc_droppath(motion, zero_mask=zero_mask, keep_mask=keep_mask)
-                concat = concat + misc_droppath(motion)
+                if self.use_droppath_masking:
+                    concat = concat + misc_droppath(motion, zero_mask=zero_mask, keep_mask=keep_mask)
+                else:
+                    concat = concat + misc_droppath(motion)
 
         if canny is not None:
             # DropPath mask
@@ -1138,8 +1156,10 @@ class UNetSD_temporal(nn.Cell):
             canny = rearrange_conditions(canny, 1, batch, h)
             canny = self.canny_embedding_after(canny)
             canny = rearrange_conditions(canny, 2, batch, h)
-            #concat = concat + misc_droppath(canny, zero_mask=zero_mask, keep_mask=keep_mask)
-            concat = concat + misc_droppath(canny)
+            if self.use_droppath_masking:
+                concat = concat + misc_droppath(canny, zero_mask=zero_mask, keep_mask=keep_mask)
+            else:
+                concat = concat + misc_droppath(canny)
 
         if sketch is not None:
             # DropPath mask
@@ -1149,8 +1169,10 @@ class UNetSD_temporal(nn.Cell):
             sketch = rearrange_conditions(sketch, 1, batch, h)
             sketch = self.sketch_embedding_after(sketch)
             sketch = rearrange_conditions(sketch, 2, batch, h)
-            #concat = concat + misc_droppath(sketch, zero_mask=zero_mask, keep_mask=keep_mask)
-            concat = concat + misc_droppath(sketch)
+            if self.use_droppath_masking:
+                concat = concat + misc_droppath(sketch, zero_mask=zero_mask, keep_mask=keep_mask)
+            else:
+                concat = concat + misc_droppath(sketch)
 
         if single_sketch is not None:
             # DropPath mask
@@ -1160,8 +1182,10 @@ class UNetSD_temporal(nn.Cell):
             single_sketch = rearrange_conditions(single_sketch, 1, batch, h)
             single_sketch = self.single_sketch_embedding_after(single_sketch)
             single_sketch = rearrange_conditions(single_sketch, 2, batch, h)
-            #concat = concat + misc_droppath(single_sketch, zero_mask=zero_mask, keep_mask=keep_mask)
-            concat = concat + misc_droppath(single_sketch)
+            if self.use_droppath_masking:
+                concat = concat + misc_droppath(single_sketch, zero_mask=zero_mask, keep_mask=keep_mask)
+            else:
+                concat = concat + misc_droppath(single_sketch)
 
         if masked is not None:
             # DropPath mask
@@ -1172,8 +1196,10 @@ class UNetSD_temporal(nn.Cell):
             masked = rearrange_conditions(masked, 1, batch, h)
             masked = self.mask_embedding_after(masked)
             masked = rearrange_conditions(masked, 2, batch, h)
-            #concat = concat + misc_droppath(masked, zero_mask=zero_mask, keep_mask=keep_mask)
-            concat = concat + misc_droppath(masked)
+            if self.use_droppath_masking:
+                concat = concat + misc_droppath(masked, zero_mask=zero_mask, keep_mask=keep_mask)
+            else:
+                concat = concat + misc_droppath(masked)
 
         x = ops.cat([x, concat], axis=1)
         # b c f h w -> b f c h w -> (b f) c h w
@@ -1194,16 +1220,20 @@ class UNetSD_temporal(nn.Cell):
 
         # context = x.new_zeros((batch, 0, self.context_dim))  # empty tensor?
         if y is not None:
-            #y_context = misc_droppath(y, zero_mask=zero_mask, keep_mask=keep_mask)
-            y_context = misc_droppath(y)
+            if self.use_droppath_masking:
+                y_context = misc_droppath(y, zero_mask=zero_mask, keep_mask=keep_mask)
+            else:
+                y_context = misc_droppath(y)
             context = y_context  # ops.cat([context, y_context], axis=1)
         else:
             y_context = zero_y.tile((batch, 1, 1))
             context = y_context  # ops.cat([context, y_context], axis=1)
 
         if image is not None:
-            #image_context = misc_droppath(self.pre_image_condition(image), zero_mask=zero_mask, keep_mask=keep_mask)
-            image_context = misc_droppath(self.pre_image_condition(image))
+            if self.use_droppath_masking:
+                image_context = misc_droppath(self.pre_image_condition(image), zero_mask=zero_mask, keep_mask=keep_mask)
+            else:
+                image_context = misc_droppath(self.pre_image_condition(image))
             context = ops.cat([context, image_context], axis=1)
 
         # repeat f times for spatial e and context

@@ -142,7 +142,7 @@ cfg.ema_decay = 0.9999
 
 cfg.epochs = 50
 cfg.ckpt_save_interval= 50 #1000 # only save last checkpoint for DEBUG
-cfg.ckpt_save_dir = 'outputs/train' # log will be saved here too
+cfg.ouptut_dir = 'outputs/train' # log will be saved here too
 cfg.viz_interval = 1000
 
 
