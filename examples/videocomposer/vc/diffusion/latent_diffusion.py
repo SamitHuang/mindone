@@ -28,7 +28,7 @@ class LatentDiffusion(nn.Cell):
         use_fp16=True,
         num_timesteps_cond=1,
         cond_stage_trainable=False,
-        conditions_to_train=None,
+        extra_conds=None,
         scale_factor=0.18215, # scale vae encode z
         scale_by_std=False,
         parameterization="eps",
@@ -51,9 +51,18 @@ class LatentDiffusion(nn.Cell):
         super().__init__()
         # 0. pass args 
         self.cond_stage_trainable = cond_stage_trainable # clip text encoder trainable
-        if conditions_to_train is None:
-            conditions_to_train = []
-        self.conditions_to_train = conditions_to_train
+        if extra_conds is None:
+            extra_conds = {}
+        self.extra_conds = extra_conds
+        if 'depthmap' in self.extra_conds:
+            self.midas = self.extra_conds['depthmap']['midas']
+            self.depth_clamp = self.extra_conds['depthmap']['depth_clamp']
+            self.depth_std = self.extra_conds['depthmap']['depth_std']
+        if 'sketch' in self.extra_conds or 'single_sketch' in self.extra_conds:
+            self.pidinet = self.extra_conds['sketch']['pidinet']
+            self.pidi_mean = self.extra_conds['sketch']['pidi_mean']
+            self.pidi_std = self.extra_conds['sketch']['pidi_std']
+            self.cleaner = self.extra_conds['sketch']['cleaner']
 
         assert parameterization=="eps", 'currently only supporting eps preiction'
         self.parameterization = parameterization
@@ -192,6 +201,12 @@ class LatentDiffusion(nn.Cell):
     #    x_recon = self.model(x_noisy, t, **cond, **kwargs)
     #    return x_recon
 
+    def reshape_cond_data(self, cond_data, batch_size):
+        # (b f) c h w -> b f c h w -> b c f h w
+        cond_data = ms.ops.reshape(cond_data, (batch_size, cond_data.shape[0] // batch_size, cond_data.shape[1], cond_data.shape[2], cond_data.shape[3]))
+        cond_data = ms.ops.transpose(cond_data, (0, 2, 1, 3, 4))
+        return cond_data
+
     def construct(self, 
             x: ms.Tensor, 
             text_tokens: ms.Tensor, 
@@ -283,19 +298,38 @@ class LatentDiffusion(nn.Cell):
         #print("D--: single image shape : ", single_image.shape)
 
         # 3.5 fps
-        # 3.6 depth
-        #if 'depthmap' in self.conditions_to_train:
-        #    depth = ops.stop_grdient( self.midas((misc_images - 0.5) / 0.5))
-        #    depth = ops.stop_gradient( (depth / self.depth_std).clamp(0, self.depth_clamp))
-        #else:
-        #    depth = None
+
+        # TODO: misc_imags are shared to use by depth and sketch extractor. the data content may change during depth extraction and the actual input for sketch extractor may not be the original misc_images! Double check the value 
+        #  (bs, f, 3, 384, 384) -> (bs*f, 3, 384, 384) 
+        misc_images = ops.reshape(misc_images, (-1, misc_images[2], misc_images[3], misc_images[4]))
+
+        # 3.6 depth:
+        if 'depthmap' in self.extra_conds:
+            depth = ops.stop_grdient(self.midas((misc_images - 0.5) / 0.5))
+            depth = ops.stop_gradient((depth / self.depth_std).clamp(0, self.depth_clamp))
+            # (b*f) c h w -> b f c h w -> b c f h w
+            depth = self.reshape_cond_data(depth)            
+        else:
+            depth = None
 
         # 3.7 sketch
-        #if 'sketch' in self.conditions_to_train:
+        if 'sketch' in self.extra_conds:
+            sketch = ops.stop_grdient(
+                    self.pidinet(misc_images - self.pidi_mean) / self.pidi_std
+                    )
+            sketch = ops.stop_grdient(
+                    1.0 - self.cleaner(1.0 - sketch)
+                    )
+            # (b*f) c h w -> b f c h w -> b c f h w
+            skethc = self.reshape_cond_data(sketch)            
+        else:
+            sketch = None
+
+        # 3.8 single sketch. TODO
         
         # 4. diffusion forward and loss compute 
         # TODO: group all conditions into dict cond_kwargs = {'y': .., ''}
-        loss = self.p_losses(z, t, text_emb=text_emb, style_emb=style_emb, motion_vectors=motion_vectors, single_image=single_image, fps=fps)
+        loss = self.p_losses(z, t, text_emb=text_emb, style_emb=style_emb, motion_vectors=motion_vectors, single_image=single_image, fps=fps, depth=depth, sketch=sketch)
 
         return loss
 
@@ -308,6 +342,7 @@ class LatentDiffusion(nn.Cell):
             motion_vectors=None,
             single_image=None,
             fps=None, # TODO: add more conditions
+            depth=None,
             ):
         # 4. add noise to latent z
         noise = msnp.randn(x_start.shape)
@@ -323,6 +358,7 @@ class LatentDiffusion(nn.Cell):
             local_image=single_image,
             motion=motion_vectors,
             fps=fps,
+            depth=depth,
         )
 
         loss_simple = self.get_loss(noise_pred, noise, mean=False).mean([1, 2, 3, 4])

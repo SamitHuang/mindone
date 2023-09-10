@@ -25,6 +25,9 @@ from vc.models import (
     UNetSD_temporal,
     get_first_stage_encoding,
 )
+from vc.annotator.depth import midas_v3_dpt_large
+from vc.annotator.sketch import pidinet_bsd, sketch_simplification_gan
+
 from vc.diffusion.latent_diffusion import LatentDiffusion
 from vc.data.dataset_train import build_dataset
 from vc.trainer.optim import build_optimizer
@@ -177,14 +180,48 @@ def main(cfg):
     # 2.4 other NN-based condition extractors
     # TODO: add for depth/sketch to video training
     # midas = ...
+    cfg.dtype = ms.float16 if cfg.use_fp16 else ms.float32
+    extra_conds = {}
+    if "single_sketch" in cfg.conditions_for_train or "sketch" in cfg.conditions_for_train:
+        # sketch extractor
+        pidinet = pidinet_bsd(
+                pretrained=True, vanilla_cnn=True, ckpt_path=get_abspath_of_weights(cfg.pidinet_checkpoint)
+            )
+        pidinet = pidinet.set_train(False).to_float(cfg.dtype)
+        for _, param in pidinet.parameters_and_names():
+            param.requires_grad = False
+        # cleaner
+        cleaner = sketch_simplification_gan(
+                pretrained=True, ckpt_path=get_abspath_of_weights(cfg.sketch_simplification_checkpoint)
+            )
+        cleaner = cleaner.set_train(False).to_float(cfg.dtype)
+        for _, param in cleaner.parameters_and_names():
+            param.requires_grad = False
+        pidi_mean = ms.Tensor(cfg.sketch_mean).view(1, -1, 1, 1)
+        pidi_std = ms.Tensor(cfg.sketch_std).view(1, -1, 1, 1)
+        extra_conds['sketch'] = {'pidinet': pidinet, 'pidi_mean': pidi_mean, 'pidi_std':pidi_std, 'cleaner': cleaner}
 
+    if "depthmap" in cfg.conditions_for_train:
+        midas = midas_v3_dpt_large(pretrained=True, ckpt_path=get_abspath_of_weights(cfg.midas_checkpoint))
+        midas = midas.set_train(False).to_float(cfg.dtype)
+        for _, param in midas.parameters_and_names():
+            param.requires_grad = False
+        extra_conds['depthmap'] = {'midas': midas, 'depth_clamp': cfg.depth_clamp, 'depth_std':cfg.depth_std}
+    
+    # count num params for each network
     param_nums = {
             "vae": count_params(vae)[0],
             "clip_text_encoder": count_params(clip_text_encoder)[0],
             "clip_image_encoder": count_params(clip_image_encoder)[0],
             "unet with stc encoders": count_params(unet)[0],
             }
+    for cond in extra_conds:
+        for net in extra_conds[cond]:
+            if isinstance(net, ms.nn.Cell):
+                param_nums[cond + '-' + net] = count_params(extra_conds[cond][net])[0] 
     logger.info("Param numbers: {}".format(param_nums))
+    tot_params = sum([param_nums[module] for module in param_nums])
+    logger.info("Total parameters: {:,}".format(tot_params))
 
     # 3. build latent diffusion with loss cell    
     ldm_with_loss = LatentDiffusion(
@@ -192,6 +229,7 @@ def main(cfg):
             vae,
             clip_text_encoder,
             clip_image_encoder,
+            extra_conds=extra_conds,
             use_fp16=cfg.use_fp16,
             timesteps=cfg.num_timesteps,
             parameterization=cfg.mean_type,

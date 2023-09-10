@@ -4,8 +4,10 @@ from easydict import EasyDict
 
 cfg = EasyDict(__name__="Config: VideoComposer")
 
+# image is style_image, loca-image is single_image in paper
 cfg.video_compositions = ["text", "mask", "depthmap", "sketch", "motion", "image", "local_image", "single_sketch"]
-cfg.conditions_for_train = ["text", "motion", "image", "local_image"] # image -> style_image, loca-image -> single_image. TODO: make it effect dataloader and latention diffusion construct
+#cfg.conditions_for_train = ["text", "motion", "image", "local_image"] # PyTorch + Ascend setting
+cfg.conditions_for_train = ["text", "motion", "image", "local_image", "depthmap", "sketch"] # full conditions TODO: add single_sketch
 
 cfg.midas_checkpoint = "midas_v3_dpt_large-c8fd1049.ckpt"
 cfg.pidinet_checkpoint = "table5_pidinet-37904a63.ckpt"

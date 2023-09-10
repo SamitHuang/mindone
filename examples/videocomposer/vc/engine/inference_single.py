@@ -292,6 +292,7 @@ def prepare_autoencoder_unet(cfg, zero_y=None, black_image_feature=None, version
             zero_y=zero_y,
             black_image_feature=black_image_feature,
             use_fp16=cfg.use_fp16,
+            use_adaptive_pool=False,
         )
         model = model.set_train(False)
         for _, param in model.parameters_and_names():
@@ -381,10 +382,16 @@ def worker(gpu, cfg):
         # encode the video_data
         bs_vd = video_data.shape[0]
         video_data_origin = video_data.copy()  # noqa
+        # [bs, F, 3, 256, 256] -> (bs*f 3 256 256)
         video_data = ms.ops.reshape(video_data, (video_data.shape[0] * video_data.shape[1], *video_data.shape[2:]))
+        print(f"D--: chunk_size: {cfg.chunk_size}")
+        print("D--: frames shape before chunk: ", video_data.shape)
+        video_data_list = ms.ops.chunk(video_data, video_data.shape[0] // cfg.chunk_size, axis=0)
+        print("D--: frames shape after chunk: ", video_data_list.shape)
+
+        # [bs, F, 3, 384, 384] -> (bs*f 3 384 384)
         misc_data = ms.ops.reshape(misc_data, (misc_data.shape[0] * misc_data.shape[1], *misc_data.shape[2:]))
 
-        video_data_list = ms.ops.chunk(video_data, video_data.shape[0] // cfg.chunk_size, axis=0)
         misc_data_list = ms.ops.chunk(misc_data, misc_data.shape[0] // cfg.chunk_size, axis=0)
 
         decode_data = []
