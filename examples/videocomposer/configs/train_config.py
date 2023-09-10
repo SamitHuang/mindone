@@ -5,9 +5,10 @@ from easydict import EasyDict
 cfg = EasyDict(__name__="Config: VideoComposer")
 
 # image is style_image, loca-image is single_image in paper
-cfg.video_compositions = ["text", "mask", "depthmap", "sketch", "motion", "image", "local_image", "single_sketch"]
+#cfg.video_compositions = ["text", "mask", "depthmap", "sketch", "motion", "image", "local_image", "single_sketch"]
+cfg.video_compositions = ["text",  "image", "depthmap"]
 #cfg.conditions_for_train = ["text", "motion", "image", "local_image"] # PyTorch + Ascend setting
-cfg.conditions_for_train = ["text", "motion", "image", "local_image", "depthmap", "sketch"] # full conditions TODO: add single_sketch
+cfg.conditions_for_train = ["text",  "image", "depthmap"] # full conditions TODO: add single_sketch
 
 cfg.midas_checkpoint = "midas_v3_dpt_large-c8fd1049.ckpt"
 cfg.pidinet_checkpoint = "table5_pidinet-37904a63.ckpt"
@@ -35,7 +36,7 @@ cfg.sketch_std = [0.229, 0.224, 0.225]
 # dataloader
 cfg.max_words = 1000
 cfg.feature_framerate = 4
-cfg.max_frames = 8 #16
+cfg.max_frames = 8 #8 #16
 cfg.batch_size = 1
 cfg.chunk_size = 64
 cfg.num_workers = 8 # not used yet

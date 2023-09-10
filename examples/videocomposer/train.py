@@ -179,9 +179,9 @@ def main(cfg):
 
     # 2.4 other NN-based condition extractors
     # TODO: add for depth/sketch to video training
-    # midas = ...
     cfg.dtype = ms.float16 if cfg.use_fp16 else ms.float32
     extra_conds = {}
+    # 2.4 1) sktech - pidinet and cleaner
     if "single_sketch" in cfg.conditions_for_train or "sketch" in cfg.conditions_for_train:
         # sketch extractor
         pidinet = pidinet_bsd(
@@ -197,16 +197,21 @@ def main(cfg):
         cleaner = cleaner.set_train(False).to_float(cfg.dtype)
         for _, param in cleaner.parameters_and_names():
             param.requires_grad = False
-        pidi_mean = ms.Tensor(cfg.sketch_mean).view(1, -1, 1, 1)
-        pidi_std = ms.Tensor(cfg.sketch_std).view(1, -1, 1, 1)
-        extra_conds['sketch'] = {'pidinet': pidinet, 'pidi_mean': pidi_mean, 'pidi_std':pidi_std, 'cleaner': cleaner}
+        extra_conds['sketch'] = {'pidinet': pidinet, 'sketch_mean': cfg.sketch_mean, 'sketch_std': sketch_std, 'cleaner': cleaner}
 
+        # TODO: set pidinet and cleaner as O3 amp
+
+    # 2.4 2) depth - midas 
     if "depthmap" in cfg.conditions_for_train:
         midas = midas_v3_dpt_large(pretrained=True, ckpt_path=get_abspath_of_weights(cfg.midas_checkpoint))
         midas = midas.set_train(False).to_float(cfg.dtype)
         for _, param in midas.parameters_and_names():
             param.requires_grad = False
         extra_conds['depthmap'] = {'midas': midas, 'depth_clamp': cfg.depth_clamp, 'depth_std':cfg.depth_std}
+
+        auto_mixed_precision(midas, amp_level="O3") # TODO: check output type fp16 or fp32
+    else:
+        midas = None
     
     # count num params for each network
     param_nums = {
@@ -216,9 +221,10 @@ def main(cfg):
             "unet with stc encoders": count_params(unet)[0],
             }
     for cond in extra_conds:
-        for net in extra_conds[cond]:
-            if isinstance(net, ms.nn.Cell):
-                param_nums[cond + '-' + net] = count_params(extra_conds[cond][net])[0] 
+        for _net in extra_conds[cond]:
+            print()
+            if isinstance(extra_conds[cond][_net], ms.nn.Cell):
+                param_nums[cond + '-' + _net] = count_params(extra_conds[cond][_net])[0] 
     logger.info("Param numbers: {}".format(param_nums))
     tot_params = sum([param_nums[module] for module in param_nums])
     logger.info("Total parameters: {:,}".format(tot_params))
@@ -229,7 +235,10 @@ def main(cfg):
             vae,
             clip_text_encoder,
             clip_image_encoder,
-            extra_conds=extra_conds,
+            depth_est=midas,
+            depth_std=cfg.depth_std,
+            depth_clamp=cfg.depth_clamp,
+            extra_conds=list(extra_conds.keys()),
             use_fp16=cfg.use_fp16,
             timesteps=cfg.num_timesteps,
             parameterization=cfg.mean_type,

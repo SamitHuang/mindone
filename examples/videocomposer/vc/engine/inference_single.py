@@ -387,7 +387,7 @@ def worker(gpu, cfg):
         print(f"D--: chunk_size: {cfg.chunk_size}")
         print("D--: frames shape before chunk: ", video_data.shape)
         video_data_list = ms.ops.chunk(video_data, video_data.shape[0] // cfg.chunk_size, axis=0)
-        print("D--: frames shape after chunk: ", video_data_list.shape)
+        #print("D--: frames shape after chunk: ", video_data_list.shape)
 
         # [bs, F, 3, 384, 384] -> (bs*f 3 384 384)
         misc_data = ms.ops.reshape(misc_data, (misc_data.shape[0] * misc_data.shape[1], *misc_data.shape[2:]))

@@ -128,17 +128,18 @@ class Config(object):
             with open(file_name, "r") as f:
                 cfg = yaml.load(f.read(), Loader=yaml.SafeLoader)
         else:
-            if os.getcwd().split("/")[-1] == args.cfg_file.split("/")[0]:
-                args.cfg_file = args.cfg_file.replace(os.getcwd().split("/")[-1], "./")
-            try:
-                with open(args.cfg_file, "r") as f:
-                    cfg = yaml.load(f.read(), Loader=yaml.SafeLoader)
-                    file_name = args.cfg_file
-            except:  # noqa
-                args.cfg_file = os.path.realpath(__file__).split("/")[-3] + "/" + args.cfg_file
-                with open(args.cfg_file, "r") as f:
-                    cfg = yaml.load(f.read(), Loader=yaml.SafeLoader)
-                    file_name = args.cfg_file
+            #if os.getcwd().split("/")[-1] == args.cfg_file.split("/")[0]:
+            #    args.cfg_file = args.cfg_file.replace(os.getcwd().split("/")[-1], "./")
+            print("D--: ", args.cfg_file)
+            #try:
+            with open(args.cfg_file, "r") as f:
+                cfg = yaml.load(f.read(), Loader=yaml.SafeLoader)
+                file_name = args.cfg_file
+            #except:  # noqa
+            #    args.cfg_file = os.path.realpath(__file__).split("/")[-3] + "/" + args.cfg_file
+            #    with open(args.cfg_file, "r") as f:
+            #        cfg = yaml.load(f.read(), Loader=yaml.SafeLoader)
+            #        file_name = args.cfg_file
 
         if "_BASE_RUN" not in cfg.keys() and "_BASE_MODEL" not in cfg.keys() and "_BASE" not in cfg.keys():
             # return cfg if the base file is being accessed

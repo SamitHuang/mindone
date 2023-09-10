@@ -3,7 +3,8 @@ read_image: True # You NEED Open It
 read_style: True
 ENABLE: true
 DATASET: webvid10m
-video_compositions: ['text', 'mask', 'depthmap', 'sketch', 'motion', 'image', 'local_image', 'single_sketch']
+#video_compositions: ['text', 'mask', 'depthmap', 'sketch', 'motion', 'image', 'local_image', 'single_sketch']
+video_compositions: ['text', 'motion', 'image', 'local_image']
 guidances: ['y', 'local_image', 'image', 'motion'] # You NEED Open It
 batch_sizes: {
     "1": 1,
@@ -18,7 +19,7 @@ resume_step: 228000
 seed: 182
 num_workers: 0
 mvs_visual: False
-chunk_size: 16 #1 # for 30GB NPU, frame=16 and bs=1, åno need to chunk 
+chunk_size: 16 #1 original, 
 resume_checkpoint: "non_ema_228000-3bb2ee9a.ckpt"
 log_dir: 'outputs'
 num_steps: 1

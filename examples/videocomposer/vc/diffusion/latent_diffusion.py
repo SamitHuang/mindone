@@ -25,6 +25,11 @@ class LatentDiffusion(nn.Cell):
         vae: nn.Cell,  # first_stage_config 
         clip_text_encoder: nn.Cell, # cond_stage_config
         clip_image_encoder: nn.Cell = None,
+        depth_est: nn.Cell=None, # TODO: 
+        depth_std: float=None,
+        depth_clamp: float=None,
+        #sketch_est: nn.Cel=None,
+        #sketch_cleaner: nn.Cell=None,
         use_fp16=True,
         num_timesteps_cond=1,
         cond_stage_trainable=False,
@@ -54,15 +59,21 @@ class LatentDiffusion(nn.Cell):
         if extra_conds is None:
             extra_conds = {}
         self.extra_conds = extra_conds
-        if 'depthmap' in self.extra_conds:
-            self.midas = self.extra_conds['depthmap']['midas']
-            self.depth_clamp = self.extra_conds['depthmap']['depth_clamp']
-            self.depth_std = self.extra_conds['depthmap']['depth_std']
+        #if 'depthmap' in self.extra_conds:
+        if depth_est is not None:
+            self.midas = depth_est
+            self.depth_clamp = depth_clamp
+            self.depth_std = depth_std #extra_conds['depthmap']['depth_std']
+        '''
         if 'sketch' in self.extra_conds or 'single_sketch' in self.extra_conds:
             self.pidinet = self.extra_conds['sketch']['pidinet']
             self.pidi_mean = self.extra_conds['sketch']['pidi_mean']
+
+            pidi_mean = ms.Tensor().view(1, -1, 1, 1)
+            pidi_std = ms.Tensor(cfg.sketch_std).view(1, -1, 1, 1)
             self.pidi_std = self.extra_conds['sketch']['pidi_std']
             self.cleaner = self.extra_conds['sketch']['cleaner']
+        '''
 
         assert parameterization=="eps", 'currently only supporting eps preiction'
         self.parameterization = parameterization
@@ -301,35 +312,38 @@ class LatentDiffusion(nn.Cell):
 
         # TODO: misc_imags are shared to use by depth and sketch extractor. the data content may change during depth extraction and the actual input for sketch extractor may not be the original misc_images! Double check the value 
         #  (bs, f, 3, 384, 384) -> (bs*f, 3, 384, 384) 
-        misc_images = ops.reshape(misc_images, (-1, misc_images[2], misc_images[3], misc_images[4]))
+        misc_images = ops.reshape(misc_images, (-1, misc_images.shape[2], misc_images.shape[3], misc_images.shape[4]))
 
         # 3.6 depth:
-        if 'depthmap' in self.extra_conds:
-            depth = ops.stop_grdient(self.midas((misc_images - 0.5) / 0.5))
+        #if 'depthmap' in self.extra_conds:
+        if self.midas is not None:
+            depth = ops.stop_gradient(self.midas((misc_images - 0.5) / 0.5))
             depth = ops.stop_gradient((depth / self.depth_std).clamp(0, self.depth_clamp))
             # (b*f) c h w -> b f c h w -> b c f h w
-            depth = self.reshape_cond_data(depth)            
+            depth = self.reshape_cond_data(depth, b)            
         else:
             depth = None
 
         # 3.7 sketch
+        '''
         if 'sketch' in self.extra_conds:
-            sketch = ops.stop_grdient(
+            sketch = ops.stop_gradient(
                     self.pidinet(misc_images - self.pidi_mean) / self.pidi_std
                     )
-            sketch = ops.stop_grdient(
+            sketch = ops.stop_gradient(
                     1.0 - self.cleaner(1.0 - sketch)
                     )
             # (b*f) c h w -> b f c h w -> b c f h w
             skethc = self.reshape_cond_data(sketch)            
         else:
             sketch = None
+        '''
 
         # 3.8 single sketch. TODO
         
         # 4. diffusion forward and loss compute 
         # TODO: group all conditions into dict cond_kwargs = {'y': .., ''}
-        loss = self.p_losses(z, t, text_emb=text_emb, style_emb=style_emb, motion_vectors=motion_vectors, single_image=single_image, fps=fps, depth=depth, sketch=sketch)
+        loss = self.p_losses(z, t, text_emb=text_emb, style_emb=style_emb, motion_vectors=motion_vectors, single_image=single_image, fps=fps, depth=depth)
 
         return loss
 
