@@ -39,6 +39,7 @@ from ldm.modules.train.tools import set_random_seed
 from ldm.util import count_params
 from ldm.modules.train.trainer import TrainOneStepWrapper
 from ldm.modules.train.callback import EvalSaveCallback, OverflowMonitor
+from ldm.modules.train.parallel_config import ParallelConfig
 from mindspore.train.callback import LossMonitor, TimeMonitor
 
 
@@ -171,7 +172,7 @@ def main(cfg):
         zero_y=None, # assume we always use text prompts  (y, even y="")
         black_image_feature=black_image_feature,
         use_fp16=cfg.use_fp16,
-        use_adaptive_pool=False, # TODO: AdaptivePool2DGrad is not stable on ms2.0 
+        use_adaptive_pool=cfg.use_adaptive_pool, # TODO: AdaptivePool2DGrad is not stable on ms2.0 
     )
     # TODO: use common checkpoiont download, mapping, and loading 
     unet.load_state_dict(get_abspath_of_weights(cfg.resume_checkpoint))
@@ -197,7 +198,7 @@ def main(cfg):
         cleaner = cleaner.set_train(False).to_float(cfg.dtype)
         for _, param in cleaner.parameters_and_names():
             param.requires_grad = False
-        extra_conds['sketch'] = {'pidinet': pidinet, 'sketch_mean': cfg.sketch_mean, 'sketch_std': sketch_std, 'cleaner': cleaner}
+        extra_conds['sketch'] = {'pidinet': pidinet, 'sketch_mean': cfg.sketch_mean, 'sketch_std': cfg.sketch_std, 'cleaner': cleaner}
 
         # TODO: set pidinet and cleaner as O3 amp
 
@@ -210,8 +211,6 @@ def main(cfg):
         extra_conds['depthmap'] = {'midas': midas, 'depth_clamp': cfg.depth_clamp, 'depth_std':cfg.depth_std}
 
         auto_mixed_precision(midas, amp_level="O3") # TODO: check output type fp16 or fp32
-    else:
-        midas = None
     
     # count num params for each network
     param_nums = {
@@ -235,10 +234,7 @@ def main(cfg):
             vae,
             clip_text_encoder,
             clip_image_encoder,
-            depth_est=midas,
-            depth_std=cfg.depth_std,
-            depth_clamp=cfg.depth_clamp,
-            extra_conds=list(extra_conds.keys()),
+            extra_conds=extra_conds,
             use_fp16=cfg.use_fp16,
             timesteps=cfg.num_timesteps,
             parameterization=cfg.mean_type,

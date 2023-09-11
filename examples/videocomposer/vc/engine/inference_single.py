@@ -230,7 +230,6 @@ def prepare_condition_models(cfg):
             param.requires_grad = False
         pidi_mean = ms.Tensor(cfg.sketch_mean).view(1, -1, 1, 1)
         pidi_std = ms.Tensor(cfg.sketch_std).view(1, -1, 1, 1)
-
         def sketch_extractor(misc_imgs):
             sketch = pidinet((misc_imgs - pidi_mean) / pidi_std)
             sketch = 1.0 - cleaner(1.0 - sketch)
@@ -384,8 +383,6 @@ def worker(gpu, cfg):
         video_data_origin = video_data.copy()  # noqa
         # [bs, F, 3, 256, 256] -> (bs*f 3 256 256)
         video_data = ms.ops.reshape(video_data, (video_data.shape[0] * video_data.shape[1], *video_data.shape[2:]))
-        print(f"D--: chunk_size: {cfg.chunk_size}")
-        print("D--: frames shape before chunk: ", video_data.shape)
         video_data_list = ms.ops.chunk(video_data, video_data.shape[0] // cfg.chunk_size, axis=0)
         #print("D--: frames shape after chunk: ", video_data_list.shape)
 
