@@ -19,7 +19,6 @@ from libs.helper import set_env
 from libs.infer_engine.export_modules import (
     MotionStyleTransferDataPrepare,
     NoisySample,
-    #PredictNoise,
     MotionStyleTransferPredictNoise,
     SchedulerPreProcess,
     VAEDecoder,
@@ -93,7 +92,7 @@ def create_models(cfg, task='motion_style_transfer'):
     logger.info("vae init")
 
     # 2.3 unet3d with STC encoders
-    assert cfg.use_fps_condition==False, f"use_fps_condtion==True is not tested"
+    assert cfg.use_fps_condition==False, f"use_fps_condtion==True require rebuild the graphs"
     unet = UNetSD_temporal(
         cfg=cfg,
         in_dim=cfg.unet_in_dim,
@@ -159,18 +158,18 @@ def main(args):
     # 1) inputs for DataPrepare graph 
     # TODO: read image sizes from cfg or args
     tokenized_prompts = ops.ones((batch_size, 77), ms.int32)
-    style_image = ops.ones((bs, 3, 224, 224), ms.float16)  
-    single_image = ops.ones((bs, 1, 3, 384, 384), ms.float16)  
-    motion_vectors = ops.ones((bs, cfg.max_frames, 2, 256, 256), ms.float16)  
-    fps = ops.ones((), ms.int32) # passed to noise predictor
-    noise = ops.ones((batch_size, 4, cfg.max_frames, 256 // 8, 256 // 8), ms.float16) # passed to noise predictor
+    style_image = ops.ones((bs, 3, 224, 224), ms.float32)  
+    single_image = ops.ones((bs, 1, 3, 384, 384), ms.float32)  
+    motion_vectors = ops.ones((bs, cfg.max_frames, 2, 256, 256), ms.float32)  
+    #fps = ops.ones((), ms.int32) # passed to noise predictor
+    noise = ops.ones((batch_size, 4, cfg.max_frames, 256 // 8, 256 // 8), ms.float32) # passed to noise predictor
 
     # 2) inputs for noise prediction graph (unet) and scheduler
-    text_emb = ops.ones((batch_size * 2, 77, 1024), ms.float16)
-    style_emb = ops.ones((batch_size, 1, 1024), ms.float16)
-    single_image_tr = ops.ones((bs, 3, cfg.max_frames, 384, 384), ms.float16)  
-    motion_vectors_tr = ops.ones((bs, 2, cfg.max_frames, 256, 256), ms.float16)  
-    scale = ops.ones((), ms.float16) # unconditional guidance scale
+    text_emb = ops.ones((batch_size * 2, 77, 1024), ms.float16) # TODO: due to concat with img emb (to float16)
+    style_emb = ops.ones((batch_size, 1, 1024), ms.float32)
+    single_image_tr = ops.ones((bs, 3, cfg.max_frames, 384, 384), ms.float32)  
+    motion_vectors_tr = ops.ones((bs, 2, cfg.max_frames, 256, 256), ms.float32)  
+    scale = ops.ones((), ms.float32) # unconditional guidance scale
     ts = ops.ones((), ms.int32)
 
     # 2. Create model components loaded with pretrained weight   
@@ -192,7 +191,7 @@ def main(args):
             data_prepare = MotionStyleTransferDataPrepare(text_encoder, vae, scheduler, cfg.scale_factor, clip_image_encoder, extra_conds=extra_conds, frames=cfg.max_frames)
             model_export(
                 net=data_prepare,
-                inputs=(tokenized_prompts, tokenized_prompts, noise, style_image, single_image, motion_vectors, fps),
+                inputs=(tokenized_prompts, tokenized_prompts, noise, style_image, single_image, motion_vectors),
                 name=args.inputs_config.data_prepare_model,
                 model_save_path=model_save_path,
             )
@@ -218,11 +217,11 @@ def main(args):
     if not predict_noise:
         predict_noise = MotionStyleTransferPredictNoise(unet)
         if DEBUG:
-            eps = predict_noise(noise, ts, text_emb, style_emb, single_image_tr, motion_vectors_tr, fps, scale)
+            eps = predict_noise(noise, ts, text_emb, style_emb, single_image_tr, motion_vectors_tr, scale)
             print("D--: ", eps)
         model_export(
             net=predict_noise,
-            inputs=(noise, ts, text_emb, style_emb, single_image_tr, motion_vectors_tr, fps, scale),
+            inputs=(noise, ts, text_emb, style_emb, single_image_tr, motion_vectors_tr, scale),
             name=args.inputs_config.predict_noise_model,
             model_save_path=model_save_path,
         )

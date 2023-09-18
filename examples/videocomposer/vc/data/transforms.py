@@ -104,7 +104,8 @@ def create_transforms(cfg, is_training=True):
     # TODO: 1) use CenterCrop, need to exclude input image with resolution < 224. 2) or just Resize to 224x224 for some distortion 
     vit_transforms = transforms.Compose(
         [
-            CenterCrop(cfg.vit_image_size),
+            CenterCrop(cfg.vit_image_size), # TODO: debug to use simple resize instead 
+            #vision.Resize(cfg.vit_image_size), 
             vision.ToTensor(),  # to chw
             vision.Normalize(mean=cfg.vit_mean, std=cfg.vit_std, is_hwc=False),
         ]

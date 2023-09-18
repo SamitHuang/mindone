@@ -74,17 +74,17 @@ class MotionStyleTransferDataPrepare(DataPrepare):
     def __init__(self, text_encoder, vae, scheduler, scale_factor=1.0, clip_image_encoder=None, extra_conds=None, frames=16):
         super(MotionStyleTransferDataPrepare, self).__init__(text_encoder, vae, scheduler, scale_factor, clip_image_encoder, extra_conds, frames)
 
-    def construct(self, prompt_data, negative_prompt_data, noise, style_image, single_image, motion_vectors, fps):
+    def construct(self, prompt_data, negative_prompt_data, noise, style_image, single_image, motion_vectors):
         '''
-        fps: frame rate, shape (1,), ms.Tensor int
         noise: (b z f h//8 w//8), z=4 
+        fps: frame rate, shape (1,), ms.Tensor int
         '''
         text_emb = self.prompt_embed(prompt_data, negative_prompt_data)
         style_emb = self.style_embed(style_image)
         single_image_tr = self.single_image_transform(single_image) 
         motion_vectors_tr = self.motion_transform(motion_vectors)
 
-        return text_emb, style_emb, single_image_tr, motion_vectors_tr, fps, noise
+        return text_emb, style_emb, single_image_tr, motion_vectors_tr, noise
 
 
 class MotionStyleTransferPredictNoise(nn.Cell):
@@ -101,7 +101,7 @@ class MotionStyleTransferPredictNoise(nn.Cell):
         self.unet = unet
         self.guidance_rescale = guidance_rescale
 
-    def predict_noise(self, x, t_continuous, text_emb, style_emb, single_image, motion_vectors, fps, guidance_scale):
+    def predict_noise(self, x, t_continuous, text_emb, style_emb, single_image, motion_vectors, guidance_scale):
         """
         x: noise (b z f h//8 w//8), z=4 
         t_continous:  ms.Tensor, int
@@ -109,15 +109,15 @@ class MotionStyleTransferPredictNoise(nn.Cell):
         style_emb: (bs 1 1024)
         single_image: (bs 3 f 384 384)
         motion_vectors: (bs 2 f 256 256)
-        fps:  ms.Tensor, int
+        # fps:  ms.Tensor, int. 
         guidance_scale (ms.Tensor float): A higher guidance scale value encourages the model to generate images closely linked to the text
             prompt` at the expense of lower image quality. Guidance scale is enabled when `guidance_scale > 1`.
         """
         
         t_continuous = ops.tile(t_continuous.reshape(1), (x.shape[0],)) # (bs, )
         t_in = ops.concat([t_continuous] * 2, axis=0) # (bs*2, )
-        fps = ops.tile(fps.reshape(1), (x.shape[0],))
-        fps = ops.concat([fps] * 2, axis=0) # TODO: not used by default. Check effectivness if used.
+        #fps = ops.tile(fps.reshape(1), (x.shape[0],))
+        #fps = ops.concat([fps] * 2, axis=0) # TODO: not used by default. Check effectivness if used.
 
         x_in = ops.concat([x] * 2, axis=0)
         style_emb = ops.concat([style_emb] * 2, axis=0)
@@ -135,7 +135,7 @@ class MotionStyleTransferPredictNoise(nn.Cell):
                     image=style_emb,
                     local_image=single_image,
                     motion=motion_vectors,
-                    fps=fps,
+                    #fps=fps,
                     #depth=depth,
                     #sketch=sketch,
                 ) # (bs*2 4 f h//8 w//8)
@@ -159,8 +159,8 @@ class MotionStyleTransferPredictNoise(nn.Cell):
         noise_pred = self.guidance_rescale * noise_pred_rescaled + (1 - self.guidance_rescale) * noise_pred
         return noise_pred
 
-    def construct(self, latents, ts, text_emb, style_emb, single_image, motion_vectors, fps, guidance_scale):
-        return self.predict_noise(latents, ts, text_emb, style_emb, single_image, motion_vectors, fps, guidance_scale)
+    def construct(self, latents, ts, text_emb, style_emb, single_image, motion_vectors,  guidance_scale):
+        return self.predict_noise(latents, ts, text_emb, style_emb, single_image, motion_vectors, guidance_scale)
 
 
 class SchedulerPreProcess(nn.Cell):

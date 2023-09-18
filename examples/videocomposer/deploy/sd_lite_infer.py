@@ -63,14 +63,15 @@ def main(args):
 
     # 1. Prepare inputs for pipeline sub-graphs
 
-    # DataPrepare: prompt_data, negative_prompt_data, noise, style_image, single_image, motion_vectors, fps
-    # NoisePredict: -latents, +ts, -text_emb, -style_emb, -single_image_tr, -motion_vectors_tr, -fps, +guidance_scale):
+    # DataPrepare: prompt_data, negative_prompt_data, noise, style_image, single_image, motion_vectors
+    # NoisePredict: -latents, +ts, -text_emb, -style_emb, -single_image_tr, -motion_vectors_tr, +guidance_scale):
     # SchedulerPreprocess: #latents, t
     # NoisySample: -noise_pred, #ts, #latents, +num_inference_steps):
 
     img_processor = VaeImageProcessor()
     tokenizer = CLIPTokenizer("./model_weights/bpe_simple_vocab_16e6.txt.gz")
-
+    
+    # the data type must be the same as defined in export.py
     inputs = load_data(
             cfg, 
             tokenizer, 
@@ -114,10 +115,11 @@ def main(args):
         x_samples = vc_infer(inputs) # (b f 3 H W)
         x_samples = x_samples[0] # TODO: fix for batch size > 1 
         x_samples = img_processor.postprocess(x_samples) # -> PIL image list
-
-        os.makedirs(os.path.join(args.sample_path,  f"video-{args.base_count:05}"), exist_ok=True)
+        
+        vid_save_dir = os.path.join(args.sample_path,  f"vid{args.base_count:05}")
+        os.makedirs(vid_save_dir, exist_ok=True)
         for fidx, frame in enumerate(x_samples):
-            frame.save(os.path.join(args.sample_path, f"{fidx:03}.png"))
+            frame.save(os.path.join(vid_save_dir, f"{fidx:03}.png"))
         args.base_count += 1
         # TODO: save as gif
 

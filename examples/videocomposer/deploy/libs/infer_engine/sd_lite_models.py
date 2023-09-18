@@ -54,11 +54,11 @@ class VCLite(ModelBase):
             frames: (bs f C H W) = (bs f 3 H W)
         '''
         predict_outputs = self.data_prepare_predict(inputs)
-        # 1. DataPrepare graph outputs: text_emb, style_emb, single_image_tr, motion_vectors_tr, fps, noise (latents)
+        # 1. DataPrepare graph outputs: text_emb, style_emb, single_image_tr, motion_vectors_tr, noise (latents)
         if self.task=='motion_style_transfer':
-            text_emb, style_emb, single_image_tr, motion_vectors_tr, fps, latents = predict_outputs
+            text_emb, style_emb, single_image_tr, motion_vectors_tr, latents = predict_outputs
 
-            # 2. PredictNoise graph inputs: latents, ts, text_emb, style_emb, single_image, motion_vectors, fps, guidance_scale):
+            # 2. PredictNoise graph inputs: latents, ts, text_emb, style_emb, single_image, motion_vectors, guidance_scale):
             scale = self.predict_noise_input[-1]
             scale.set_data_from_numpy(np.array(inputs["scale"]))
             iterator = tqdm(inputs["timesteps"], desc="DDIM Sampling", total=len(inputs["timesteps"]))
@@ -68,14 +68,14 @@ class VCLite(ModelBase):
                 ts.set_data_from_numpy(np.array(t).astype(np.int32))
                 latents = self.scheduler_preprocess.predict([latents, ts])[0]
 
-                noise_pred = self.predict_noise.predict([latents, ts, text_emb, style_emb, single_image_tr, motion_vectors_tr, fps, scale])[0]
+                noise_pred = self.predict_noise.predict([latents, ts, text_emb, style_emb, single_image_tr, motion_vectors_tr, scale])[0]
                 
                 # 3. NoisySample grah inputs: noise_pred, ts, latents, num_inference_steps
                 latents = self.noisy_sample.predict([noise_pred, ts, latents, self.num_inference_steps])[0]
 
         else:
             raise ValueError("data_prepare_predict error")
-        # 4. VAEDecoder graph inputs: 
+        # 4. VAEDecoder graph inputs 
         frames = self.vae_decoder.predict([latents])[0]
         frames = frames.get_data_to_numpy()
         return frames
@@ -106,14 +106,14 @@ class VCLiteMotionStyleTransfer(VCLite):
         )
 
     def data_prepare_predict(self, inputs):
-        # DataPrepare graph inputs:  prompt_data, negative_prompt_data, noise, style_image, single_image, motion_vectors, fps):
+        # DataPrepare graph inputs:  prompt_data, negative_prompt_data, noise, style_image, single_image, motion_vectors):
         self.data_prepare_input[0].set_data_from_numpy(inputs["prompt_data"])
         self.data_prepare_input[1].set_data_from_numpy(inputs["negative_prompt_data"])
         self.data_prepare_input[2].set_data_from_numpy(inputs["noise"])
         self.data_prepare_input[3].set_data_from_numpy(inputs["style_image"])
         self.data_prepare_input[4].set_data_from_numpy(inputs["single_image"])
         self.data_prepare_input[5].set_data_from_numpy(inputs["motion_vectors"])
-        self.data_prepare_input[6].set_data_from_numpy(inputs["fps"])
+        #self.data_prepare_input[6].set_data_from_numpy(inputs["fps"])
 
         return self.data_prepare.predict(self.data_prepare_input)
 
