@@ -1,0 +1,12 @@
+prompt: "A beautiful big moon on the river"  # The prompt to render
+negative_prompt: ""  # The negative prompt not to render
+input_video: "../demo_video/motion_transfer.mp4"
+single_image: "../demo_video/moon_on_water.jpg"  # Single/starting imgae path
+style_image: "../demo_video/moon_on_water.jpg"  # Style imgae path
+H: 256 # Image height, in pixel space
+W: 256 # Image width, in pixel space
+data_prepare_model: data_prepare_model  # For export and  lite inference. The path of MindSpore Lite MindIR for data_prepare_model, see libs/infer_engine/export_modules.py for details.
+scheduler_preprocess: scheduler_preprocess   # For export and  lite inference. The path of MindSpore Lite MindIR for scheduler_preprocess, see libs/infer_engine/export_modules.py for details.
+predict_noise_model: predict_noise_model  # For export and  lite inference. The path of MindSpore Lite MindIR for predict_noise_model, see libs/infer_engine/export_modules.py for details.
+noisy_sample_model: noisy_sample_model  # For export and  lite inference. The path of MindSpore Lite MindIR for noisy_sample_model in export, see libs/infer_engine/export_modules.py for details.
+vae_decoder_model: vae_decoder_model  # For export and  lite inference. The path of MindSpore Lite MindIR for vae_decoder_model in export, see libs/infer_engine/export_modules.py for details.

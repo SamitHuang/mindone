@@ -81,7 +81,7 @@ def create_transforms(cfg, is_training=True):
     # video frames, norm to [-1, 1] for VAE
     infer_transforms = transforms.Compose(
         [
-            vision.CenterCrop(size=cfg.resolution),
+            vision.CenterCrop(size=cfg.resolution), # TODO: need to exclude video < 256
             vision.ToTensor(),
             vision.Normalize(mean=cfg.mean, std=cfg.std, is_hwc=False),
         ]
@@ -89,7 +89,7 @@ def create_transforms(cfg, is_training=True):
     # NOTE: only norm to [0. 1] for stc encoder or for detph/sketch image preprocessor
     misc_transforms = transforms.Compose(
         [
-            RandomResize(size=cfg.misc_size),
+            RandomResize(size=cfg.misc_size), # TODO: why random resize
             vision.CenterCrop(cfg.misc_size),
             vision.ToTensor(),
         ]
@@ -101,7 +101,7 @@ def create_transforms(cfg, is_training=True):
             vision.CenterCrop(cfg.resolution),
         ]
     )
-    #
+    # TODO: 1) use CenterCrop, need to exclude input image with resolution < 224. 2) or just Resize to 224x224 for some distortion 
     vit_transforms = transforms.Compose(
         [
             CenterCrop(cfg.vit_image_size),

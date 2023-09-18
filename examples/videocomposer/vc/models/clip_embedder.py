@@ -43,7 +43,7 @@ def load_clip_model(arch, pretrained_ckpt_path, dtype):
         download_checkpoint(_CKPT_URL[arch.lower()], "model_weights/")
     if not os.path.exists(pretrained_ckpt_path):
         raise ValueError(
-            f"Maybe download failed. Please download it manually from {_CKPT_URL[arch.lower()]} and place it under `model_weights/`"
+            f"{pretrained_ckpt_path} not exists. Please download it manually from {_CKPT_URL[arch.lower()]} and place it under `model_weights/`"
         )
 
     config = parse(config_path, pretrained_ckpt_path)

@@ -487,7 +487,7 @@ def worker(gpu, cfg):
                 noise=noise_motion,
                 model=model.set_train(False),
                 model_kwargs=model_kwargs,
-                guide_scale=9.0,
+                guide_scale=9.0, # TODO: why not use cfg.guide_scale=6, parse from args
                 ddim_timesteps=cfg.ddim_timesteps,
                 eta=0.0,
             )

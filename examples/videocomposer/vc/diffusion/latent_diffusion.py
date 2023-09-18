@@ -298,6 +298,9 @@ class LatentDiffusion(nn.Cell):
         # print("D--: single image shape : ", single_image.shape)
 
         # 3.5 fps
+        # TODO: fps is not actually used currently. If use, we should preprocess similary to timestep. i.e. 
+        # fps = ops.tile(fps, (bs,))
+
         #  (bs, f, 3, 384, 384) -> (bs*f, 3, 384, 384)
         misc_images = ops.reshape(misc_images, (-1, misc_images.shape[2], misc_images.shape[3], misc_images.shape[4]))
         # TODO: misc_imags are shared to use by depth and sketch extractor. \
@@ -358,7 +361,8 @@ class LatentDiffusion(nn.Cell):
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
 
         # 5. predict noise
-        # output shape: (b c f h//8 w//8)
+        # inputs shape: t - (b, )
+        # output shape: (b 4 f h//8 w//8)
         noise_pred = self.unet(
             x_noisy,
             t,
