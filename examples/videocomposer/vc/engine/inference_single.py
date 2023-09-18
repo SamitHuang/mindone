@@ -561,6 +561,7 @@ def visualize_with_model_kwargs(
         tmp = autoencoder.decode(vd_data)
         decode_data.append(tmp)
     video_data = ms.ops.cat(decode_data, axis=0)
+    # TODO: why not rescale the image to [0, 1]
     bf, c, h, w = video_data.shape
     b, f = bs_vd, bf // bs_vd
     video_data = ms.ops.reshape(video_data, (b, f, c, h, w))

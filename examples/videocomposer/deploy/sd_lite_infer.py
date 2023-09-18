@@ -80,16 +80,19 @@ def main(args):
             neg_prompt=args.inputs.negative_prompt,
             single_image_path=args.inputs.single_image,
             style_image_path=args.inputs.style_image,
-            use_fp16=True,
             )
 
     for k in inputs:
-        print("D--: ", k, inputs[k].shape)
+        print("D--: ", k, inputs[k].shape, type(inputs[k]))
+        if isinstance(inputs[k], np.ndarray):
+            print(inputs[k].dtype)
 
     inputs["prompt"] = args.inputs.prompt
     inputs["negative_prompt"] = args.inputs.negative_prompt
     inputs["timesteps"] = timesteps
-    inputs["scale"] = np.array(args.scale, np.float16)
+    inputs["scale"] = np.array(args.scale, np.float32) #, np.float16)
+
+    noise_fp16 = False
     
     # 2. Create models and pipeline 
     if args.task == "motion_style_transfer":
@@ -110,7 +113,9 @@ def main(args):
         start_time = time.time()
         inputs["noise"] = np.random.standard_normal(
             size=(batch_size, 4, cfg.max_frames, args.inputs.H // 8, args.inputs.W // 8)
-        ).astype(np.float16)
+        ).astype(np.float32)
+        if noise_fp16:
+            inputs['noise'] = inputs['noise'].astype(np.float16)
 
         x_samples = vc_infer(inputs) # (b f 3 H W)
         x_samples = x_samples[0] # TODO: fix for batch size > 1 

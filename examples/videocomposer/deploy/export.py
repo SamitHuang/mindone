@@ -166,7 +166,7 @@ def main(args):
 
     # 2) inputs for noise prediction graph (unet) and scheduler
     text_emb = ops.ones((batch_size * 2, 77, 1024), ms.float16) # TODO: due to concat with img emb (to float16)
-    style_emb = ops.ones((batch_size, 1, 1024), ms.float32)
+    style_emb = ops.ones((batch_size, 1, 1024), ms.float16) # TODO: due to clip vit output fp16
     single_image_tr = ops.ones((bs, 3, cfg.max_frames, 384, 384), ms.float32)  
     motion_vectors_tr = ops.ones((bs, 2, cfg.max_frames, 256, 256), ms.float32)  
     scale = ops.ones((), ms.float32) # unconditional guidance scale
