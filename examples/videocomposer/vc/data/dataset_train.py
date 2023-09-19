@@ -8,6 +8,7 @@ import pandas as pd
 from PIL import Image
 
 from mindspore import dataset as ds
+import mindspore as ms
 
 from ..annotator.mask import make_irregular_mask, make_rectangle_mask, make_uncrop
 from ..annotator.motion import extract_motion_vectors
@@ -69,6 +70,8 @@ class VideoDatasetForTrain(object):
 
         self.tokenizer = tokenizer  # bpe
 
+        self.got = 0
+
     def tokenize(self, text):
         tokens = self.tokenizer(text, padding="max_length", max_length=77)["input_ids"]
 
@@ -80,6 +83,8 @@ class VideoDatasetForTrain(object):
     def __getitem__(self, index):
         video_key, cap_txt = self.video_cap_pairs[index]
 
+        self.got += 1
+        print("D--: getting item: ", index, self.got)
         feature_framerate = self.feature_framerate
         if os.path.exists(video_key):
             vit_image, video_data, misc_data, mv_data = self._get_video_train_data(
@@ -168,6 +173,9 @@ def get_video_paths_captions(data_dir):
 
 
 def build_dataset(cfg, device_num, rank_id, tokenizer):
+
+    #ms.dataset.config.set_prefetch_size(2)
+
     infer_transforms, misc_transforms, mv_transforms, vit_transforms = create_transforms(cfg)
     dataset = VideoDatasetForTrain(
         root_dir=cfg.root_dir,
