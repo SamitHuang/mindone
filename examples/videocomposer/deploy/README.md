@@ -77,7 +77,7 @@ for MindSpore2.1
 ### Export
 
 ```shell
-python export.py --task=text2img --model=./config/model/v2-inference.yaml --sampler=./config/schedule/ddim.yaml --n_samples=1
+python export.py --task=motion_style_transfer --sampler=./config/schedule/ddim.yaml --n_samples=1
 ```
 
 If use lora pretrained checkpoint, please add those commands:
@@ -100,7 +100,7 @@ You can manually delete MindSpore MindIR files to save space.
 Run `sd_lite_infer.py` to generate images for the prompt of your interest.
 
 ```shell
-python sd_lite_infer.py --task=text2img --model=./config/model/v2-inference.yaml --sampler=./config/schedule/ddim.yaml --sampling_steps=50 --n_iter=5 --n_samples=1 --scale=9.0
+python sd_lite_infer.py --task=motion_style_transfer --sampler=./config/schedule/ddim.yaml --sampling_steps=50 --n_iter=5 --n_samples=1 --scale=9.0
 ```
 
 Note: n_samples must be same as the value in export.

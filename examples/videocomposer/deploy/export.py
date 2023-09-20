@@ -180,8 +180,6 @@ def main(args):
     scheduler = instantiate_from_config(sampler_config)
     scheduler_type = sampler_config.type
 
-    export_mindir = True
-
     # 3. Build pipeline sub-graphs/Cell used to form the whole inference pipeline, from data prepare, noise prediction, to vae decoding 
     data_prepare, scheduler_preprocess, predict_noise, noisy_sample, vae_decoder = None, None, None, None, None 
     # 3.1 data prepare graph including text, image, noise, and nn-based condtion extractions
@@ -213,12 +211,9 @@ def main(args):
 
     # 3.3 noise prediciton graph (UNet forward), eps
     # TODO: extend for other tasks
-    DEBUG = False
     if not predict_noise:
         predict_noise = MotionStyleTransferPredictNoise(unet)
-        if DEBUG:
-            eps = predict_noise(noise, ts, text_emb, style_emb, single_image_tr, motion_vectors_tr, scale)
-            print("D--: ", eps)
+        # eps = predict_noise(noise, ts, text_emb, style_emb, single_image_tr, motion_vectors_tr, scale) # for debug
         model_export(
             net=predict_noise,
             inputs=(noise, ts, text_emb, style_emb, single_image_tr, motion_vectors_tr, scale),
