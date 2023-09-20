@@ -109,6 +109,7 @@ def main(args):
     else:
         raise ValueError(f"Not support task: {args.task}")
 
+    save_gif = True
     for n in range(args.n_iter):
         start_time = time.time()
         inputs["noise"] = np.random.standard_normal(
@@ -125,8 +126,11 @@ def main(args):
         os.makedirs(vid_save_dir, exist_ok=True)
         for fidx, frame in enumerate(x_samples):
             frame.save(os.path.join(vid_save_dir, f"{fidx:03}.png"))
-        args.base_count += 1
         # TODO: save as gif
+        if save_gif:
+            x_samples[0].save(f"{vid_save_dir}.gif", save_all=True, append_images=x_samples[1:], duration=120, loop=0)
+
+        args.base_count += 1
 
         end_time = time.time()
         logger.info(
