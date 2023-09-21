@@ -124,6 +124,8 @@ def main(args):
         
         vid_save_dir = os.path.join(args.sample_path,  f"vid{args.base_count:05}")
         os.makedirs(vid_save_dir, exist_ok=True)
+        
+        sample_end_time = time.time()
         for fidx, frame in enumerate(x_samples):
             frame.save(os.path.join(vid_save_dir, f"{fidx:03}.png"))
         # TODO: save as gif
@@ -134,8 +136,8 @@ def main(args):
 
         end_time = time.time()
         logger.info(
-            "{}/{} images generated, time cost for current trial: {:.3f}s".format(
-                batch_size * (n + 1), batch_size * args.n_iter, end_time - start_time
+                "{}/{} images generated, time cost for current trial: {:.3f}s, frames & gif saving time: {:.3f}".format(
+                batch_size * (n + 1), batch_size * args.n_iter, end_time - start_time, end_time - sample_end_time
             )
         )
 
