@@ -538,7 +538,7 @@ class UNetSD_temporal(nn.Cell):
         )
        
         # STC Encoder
-        self.dtype_stc = ms.float32
+        self.dtype_stc = self.dtype #ms.float32
         # depth embedding: 384x384
         if "depthmap" in self.video_compositions:
             self.depth_embedding = nn.SequentialCell(
@@ -761,22 +761,23 @@ class UNetSD_temporal(nn.Cell):
         # UNet Encoder
 
         # input blocks
-        self.dtype_input_blocks = self.dtype #ms.float32
+        self.dtype_input_blocks = ms.float32 #ms.float32
+        self.dtype_input_blocks_pre_image = self.dtype
         input_blocks = []
         # init_block = nn.ModuleList([nn.Conv2d(self.in_dim + concat_dim, dim, 3, padding=1)])
         if cfg.resume:
             self.pre_image = nn.SequentialCell()
             init_block = [
                 nn.Conv2d(self.in_dim + concat_dim, dim, 3, pad_mode="pad", padding=1, has_bias=True).to_float(
-                    self.dtype_input_blocks
+                    self.dtype_input_blocks_pre_image
                 )
             ]
 
         else:
             self.pre_image = nn.SequentialCell(
-                nn.Conv2d(self.in_dim + concat_dim, self.in_dim, 1, padding=0, has_bias=True).to_float(self.dtype_input_blocks)
+                nn.Conv2d(self.in_dim + concat_dim, self.in_dim, 1, padding=0, has_bias=True).to_float(self.dtype_input_blocks_pre_image)
             )
-            init_block = [nn.Conv2d(self.in_dim, dim, 3, pad_mode="pad", padding=1, has_bias=True).to_float(self.dtype_input_blocks)]
+            init_block = [nn.Conv2d(self.in_dim, dim, 3, pad_mode="pad", padding=1, has_bias=True).to_float(self.dtype_input_blocks_pre_image)]
 
         # need an initial temporal attention?
         if temporal_attention:
@@ -1229,7 +1230,7 @@ class UNetSD_temporal(nn.Cell):
             else:
                 concat = concat + self.misc_droppath(masked)
         
-        concat = self.cast(concat, self.dtype_input_blocks) # TODO: remove it after precision debug
+        #concat = self.cast(concat, self.dtype_input_blocks) # TODO: remove it after precision debug
         x = ops.cat([x, concat], axis=1)  # concat latent frames with stc embedding 
         # b c f h w -> b f c h w -> (b f) c h w
         x = ops.transpose(x, (0, 2, 1, 3, 4))
