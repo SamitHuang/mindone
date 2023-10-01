@@ -89,6 +89,8 @@ class CrossAttention(nn.Cell):
             nn.Dense(inner_dim, query_dim).to_float(dtype),
             nn.Dropout(1 - dropout) if is_old_ms_version() else nn.Dropout(p=dropout),
         )
+        self.cast = ops.Cast()
+        self.dtype = dtype
 
     def construct(self, x, context=None, mask=None):
         q = self.to_q(x)
@@ -123,8 +125,11 @@ class CrossAttention(nn.Cell):
             mask = mask.repeat(self.heads, axis=0)
             mask = ops.expand_dims(mask, axis=1)
             sim.masked_fill(mask, max_neg_value)
-
+        
+        sim = self.cast(sim, ms.float32) 
         attn = self.softmax(sim)
+        attn= self.cast(attn, self.dtype) 
+
         out = ops.matmul(attn, v)
 
         def rearange_out(x):
@@ -406,10 +411,10 @@ class TemporalAttentionBlock(nn.Cell):
 
         # numerical stability
         sim = sim - sim.amax(axis=-1, keepdims=True)
-        attn = sim.float().softmax(axis=-1)
+        attn = sim.float().softmax(axis=-1) # fp32
 
         # aggregate values
-        out = ops.bmm(attn, v)
+        out = ops.bmm(attn, v) # will be forced to fp16?
 
         # ... h n d -> ... n h d -> ... n (h d)
         permute_idx = tuple(range(out.ndim - 3)) + (out.ndim - 2, out.ndim - 3, out.ndim - 1)
