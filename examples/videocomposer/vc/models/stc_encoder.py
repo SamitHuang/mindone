@@ -57,6 +57,7 @@ class Attention(nn.Cell):
             if project_out
             else nn.Identity()
         )
+        self.cast = ops.Cast()
 
     def construct(self, x):
         h = self.heads
@@ -70,8 +71,12 @@ class Attention(nn.Cell):
 
         q, k, v = map(rearrange_qkv, qkv)
         dots = ops.bmm(q, k.transpose(0, 1, 3, 2)) * self.scale
-        attn = self.attend(dots)
-        out = ops.bmm(attn, v)
+
+        dots = self.cast(dots, ms.float32)
+        attn = self.attend(dots)    # fp32
+        attn= self.cast(dots, self.dtype)
+
+        out = ops.bmm(attn, v)  # fp16
         # b h n d -> b n h d -> b n (h d)
         out = ops.transpose(out, (0, 2, 1, 3))
         out = ops.reshape(out, (out.shape[0], out.shape[1], -1))

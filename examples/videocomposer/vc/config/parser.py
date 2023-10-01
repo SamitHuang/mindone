@@ -115,6 +115,9 @@ class Config(object):
         parser.add_argument(
             "--output_dir", default="outputs/train", type=str, help="output directory to save training results"
         )
+        parser.add_argument(
+            "--resume_checkpoint", default=None, type=str, help="unet checkpoint to load. If not None, it will overwrite the setting in yaml."
+        )
         return parser.parse_args()
 
     def _path_join(self, path_list):

@@ -270,8 +270,8 @@ def main(cfg):
         decay_steps=cfg.decay_steps,
         num_epochs=cfg.epochs,
     )
-    optimizer = build_optimizer(ldm_with_loss, cfg, learning_rate)
-    loss_scaler = DynamicLossScaleUpdateCell(loss_scale_value=65536, scale_factor=2, scale_window=1000)
+    optimizer = build_optimizer(ldm_with_loss, cfg, learning_rate, eps=cfg.optim_eps)
+    loss_scaler = DynamicLossScaleUpdateCell(loss_scale_value=cfg.loss_scale, scale_factor=2, scale_window=1000)
     ema = (
         EMA(
             ldm_with_loss.unet,
@@ -332,6 +332,7 @@ def main(cfg):
                 f"Conditions for training: {cfg.conditions_for_train}",
                 f"Num params: {param_nums}",
                 f"Num trainable params: {num_trainable_params:,}",
+                f"Optimizer: {cfg.optim}",
                 f"Learning rate: {cfg.learning_rate}",
                 f"Batch size: {cfg.batch_size}",
                 f"Max frames: {cfg.max_frames}",

@@ -45,6 +45,7 @@ cfg.num_timesteps = 1000
 cfg.mean_type = "eps"
 cfg.var_type = "fixed_small"  # NOTE: to stabilize training and avoid NaN
 cfg.loss_type = "mse"
+
 cfg.clamp = 1.0
 cfg.share_noise = False
 cfg.use_div_loss = False
@@ -139,6 +140,8 @@ cfg.betas = [0.9, 0.98]
 cfg.weight_decay = 0  # not mentioned in paper. let's start with small value
 cfg.use_ema = False
 cfg.ema_decay = 0.9999
+
+cfg.loss_scale = 1024
 
 cfg.epochs = 50
 cfg.ckpt_save_interval = 50  # 1000 # only save last checkpoint for DEBUG

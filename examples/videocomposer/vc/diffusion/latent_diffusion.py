@@ -150,7 +150,8 @@ class LatentDiffusion(nn.Cell):
         self.linear_end = linear_end
         assert alphas_cumprod.shape[0] == self.num_timesteps, "alphas have to be defined for each timestep"
 
-        to_mindspore = partial(Tensor, dtype=self.dtype)
+        #to_mindspore = partial(Tensor, dtype=self.dtype)
+        to_mindspore = partial(Tensor, dtype=ms.float32) # TODO: testing
         self.betas = to_mindspore(betas)
         self.alphas_cumprod = to_mindspore(alphas_cumprod)
         self.alphas_cumprod_prev = to_mindspore(alphas_cumprod_prev)
@@ -387,7 +388,7 @@ class LatentDiffusion(nn.Cell):
         # 4. add noise to latent z
         noise = msnp.randn(x_start.shape)
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-
+        
         # 5. predict noise
         # output shape: (b c f h//8 w//8)
         noise_pred = self.unet(

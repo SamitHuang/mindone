@@ -274,10 +274,10 @@ class BasicTransformerBlock(nn.Cell):
         self.checkpoint = checkpoint
 
     def construct(self, x, context=None):
-        x = self.attn1(self.norm1(x)) + x
-        x = self.attn2(self.norm2(x), context=context) + x
-        x = self.ff(self.norm3(x)) + x
-        return x
+        h1 = self.attn1(self.norm1(x)) + x
+        h2 = self.attn2(self.norm2(h1), context=context) + h1
+        out = self.ff(self.norm3(h2)) + h2
+        return out
 
 
 class SpatialTransformer(nn.Cell):
@@ -348,19 +348,22 @@ class SpatialTransformer(nn.Cell):
         # note: if no context is given, cross-attention defaults to self-attention
         b, c, h, w = x.shape
         x_in = x
-        x = self.norm(x)
+
+        hidden = self.norm(x)
         if not self.use_linear:
-            x = self.proj_in(x)
-        x = self.reshape(x, (b, c, h * w))  # (b, c, h*w)
-        x = self.transpose(x, (0, 2, 1))  # (b, h*w, c)
+            hidden = self.proj_in(hidden)
+        hidden = self.reshape(hidden, (b, c, h * w))  # (b, c, h*w)
+        hidden = self.transpose(hidden, (0, 2, 1))  # (b, h*w, c)
+
         if self.use_linear:
-            x = self.proj_in(x)
+            hidden = self.proj_in(hidden)
+
         for block in self.transformer_blocks:
-            x = block(x, context=context)
+            hidden = block(hidden, context=context)
         if self.use_linear:
-            x = self.proj_out(x)
-        x = self.reshape(x, (b, h, w, c))
-        x = self.transpose(x, (0, 3, 1, 2))
+            hidden = self.proj_out(hidden)
+        hidden = self.reshape(hidden, (b, h, w, c))
+        hidden = self.transpose(hidden, (0, 3, 1, 2))
         if not self.use_linear:
-            x = self.proj_out(x)
-        return x + x_in
+            hidden = self.proj_out(hidden)
+        return hidden + x_in

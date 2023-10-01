@@ -78,9 +78,8 @@ class CrossAttention(nn.Cell):
 
         self.scale = dim_head**-0.5
         self.heads = heads
-
         self.reshape = ops.Reshape()
-        self.softmax = ops.Softmax(axis=-1)
+        self.softmax = nn.Softmax(axis=-1).to_float(ms.float32) # softmax keep fp32
         self.transpose = ops.Transpose()
         self.to_q = nn.Dense(query_dim, inner_dim, has_bias=False).to_float(dtype)
         self.to_k = nn.Dense(context_dim, inner_dim, has_bias=False).to_float(dtype)
@@ -89,6 +88,9 @@ class CrossAttention(nn.Cell):
             nn.Dense(inner_dim, query_dim).to_float(dtype),
             nn.Dropout(1 - dropout) if is_old_ms_version() else nn.Dropout(p=dropout),
         )
+
+        self.dtype = dtype
+        self.cast = ops.Cast()
 
     def construct(self, x, context=None, mask=None):
         q = self.to_q(x)
@@ -124,7 +126,10 @@ class CrossAttention(nn.Cell):
             mask = ops.expand_dims(mask, axis=1)
             sim.masked_fill(mask, max_neg_value)
 
+        sim = self.cast(sim, ms.float32)
         attn = self.softmax(sim)
+        attn = self.cast(attn, self.dtype)
+
         out = ops.matmul(attn, v)
 
         def rearange_out(x):
@@ -207,10 +212,10 @@ class BasicTransformerBlock(nn.Cell):
         self.checkpoint = checkpoint
 
     def construct(self, x, context=None):
-        x = self.attn1(self.norm1(x), context=context if self.disable_self_attn else None) + x
-        x = self.attn2(self.norm2(x), context=context) + x
-        x = self.ff(self.norm3(x)) + x
-        return x
+        h1 = self.attn1(self.norm1(x), context=context if self.disable_self_attn else None) + x
+        h2 = self.attn2(self.norm2(h1), context=context) + h1
+        out = self.ff(self.norm3(h2)) + h2
+        return out
 
 
 class SpatialTransformer(nn.Cell):
@@ -281,24 +286,24 @@ class SpatialTransformer(nn.Cell):
             context = [context]
         b, c, h, w = x.shape
         x_in = x
-        x = self.norm(x)
+        hidden = self.norm(x)
         if not self.use_linear:
-            x = self.proj_in(x)
+            hidden = self.proj_in(hidden)
         # b c h w -> b h w c -> b (h w) c
-        x = ops.transpose(x, (0, 2, 3, 1))
-        x = ops.reshape(x, (x.shape[0], -1, x.shape[3]))
+        hidden = ops.transpose(hidden, (0, 2, 3, 1))
+        hidden = ops.reshape(hidden, (hidden.shape[0], -1, x.shape[3]))
         if self.use_linear:
-            x = self.proj_in(x)
+            hidden = self.proj_in(hidden)
         for i, block in enumerate(self.transformer_blocks):
-            x = block(x, context=context[i])
+            hidden = block(hidden, context=context[i])
         if self.use_linear:
-            x = self.proj_out(x)
+            hidden = self.proj_out(hidden)
         # b (h w) c -> b c (h w) -> b c h w
-        x = ops.transpose(x, (0, 2, 1))
-        x = ops.reshape(x, (x.shape[0], x.shape[1], h, w))
+        hidden = ops.transpose(hidden, (0, 2, 1))
+        hidden = ops.reshape(hidden, (hidden.shape[0], hidden.shape[1], h, w))
         if not self.use_linear:
-            x = self.proj_out(x)
-        return x + x_in
+            hidden = self.proj_out(hidden)
+        return hidden + x_in
 
 
 ##################################################
@@ -327,6 +332,8 @@ class TemporalAttentionBlock(nn.Cell):
         self.rotary_emb = rotary_emb.to_float(self.dtype)
         self.to_qkv = nn.Dense(dim, hidden_dim * 3).to_float(self.dtype)  # , bias = False)
         self.to_out = nn.Dense(hidden_dim, dim).to_float(self.dtype)  # , bias = False)
+
+        self.softmax = nn.Softmax(axis=-1).to_float(ms.float32) # keep softmax fp32
 
     def construct(self, x, pos_bias=None, focus_present_mask=None, video_mask=None):
         identity = x
@@ -406,7 +413,8 @@ class TemporalAttentionBlock(nn.Cell):
 
         # numerical stability
         sim = sim - sim.amax(axis=-1, keepdims=True)
-        attn = sim.float().softmax(axis=-1)
+        #attn = sim.float().softmax(axis=-1)
+        attn = self.softmax(sim.float()) # keep softmax fp32
 
         # aggregate values
         out = ops.bmm(attn, v)
@@ -536,34 +544,34 @@ class TemporalTransformer(nn.Cell):
         b, c, f, h, w = x.shape
         x_in = x
         # b c f h w -> b f c h w -> (b f) c h w
-        x = x.transpose((0, 2, 1, 3, 4)).reshape((b * f, c, h, w))
-        x = self.norm(x)
+        hidden = x.transpose((0, 2, 1, 3, 4)).reshape((b * f, c, h, w))
+        hidden = self.norm(hidden)
         # (b f) c h w -> b f c h w -> b c f h w
-        x = x.reshape((b, f, c, h, w)).transpose((0, 2, 1, 3, 4))
+        hidden = hidden.reshape((b, f, c, h, w)).transpose((0, 2, 1, 3, 4))
 
         if not self.use_linear:
             # b c f h w -> b h w c f -> (b h w) c f
-            x = ops.transpose(x, (0, 3, 4, 1, 2))
-            x = ops.reshape(x, (-1, x.shape[3], x.shape[4]))
-            x = self.proj_in(x)
+            hidden = ops.transpose(hidden, (0, 3, 4, 1, 2))
+            hidden = ops.reshape(hidden, (-1, hidden.shape[3], hidden.shape[4]))
+            hidden = self.proj_in(hidden)
         # [16384, 16, 320]
         if self.use_linear:
             # (b f) c h w -> b f c h w -> b h w f c -> b (h w) f c
-            x = ops.reshape(x, (x.shape[0] // self.frames, self.frames, x.shape[1], x.shape[2], x.shape[3]))
-            x = ops.transpose(x, (0, 3, 4, 1, 2))
-            x = ops.reshape(x, (x.shape[0], -1, x.shape[3], x.shape[4]))  # todo: what frames
-            x = self.proj_in(x)
+            hidden = ops.reshape(hidden, (hidden.shape[0] // self.frames, self.frames, hidden.shape[1], hidden.shape[2], hidden.shape[3]))
+            hidden = ops.transpose(hidden, (0, 3, 4, 1, 2))
+            hidden = ops.reshape(hidden, (hidden.shape[0], -1, hidden.shape[3], hidden.shape[4]))  # todo: what frames
+            hidden = self.proj_in(hidden)
 
         if self.only_self_att:
-            x = ops.transpose(x, (0, 2, 1))
+            hidden = ops.transpose(hidden, (0, 2, 1))
             for i, block in enumerate(self.transformer_blocks):
-                x = block(x)
+                hidden = block(hidden)
             # (b hw) f c -> b hw f c
-            x = ops.reshape(x, (b, x.shape[0] // b, x.shape[1], x.shape[2]))
+            hidden = ops.reshape(hidden, (b, hidden.shape[0] // b, hidden.shape[1], hidden.shape[2]))
         else:
             # (b hw) c f -> b hw f c
-            x = ops.reshape(x, (b, x.shape[0] // b, x.shape[1], x.shape[2]))
-            x = ops.transpose(x, (0, 1, 3, 2))
+            hidden = ops.reshape(hidden, (b, hidden.shape[0] // b, hidden.shape[1], hidden.shape[2]))
+            hidden = ops.transpose(hidden, (0, 1, 3, 2))
             for i, block in enumerate(self.transformer_blocks):
                 # context[i] = repeat(context[i], '(b f) l con -> b (f r) l con', r=(h*w)//self.frames, f=self.frames).contiguous()
                 # (b f) l con -> b f l con
@@ -574,27 +582,27 @@ class TemporalTransformer(nn.Cell):
                 # calculate each batch one by one (since number in shape could not greater then 65,535 for some package)
                 for j in range(b):
                     context_i_j = ops.tile(context[i][j], ((h * w) // self.frames, 1, 1))  # todo: wtf frames
-                    x[j] = block(x[j], context=context_i_j)
+                    hidden[j] = block(hidden[j], context=context_i_j)
 
         if self.use_linear:
-            x = self.proj_out(x)
+            hidden = self.proj_out(hidden)
             # b (h w) f c -> b h w f c -> b f c h w
-            x = ops.reshape(x, (x.shape[0], h, w, x.shape[2:]))
-            x = ops.transpose(x, (0, 3, 4, 1, 2))
+            hidden = ops.reshape(hidden, (hidden.shape[0], h, w, hidden.shape[2:]))
+            hidden = ops.transpose(hidden, (0, 3, 4, 1, 2))
         if not self.use_linear:
             # b hw f c -> (b hw) f c -> (b hw) c f
-            x = ops.reshape(x, (-1, x.shape[2], x.shape[3]))
-            x = ops.transpose(x, (0, 2, 1))
-            x = self.proj_out(x)
+            hidden = ops.reshape(hidden, (-1, hidden.shape[2], hidden.shape[3]))
+            hidden = ops.transpose(hidden, (0, 2, 1))
+            hidden = self.proj_out(hidden)
             # (b h w) c f -> b h w c f -> b c f h w
-            x = ops.reshape(x, (b, h, w, x.shape[1], x.shape[2]))
-            x = ops.transpose(x, (0, 3, 4, 1, 2))
+            hidden = ops.reshape(hidden, (b, h, w, hidden.shape[1], hidden.shape[2]))
+            hidden = ops.transpose(hidden, (0, 3, 4, 1, 2))
 
         if self.multiply_zero:
-            x = 0.0 * x + x_in
+            out = 0.0 * hidden + x_in
         else:
-            x = x + x_in
-        return x
+            out = hidden + x_in
+        return out
 
 
 class TemporalConvBlock_v2(nn.Cell):
@@ -610,14 +618,14 @@ class TemporalConvBlock_v2(nn.Cell):
         # conv layers
         self.conv1 = nn.SequentialCell(
             GroupNorm(32, in_dim).to_float(ms.float32),
-            nn.SiLU().to_float(self.dtype),
+            nn.SiLU().to_float(ms.float32),
             nn.Conv3d(in_dim, out_dim, (3, 1, 1), pad_mode="pad", padding=(1, 1, 0, 0, 0, 0), has_bias=True).to_float(
                 self.dtype
             ),
         )
         self.conv2 = nn.SequentialCell(
             GroupNorm(32, out_dim).to_float(ms.float32),
-            nn.SiLU().to_float(self.dtype),
+            nn.SiLU().to_float(ms.float32),
             nn.Dropout(1 - dropout) if is_old_ms_version() else nn.Dropout(p=dropout),
             nn.Conv3d(out_dim, in_dim, (3, 1, 1), pad_mode="pad", padding=(1, 1, 0, 0, 0, 0), has_bias=True).to_float(
                 self.dtype
@@ -625,7 +633,7 @@ class TemporalConvBlock_v2(nn.Cell):
         )
         self.conv3 = nn.SequentialCell(
             GroupNorm(32, out_dim).to_float(ms.float32),
-            nn.SiLU().to_float(self.dtype),
+            nn.SiLU().to_float(ms.float32),
             nn.Dropout(1 - dropout) if is_old_ms_version() else nn.Dropout(p=dropout),
             nn.Conv3d(out_dim, in_dim, (3, 1, 1), pad_mode="pad", padding=(1, 1, 0, 0, 0, 0), has_bias=True).to_float(
                 self.dtype
@@ -633,7 +641,7 @@ class TemporalConvBlock_v2(nn.Cell):
         )
         self.conv4 = nn.SequentialCell(
             GroupNorm(32, out_dim).to_float(ms.float32),
-            nn.SiLU().to_float(self.dtype),
+            nn.SiLU().to_float(ms.float32),
             nn.Dropout(1 - dropout) if is_old_ms_version() else nn.Dropout(p=dropout),
             nn.Conv3d(out_dim, in_dim, (3, 1, 1), pad_mode="pad", padding=(1, 1, 0, 0, 0, 0), has_bias=True).to_float(
                 self.dtype
@@ -646,16 +654,17 @@ class TemporalConvBlock_v2(nn.Cell):
 
     def construct(self, x):
         identity = x
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        x = self.conv4(x)
+
+        h = self.conv1(x)
+        h = self.conv2(h)
+        h = self.conv3(h)
+        h = self.conv4(h)
 
         if self.use_image_dataset:
-            x = identity + 0.0 * x
+            h = identity + 0.0 * h
         else:
-            x = identity + x
-        return x
+            h = identity + h
+        return h
 
 
 class RelativePositionBias(nn.Cell):
