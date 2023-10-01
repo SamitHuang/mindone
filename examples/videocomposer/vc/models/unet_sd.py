@@ -308,6 +308,7 @@ class ResBlock(nn.Cell):
         use_temporal_conv=True,
         use_image_dataset=False,
         dtype=ms.float32,
+        dtype_tempconv=None,
     ):
         super().__init__()
         self.channels = channels
@@ -325,14 +326,18 @@ class ResBlock(nn.Cell):
             nn.Conv2d(channels, self.out_channels, 3, pad_mode="pad", padding=1, has_bias=True).to_float(self.dtype),
         )
 
+        self.dtype_tempconv = dtype_tempconv if dtype_tempconv is not None else dtype
+        self.dtype_updown = self.dtype
+        self.dtype_emb = self.dtype
+
         self.updown = up or down
 
         if up:
-            self.h_upd = Upsample(channels, False, dims, dtype=self.dtype)
-            self.x_upd = Upsample(channels, False, dims, dtype=self.dtype)
+            self.h_upd = Upsample(channels, False, dims, dtype=self.dtype_updown)
+            self.x_upd = Upsample(channels, False, dims, dtype=self.dtype_updown)
         elif down:
-            self.h_upd = Downsample(channels, False, dims, dtype=self.dtype)
-            self.x_upd = Downsample(channels, False, dims, dtype=self.dtype)
+            self.h_upd = Downsample(channels, False, dims, dtype=self.dtype_updown)
+            self.x_upd = Downsample(channels, False, dims, dtype=self.dtype_updown)
         else:
             self.h_upd = self.x_upd = nn.Identity()
 
@@ -341,7 +346,7 @@ class ResBlock(nn.Cell):
             nn.Dense(
                 emb_channels,
                 2 * self.out_channels if use_scale_shift_norm else self.out_channels,
-            ).to_float(self.dtype),
+            ).to_float(self.dtype_emb),
         )
         self.out_layers = nn.SequentialCell(
             GroupNorm(32, self.out_channels).to_float(ms.float32),
@@ -363,7 +368,7 @@ class ResBlock(nn.Cell):
 
         if self.use_temporal_conv:
             self.temporal_conv = TemporalConvBlock_v2(
-                self.out_channels, self.out_channels, dropout=0.1, use_image_dataset=use_image_dataset, dtype=self.dtype
+                self.out_channels, self.out_channels, dropout=0.1, use_image_dataset=use_image_dataset, dtype=self.dtype_tempconv
             )
             # self.temporal_conv_2 = TemporalConvBlock(self.out_channels, self.out_channels, dropout=0.1, use_image_dataset=use_image_dataset)
 
@@ -759,9 +764,15 @@ class UNetSD_temporal(nn.Cell):
             )
 
         # UNet Encoder
+        self.dtype_resblock_tempconv = ms.float32 # for middle and out-blocks
 
         # input blocks
-        self.dtype_input_blocks = ms.float32 #ms.float32
+        self.dtype_input_blocks = self.dtype
+        self.dtype_input_blocks_resblock = self.dtype
+        self.dtype_input_blocks_resblock_tempconv = ms.float32
+        #self.dtype_input_blocks_resblock_updown= ms.float32
+        self.dtype_input_blocks_spattran = self.dtype
+        self.dtype_input_blocks_temptran = self.dtype 
         self.dtype_input_blocks_pre_image = self.dtype
         input_blocks = []
         # init_block = nn.ModuleList([nn.Conv2d(self.in_dim + concat_dim, dim, 3, padding=1)])
@@ -792,7 +803,7 @@ class UNetSD_temporal(nn.Cell):
                         disable_self_attn=disabled_sa,
                         use_linear=use_linear_in_temporal,
                         multiply_zero=use_image_dataset,
-                        dtype=self.dtype_input_blocks,
+                        dtype=self.dtype_input_blocks_temptran,
                     )
                 )
             else:
@@ -804,7 +815,7 @@ class UNetSD_temporal(nn.Cell):
                         rotary_emb=self.rotary_emb,
                         temporal_attn_times=temporal_attn_times,
                         use_image_dataset=use_image_dataset,
-                        dtype=self.dtype_input_blocks,
+                        dtype=self.dtype_input_blocks_temptran,
                     )
                 )
         # elif temporal_conv:
@@ -822,7 +833,8 @@ class UNetSD_temporal(nn.Cell):
                         out_channels=out_dim,
                         use_scale_shift_norm=False,
                         use_image_dataset=use_image_dataset,
-                        dtype=self.dtype_input_blocks,
+                        dtype=self.dtype_input_blocks_resblock,
+                        dtype_tempconv=self.dtype_input_blocks_resblock_tempconv,
                     )
                 ]
                 if scale in attn_scales:
@@ -835,7 +847,7 @@ class UNetSD_temporal(nn.Cell):
                             context_dim=self.context_dim,
                             disable_self_attn=False,
                             use_linear=True,
-                            dtype=self.dtype_input_blocks,
+                            dtype=self.dtype_input_blocks_spattran,
                         )
                     )
                     if self.temporal_attention:
@@ -850,7 +862,7 @@ class UNetSD_temporal(nn.Cell):
                                     disable_self_attn=disabled_sa,
                                     use_linear=use_linear_in_temporal,
                                     multiply_zero=use_image_dataset,
-                                    dtype=self.dtype_input_blocks,
+                                    dtype=self.dtype_input_blocks_temptran,
                                 )
                             )
                         else:
@@ -863,7 +875,7 @@ class UNetSD_temporal(nn.Cell):
                                     use_image_dataset=use_image_dataset,
                                     use_sim_mask=use_sim_mask,
                                     temporal_attn_times=temporal_attn_times,
-                                    dtype=self.dtype_input_blocks,
+                                    dtype=self.dtype_input_blocks_temptran,
                                 )
                             )
                 in_dim = out_dim
@@ -888,6 +900,7 @@ class UNetSD_temporal(nn.Cell):
                 use_scale_shift_norm=False,
                 use_image_dataset=use_image_dataset,
                 dtype=self.dtype,
+                dtype_tempconv=self.dtype_resblock_tempconv,
             ),
             SpatialTransformer(
                 out_dim,
@@ -931,7 +944,9 @@ class UNetSD_temporal(nn.Cell):
                 )
 
         # self.middle.append(ResidualBlock(out_dim, embed_dim, out_dim, use_scale_shift_norm, 'none'))
-        middle_block.append(ResBlock(out_dim, embed_dim, dropout, use_scale_shift_norm=False, dtype=self.dtype))
+        middle_block.append(ResBlock(out_dim, embed_dim, dropout, use_scale_shift_norm=False, dtype=self.dtype,
+                                        dtype_tempconv=self.dtype_resblock_tempconv,
+            ))
         # self.middle.append(TemporalConvBlock(out_dim,dropout=dropout,use_image_dataset=use_image_dataset))
         self.middle_block = nn.CellList(middle_block)
 
@@ -950,6 +965,7 @@ class UNetSD_temporal(nn.Cell):
                         use_scale_shift_norm=False,
                         use_image_dataset=use_image_dataset,
                         dtype=self.dtype,
+                        dtype_tempconv=self.dtype_resblock_tempconv,
                     )
                 ]
                 # block.append(TemporalConvBlock(out_dim,dropout=dropout,use_image_dataset=use_image_dataset))
@@ -1287,6 +1303,8 @@ class UNetSD_temporal(nn.Cell):
             x = self._forward_single(
                 module, x, e, context, time_rel_pos_bias, focus_present_mask, video_mask, batch=batch
             )
+            x = self.cast(x, self.dtype) # TODO: remove it after precision debugging 
+
         # print(f"middle blocks executation time {time.time() - start_time}")
         # start_time = time.time()
         # decoder
@@ -1306,6 +1324,7 @@ class UNetSD_temporal(nn.Cell):
                     reference=xs[-i - 1] if i < len(xs) else None,
                     batch=batch,
                 )
+                x = self.cast(x, self.dtype) # TODO: remove it after precision debugging 
         # print(f"output blocks executation time {time.time() - start_time}")
         # start_time = time.time()
         # head
