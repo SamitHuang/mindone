@@ -212,10 +212,10 @@ class BasicTransformerBlock(nn.Cell):
         self.checkpoint = checkpoint
 
     def construct(self, x, context=None):
-        x = self.attn1(self.norm1(x), context=context if self.disable_self_attn else None) + x
-        x = self.attn2(self.norm2(x), context=context) + x
-        x = self.ff(self.norm3(x)) + x
-        return x
+        h1 = self.attn1(self.norm1(x), context=context if self.disable_self_attn else None) + x
+        h2 = self.attn2(self.norm2(h1), context=context) + h1
+        out = self.ff(self.norm3(h2)) + h2
+        return out
 
 
 class SpatialTransformer(nn.Cell):
@@ -286,24 +286,24 @@ class SpatialTransformer(nn.Cell):
             context = [context]
         b, c, h, w = x.shape
         x_in = x
-        x = self.norm(x)
+        z = self.norm(x)
         if not self.use_linear:
-            x = self.proj_in(x)
+            z = self.proj_in(z)
         # b c h w -> b h w c -> b (h w) c
-        x = ops.transpose(x, (0, 2, 3, 1))
-        x = ops.reshape(x, (x.shape[0], -1, x.shape[3]))
+        z = ops.transpose(z, (0, 2, 3, 1))
+        z = ops.reshape(z, (z.shape[0], -1, z.shape[3]))
         if self.use_linear:
-            x = self.proj_in(x)
+            z = self.proj_in(z)
         for i, block in enumerate(self.transformer_blocks):
-            x = block(x, context=context[i])
+            z = block(z, context=context[i])
         if self.use_linear:
-            x = self.proj_out(x)
+            z = self.proj_out(z)
         # b (h w) c -> b c (h w) -> b c h w
-        x = ops.transpose(x, (0, 2, 1))
-        x = ops.reshape(x, (x.shape[0], x.shape[1], h, w))
+        z = ops.transpose(z, (0, 2, 1))
+        z = ops.reshape(z, (z.shape[0], z.shape[1], h, w))
         if not self.use_linear:
-            x = self.proj_out(x)
-        return x + x_in
+            z = self.proj_out(z)
+        return z + x_in
 
 
 ##################################################
@@ -541,34 +541,34 @@ class TemporalTransformer(nn.Cell):
         b, c, f, h, w = x.shape
         x_in = x
         # b c f h w -> b f c h w -> (b f) c h w
-        x = x.transpose((0, 2, 1, 3, 4)).reshape((b * f, c, h, w))
-        x = self.norm(x)
+        z = x.transpose((0, 2, 1, 3, 4)).reshape((b * f, c, h, w))
+        z = self.norm(z)
         # (b f) c h w -> b f c h w -> b c f h w
-        x = x.reshape((b, f, c, h, w)).transpose((0, 2, 1, 3, 4))
+        z = z.reshape((b, f, c, h, w)).transpose((0, 2, 1, 3, 4))
 
         if not self.use_linear:
             # b c f h w -> b h w c f -> (b h w) c f
-            x = ops.transpose(x, (0, 3, 4, 1, 2))
-            x = ops.reshape(x, (-1, x.shape[3], x.shape[4]))
-            x = self.proj_in(x)
+            z = ops.transpose(z, (0, 3, 4, 1, 2))
+            z = ops.reshape(z, (-1, z.shape[3], z.shape[4]))
+            z = self.proj_in(z)
         # [16384, 16, 320]
         if self.use_linear:
             # (b f) c h w -> b f c h w -> b h w f c -> b (h w) f c
-            x = ops.reshape(x, (x.shape[0] // self.frames, self.frames, x.shape[1], x.shape[2], x.shape[3]))
-            x = ops.transpose(x, (0, 3, 4, 1, 2))
-            x = ops.reshape(x, (x.shape[0], -1, x.shape[3], x.shape[4]))  # todo: what frames
-            x = self.proj_in(x)
+            z = ops.reshape(z, (z.shape[0] // self.frames, self.frames, z.shape[1], z.shape[2], z.shape[3]))
+            z = ops.transpose(z, (0, 3, 4, 1, 2))
+            z = ops.reshape(z, (z.shape[0], -1, z.shape[3], z.shape[4]))  # todo: what frames
+            z = self.proj_in(z)
 
         if self.only_self_att:
-            x = ops.transpose(x, (0, 2, 1))
+            z = ops.transpose(z, (0, 2, 1))
             for i, block in enumerate(self.transformer_blocks):
-                x = block(x)
+                z = block(z)
             # (b hw) f c -> b hw f c
-            x = ops.reshape(x, (b, x.shape[0] // b, x.shape[1], x.shape[2]))
+            z = ops.reshape(z, (b, z.shape[0] // b, z.shape[1], z.shape[2]))
         else:
             # (b hw) c f -> b hw f c
-            x = ops.reshape(x, (b, x.shape[0] // b, x.shape[1], x.shape[2]))
-            x = ops.transpose(x, (0, 1, 3, 2))
+            z = ops.reshape(z, (b, z.shape[0] // b, z.shape[1], z.shape[2]))
+            z = ops.transpose(z, (0, 1, 3, 2))
             for i, block in enumerate(self.transformer_blocks):
                 # context[i] = repeat(context[i], '(b f) l con -> b (f r) l con', r=(h*w)//self.frames, f=self.frames).contiguous()
                 # (b f) l con -> b f l con
@@ -579,27 +579,27 @@ class TemporalTransformer(nn.Cell):
                 # calculate each batch one by one (since number in shape could not greater then 65,535 for some package)
                 for j in range(b):
                     context_i_j = ops.tile(context[i][j], ((h * w) // self.frames, 1, 1))  # todo: wtf frames
-                    x[j] = block(x[j], context=context_i_j)
+                    z[j] = block(z[j], context=context_i_j)
 
         if self.use_linear:
-            x = self.proj_out(x)
+            z = self.proj_out(z)
             # b (h w) f c -> b h w f c -> b f c h w
-            x = ops.reshape(x, (x.shape[0], h, w, x.shape[2:]))
-            x = ops.transpose(x, (0, 3, 4, 1, 2))
+            z = ops.reshape(z, (z.shape[0], h, w, z.shape[2:]))
+            z = ops.transpose(z, (0, 3, 4, 1, 2))
         if not self.use_linear:
             # b hw f c -> (b hw) f c -> (b hw) c f
-            x = ops.reshape(x, (-1, x.shape[2], x.shape[3]))
-            x = ops.transpose(x, (0, 2, 1))
-            x = self.proj_out(x)
+            z = ops.reshape(z, (-1, z.shape[2], z.shape[3]))
+            z = ops.transpose(z, (0, 2, 1))
+            z = self.proj_out(z)
             # (b h w) c f -> b h w c f -> b c f h w
-            x = ops.reshape(x, (b, h, w, x.shape[1], x.shape[2]))
-            x = ops.transpose(x, (0, 3, 4, 1, 2))
+            z = ops.reshape(z, (b, h, w, z.shape[1], z.shape[2]))
+            z = ops.transpose(z, (0, 3, 4, 1, 2))
 
         if self.multiply_zero:
-            x = 0.0 * x + x_in
+            z = 0.0 * z + x_in
         else:
-            x = x + x_in
-        return x
+            z = z + x_in
+        return z
 
 
 class TemporalConvBlock_v2(nn.Cell):
@@ -651,16 +651,16 @@ class TemporalConvBlock_v2(nn.Cell):
 
     def construct(self, x):
         identity = x
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        x = self.conv4(x)
+        z = self.conv1(x)
+        z = self.conv2(z)
+        z = self.conv3(z)
+        z = self.conv4(z)
 
         if self.use_image_dataset:
-            x = identity + 0.0 * x
+            z = identity + 0.0 * z
         else:
-            x = identity + x
-        return x
+            z = identity + z
+        return z
 
 
 class RelativePositionBias(nn.Cell):
