@@ -161,7 +161,24 @@ class GroupNorm(nn.GroupNorm):
         if x.ndim >= 3:
             x = x.view(x_shape[0], x_shape[1], x_shape[2], -1)
         y = super().construct(x.to(ms.float32)).to(dtype)
+
         return y.view(x_shape)
+
+
+class SiLU_FP32(nn.SiLU):
+    '''
+    SiLU in fp32, explicitly cast input to fp32.
+    Used to fix precision bug in 910B+MS2.2 with allow_fp32_to_fp16.
+    '''
+    def __init__(self):
+        super().__init__()
+
+    def construct(self, x):
+        x_shape = x.shape
+        dtype = x.dtype
+        y = super().construct(x.to(ms.float32)).to(dtype)
+
+        return y
 
 
 class BasicTransformerBlock(nn.Cell):
@@ -621,14 +638,16 @@ class TemporalConvBlock_v2(nn.Cell):
         # conv layers
         self.conv1 = nn.SequentialCell(
             GroupNorm(32, in_dim),
-            nn.SiLU().to_float(ms.float32), # TODO: 1) actually still fp16 on 910B+MS2.2, need cast input to fp32 explicitly in a wrapped SiLU. 2) maybe fp16 could be enough.
+            SiLU_FP32(),
+            #nn.SiLU().to_float(ms.float32), # TODO: 1) actually still fp16 on 910B+MS2.2, need cast input to fp32 explicitly in a wrapped SiLU. 2) maybe fp16 could be enough.
             nn.Conv3d(in_dim, out_dim, (3, 1, 1), pad_mode="pad", padding=(1, 1, 0, 0, 0, 0), has_bias=True).to_float(
                 self.dtype
             ),
         )
         self.conv2 = nn.SequentialCell(
             GroupNorm(32, out_dim),
-            nn.SiLU().to_float(ms.float32),
+            SiLU_FP32(),
+            #nn.SiLU().to_float(ms.float32),
             nn.Dropout(1 - dropout) if is_old_ms_version() else nn.Dropout(p=dropout),
             nn.Conv3d(out_dim, in_dim, (3, 1, 1), pad_mode="pad", padding=(1, 1, 0, 0, 0, 0), has_bias=True).to_float(
                 self.dtype
@@ -636,7 +655,8 @@ class TemporalConvBlock_v2(nn.Cell):
         )
         self.conv3 = nn.SequentialCell(
             GroupNorm(32, out_dim),
-            nn.SiLU().to_float(ms.float32),
+            SiLU_FP32(),
+            #nn.SiLU().to_float(ms.float32),
             nn.Dropout(1 - dropout) if is_old_ms_version() else nn.Dropout(p=dropout),
             nn.Conv3d(out_dim, in_dim, (3, 1, 1), pad_mode="pad", padding=(1, 1, 0, 0, 0, 0), has_bias=True).to_float(
                 self.dtype
@@ -644,7 +664,8 @@ class TemporalConvBlock_v2(nn.Cell):
         )
         self.conv4 = nn.SequentialCell(
             GroupNorm(32, out_dim),
-            nn.SiLU().to_float(ms.float32),
+            SiLU_FP32(),
+            #nn.SiLU().to_float(ms.float32),
             nn.Dropout(1 - dropout) if is_old_ms_version() else nn.Dropout(p=dropout),
             nn.Conv3d(out_dim, in_dim, (3, 1, 1), pad_mode="pad", padding=(1, 1, 0, 0, 0, 0), has_bias=True).to_float(
                 self.dtype
