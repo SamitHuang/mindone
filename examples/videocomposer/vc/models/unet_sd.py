@@ -764,13 +764,12 @@ class UNetSD_temporal(nn.Cell):
             )
 
         # UNet Encoder
-        self.dtype_resblock_tempconv = ms.float32 # for middle and out-blocks
+        self.dtype_resblock_tempconv = self.dtype # for middle and out-blocks
 
         # input blocks
         self.dtype_input_blocks = self.dtype
         self.dtype_input_blocks_resblock = self.dtype
-        self.dtype_input_blocks_resblock_tempconv = ms.float32
-        #self.dtype_input_blocks_resblock_updown= ms.float32
+        self.dtype_input_blocks_resblock_tempconv = self.dtype # ms.float32
         self.dtype_input_blocks_spattran = self.dtype
         self.dtype_input_blocks_temptran = self.dtype 
         self.dtype_input_blocks_pre_image = self.dtype
