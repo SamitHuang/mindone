@@ -16,6 +16,7 @@ from ldm.modules.diffusionmodules.util import make_beta_schedule
 from ldm.util import default, exists, extract_into_tensor
 
 _logger = logging.getLogger(__name__)
+_DEBUG = False
 
 # vc model
 # class VCModelWrapper()
@@ -390,6 +391,15 @@ class LatentDiffusion(nn.Cell):
 
         # 5. predict noise
         # output shape: (b c f h//8 w//8)
+
+        if _DEBUG: # check in pynative mode
+            print("D-- text emb: ", text_emb.min(), text_emb.max(), text_emb.sum())
+            print("D-- mv: ", motion_vectors.min(), motion_vectors.max(), motion_vectors.sum())
+            print("D-- single image: ", single_image.min(), single_image.max(), single_image.sum())
+            np.save("train_unet_text_emb.npy", text_emb.asnumpy()) 
+            np.save("train_unet_single_image.npy", single_image.asnumpy()) 
+            np.save("train_unet_mv.npy", motion_vectors.asnumpy()) 
+
         noise_pred = self.unet(
             x_noisy,
             t,

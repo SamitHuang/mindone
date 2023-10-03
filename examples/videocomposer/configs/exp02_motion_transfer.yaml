@@ -19,3 +19,7 @@ mvs_visual: False
 chunk_size: 16
 resume_checkpoint: "model_weights/non_ema_228000-7f157ec2.ckpt"
 log_dir: 'outputs'
+
+
+force_start_from_first_frame: True # TODO: only to overfitting experiments
+misc_random_interpolation: False # TODO: only for overfitting exp

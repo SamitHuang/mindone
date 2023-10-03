@@ -16,6 +16,7 @@ from tools._common.clip import CLIPTokenizer
 
 def test_dataset():
     # data_dir = "./demo_video"
+    cfg.root_dir = "datasets/webvid5"
     # cfg.max_frames = 16
     # cfg.batch_size = 1
 
@@ -25,7 +26,8 @@ def test_dataset():
 
     ms.set_context(mode=0)
 
-    num_tries = 4 * 100
+    #num_tries = 4 * 100
+    num_tries = 5
     start = time.time()
     times = []
     iterator = dl.create_dict_iterator()

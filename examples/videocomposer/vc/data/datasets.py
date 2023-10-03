@@ -33,6 +33,7 @@ class VideoDataset(object):
         vit_image_size=336,
         misc_size=384,
         mvs_visual=False,
+        force_start_from_first_frame=False,
     ):
         """
         Args:
@@ -52,6 +53,7 @@ class VideoDataset(object):
         self.vit_image_size = vit_image_size
         self.misc_size = misc_size
         self.mvs_visual = mvs_visual
+        self.force_start_from_first_frame = force_start_from_first_frame
 
         if root_dir is not None:
             video_paths, captions = get_video_paths_captions(root_dir)
@@ -103,7 +105,12 @@ class VideoDataset(object):
         start_indices = np.where(
             (np.array(frame_types) == "I") & (total_frames - np.arange(total_frames) >= self.max_frames)
         )[0]
-        start_index = np.random.choice(start_indices)
+
+        if self.force_start_from_first_frame:
+            start_index = 0 
+        else:
+            start_index = np.random.choice(start_indices)
+
         indices = np.arange(start_index, start_index + self.max_frames)
 
         # note frames are in BGR mode, need to trans to RGB mode

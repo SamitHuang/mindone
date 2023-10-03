@@ -30,6 +30,8 @@ __all__ = ["inference_single"]
 
 _logger = logging.getLogger(__name__)
 
+_DEBUG = False
+
 
 def inference_single(cfg_update: Dict[str, Any], **kwargs: Any) -> None:
     cfg.update(**kwargs)
@@ -48,12 +50,21 @@ def inference_single(cfg_update: Dict[str, Any], **kwargs: Any) -> None:
 def _inference_single(cfg: Config) -> None:
     init_infer(cfg)
 
-    transforms_list = prepare_transforms(cfg)
+    # for overfitting exp
+    misc_random_interpolation = cfg.get("misc_random_interpolation", True)
+    if not misc_random_interpolation:
+        print("WARNING: Resize interpolation method is fixed to LACZOS/ANTIALIAS for misc data transforms !!")
+    
+    # create transforms and dataloader
+    transforms_list = prepare_transforms(cfg, misc_random_interpolation=misc_random_interpolation)
     misc_transforms = transforms_list[1]
     dataloader = prepare_dataloader(cfg, transforms_list)
-    clip_encoder, clip_encoder_visual = prepare_clip_encoders(cfg)
 
     frame_in = read_image_if_provided(cfg.read_image, cfg.image_path, misc_transforms)
+    # print("D--: frame_in ", cfg.image_path, frame_in.sum(), frame_in.min(), frame_in.max() )
+
+    clip_encoder, clip_encoder_visual = prepare_clip_encoders(cfg)
+
     frame_sketch = read_image_if_provided(cfg.read_sketch, cfg.sketch_path, misc_transforms)
     frame_style = read_image_if_provided(cfg.read_style, cfg.style_image, None)
 
@@ -96,6 +107,11 @@ def _inference_single(cfg: Config) -> None:
                     image_local = np.tile(frame_in[:, None, ...], (batch_size, frames_num, 1, 1, 1))
                 else:
                     image_local = np.tile(misc_data.asnumpy()[:, :1], (1, frames_num, 1, 1, 1))
+
+                if _DEBUG:
+                    np.save(f"test_si_0.npy", image_local[:, 0, :, :, :])
+                    #print("D--: test, single image: ", image_local.sum() / frames_num)
+                
                 image_local = swap_c_t_and_tile(Tensor(image_local))
             else:
                 image_local = None
@@ -177,6 +193,7 @@ def _inference_single(cfg: Config) -> None:
                 "fps": fps,
             }
 
+
             # Save generated videos
             # --------------------------------------
             partial_keys = cfg.guidances
@@ -185,6 +202,15 @@ def _inference_single(cfg: Config) -> None:
                 full_model_kwargs=full_model_kwargs,
                 use_fps_condition=cfg.use_fps_condition,
             )
+
+            # analyze input
+            if _DEBUG:
+                print("D-- unet inputs: ", text_embs[0].sum(), image_local[0].sum(), mv_data_video[0].sum())
+                print("D-- unet input shape: ", text_embs.shape, image_local.shape, mv_data_video.shape)
+                np.save("test_unet_text_emb.npy", text_embs[0]) #.asnumpy()) 
+                np.save("test_unet_single_image.npy", image_local[0].asnumpy()) 
+                np.save("test_unet_mv.npy", mv_data_video[0].asnumpy()) 
+            
             diffusion_output = diffusion(
                 noise,
                 model_kwargs=model_kwargs,

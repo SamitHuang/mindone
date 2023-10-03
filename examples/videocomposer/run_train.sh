@@ -8,7 +8,7 @@ export ASCEND_GLOBAL_LOG_LEVEL=1  # Global log message level for Ascend. Setting
 export ASCEND_SLOG_PRINT_TO_STDOUT=0 # 1: detail, 0: simple
 export DEVICE_ID=$1  # The device id to runing training on
 
-task_name=train_motion_transfer_tempconvfp32_ckpt3_bs2
+task_name=train_motion_transfer_tempconvfp32_aligninput_pynative
 yaml_file=configs/train_exp02_motion_transfer.yaml
 #yaml_file=configs/train_text_to_video.yaml
 output_path=outputs
@@ -22,5 +22,6 @@ export MS_COMPILER_CACHE_PATH=${output_path:?}/${task_name:?}_cache
 
 nohup python -u train.py  \
      -c $yaml_file  \
+     --ms_mode 0 \
      --output_dir $output_path/$task_name \
     > $output_path/$task_name/train.log 2>&1 &

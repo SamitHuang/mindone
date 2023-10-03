@@ -15,20 +15,23 @@ log_dir: 'outputs'
 dataset_sink_mode: False # to show every-step loss
 use_recompute: False # to avoid OOM
 
+force_start_from_first_frame: True # TODO: only to overfitting experiments
+misc_random_interpolation: False # TODO: only for overfitting exp
+
 optim: "adamw_fp32" 
 betas: [0.9, 0.999]
 optim_eps: 1.e-8
 offload: False #
 
 max_frames: 16
-epochs: 30
-ckpt_save_interval: 3
+epochs: 2000
+ckpt_save_interval: 500
 ckpt_max_keep: 10
 
 loss_scale: 1024
 
-batch_size: 2
-learning_rate: 5.e-6
+batch_size: 1
+learning_rate: 5.e-5
 warmup_steps: 5
 scheduler: "cosine_decay"
-end_learning_rate: 1.e-6
+end_learning_rate: 1.e-5

@@ -7,6 +7,7 @@ import mindspore as ms
 from mindspore import Tensor
 from mindspore import dataset as ds
 from mindspore.dataset import transforms, vision
+from mindspore.dataset.vision import Inter as InterpolationMode
 
 from ...config import Config
 from ...data import CenterCrop, RandomResize, VideoDataset
@@ -81,6 +82,12 @@ def prepare_dataloader(
     cfg: Config, transforms_list: Tuple[Callable, Callable, Callable, Callable]
 ) -> ds.GeneratorDataset:
     infer_transforms, misc_transforms, mv_transforms, vit_transforms = transforms_list
+
+    force_start_from_first_frame = False
+    if hasattr(cfg, "force_start_from_first_frame"):
+        force_start_from_first_frame = True
+        print("WARNING: force to sample from first frame for overfitting experiment !!")
+
     dataset = VideoDataset(
         cfg=cfg,
         max_words=cfg.max_words,
@@ -94,6 +101,7 @@ def prepare_dataloader(
         vit_image_size=cfg.vit_image_size,
         misc_size=cfg.misc_size,
         mvs_visual=cfg.mvs_visual,
+        force_start_from_first_frame=force_start_from_first_frame,
     )
     dataloader = ds.GeneratorDataset(
         source=dataset,
@@ -192,7 +200,7 @@ def prepare_model_visual_kwargs(model_kwargs: Dict[str, Tensor]) -> Dict[str, np
     return model_kwargs
 
 
-def prepare_transforms(cfg: Config) -> Tuple[Callable, Callable, Callable, Callable]:
+def prepare_transforms(cfg: Config, misc_random_interpolation=True) -> Tuple[Callable, Callable, Callable, Callable]:
     # [Transform] Transforms for different inputs
     infer_transforms = transforms.Compose(
         [
@@ -203,7 +211,7 @@ def prepare_transforms(cfg: Config) -> Tuple[Callable, Callable, Callable, Calla
     )
     misc_transforms = transforms.Compose(
         [
-            RandomResize(size=cfg.misc_size),
+            RandomResize(size=cfg.misc_size) if misc_random_interpolation else vision.Resize(cfg.misc_size, interpolation=InterpolationMode.ANTIALIAS),
             vision.CenterCrop(cfg.misc_size),
             vision.ToTensor(),
         ]

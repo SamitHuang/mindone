@@ -18,7 +18,7 @@ __all__ = [
 class RandomResize(object):
     def __init__(self, size):
         self.size = size
-
+    
     def __call__(self, img):
         img = vision.Resize(
             self.size,
@@ -75,8 +75,9 @@ def make_masked_images(imgs, masks):
 
 
 # TODO: add augmentation
-def create_transforms(cfg, is_training=True):
+def create_transforms(cfg, is_training=True, misc_random_interpolation=True):
     # [Transform] Transforms for different inputs
+    
 
     # video frames, norm to [-1, 1] for VAE
     infer_transforms = transforms.Compose(
@@ -86,10 +87,11 @@ def create_transforms(cfg, is_training=True):
             vision.Normalize(mean=cfg.mean, std=cfg.std, is_hwc=False),
         ]
     )
+
     # NOTE: only norm to [0. 1] for stc encoder or for detph/sketch image preprocessor
     misc_transforms = transforms.Compose(
         [
-            RandomResize(size=cfg.misc_size),
+            RandomResize(size=cfg.misc_size) if misc_random_interpolation else vision.Resize(cfg.misc_size, interpolation=InterpolationMode.ANTIALIAS),
             vision.CenterCrop(cfg.misc_size),
             vision.ToTensor(),
         ]
