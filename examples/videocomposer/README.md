@@ -21,6 +21,13 @@ MindSpore implementation & optimization of [VideoComposer: Compositional Video S
 - Support more training features: EMA, Gradient accumulation, Gradient clipping
 - Evaluation
 
+### Change Logs
+- Force fp32 cast and compute:
+    - GroupNorm (MUST be fp32)
+    - Softmax (TB confirmed neccessity)
+    - LayerNorm (TB confirmed neccessity)
+    - SiLU (TB confirmed neccessity)
+
 ## Installation
 
 1. Create virtual environment

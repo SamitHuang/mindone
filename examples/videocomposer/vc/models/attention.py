@@ -217,9 +217,10 @@ class BasicTransformerBlock(nn.Cell):
         self.checkpoint = checkpoint
 
     def construct(self, x, context=None):
-        h1 = self.attn1(self.norm1(x), context=context if self.disable_self_attn else None) + x
-        h2 = self.attn2(self.norm2(h1), context=context) + h1
-        out = self.ff(self.norm3(h2)) + h2
+        # explicitly set layernorm inputs to fp32 to avoid 910B+MS2.2 precision degrade
+        h1 = self.attn1(self.norm1(x.to(ms.float32)), context=context if self.disable_self_attn else None) + x
+        h2 = self.attn2(self.norm2(h1.to(ms.float32)), context=context) + h1
+        out = self.ff(self.norm3(h2.to(ms.float32))) + h2
         return out
 
 
@@ -620,7 +621,7 @@ class TemporalConvBlock_v2(nn.Cell):
         # conv layers
         self.conv1 = nn.SequentialCell(
             GroupNorm(32, in_dim),
-            nn.SiLU().to_float(ms.float32), # TODO: fp16 could be enough. to check
+            nn.SiLU().to_float(ms.float32), # TODO: 1) actually still fp16 on 910B+MS2.2, need cast input to fp32 explicitly in a wrapped SiLU. 2) maybe fp16 could be enough.
             nn.Conv3d(in_dim, out_dim, (3, 1, 1), pad_mode="pad", padding=(1, 1, 0, 0, 0, 0), has_bias=True).to_float(
                 self.dtype
             ),
