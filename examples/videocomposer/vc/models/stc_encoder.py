@@ -70,8 +70,10 @@ class Attention(nn.Cell):
 
         q, k, v = map(rearrange_qkv, qkv)
         dots = ops.bmm(q, k.transpose(0, 1, 3, 2)) * self.scale
-        attn = self.attend(dots)
-        out = ops.bmm(attn, v)
+
+        attn = self.attend(dots.to(ms.float32)) # softmax fp32
+
+        out = ops.bmm(attn.to(self.dtype), v)
         # b h n d -> b n h d -> b n (h d)
         out = ops.transpose(out, (0, 2, 1, 3))
         out = ops.reshape(out, (out.shape[0], out.shape[1], -1))
