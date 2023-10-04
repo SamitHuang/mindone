@@ -43,6 +43,8 @@ class VideoDatasetForTrain(object):
         mvs_visual=False,
         tokenizer=None,
         conditions_for_train=None,
+        force_start_from_first_frame=False,
+        save_first_frame=False,
     ):
         """
         Args:
@@ -65,6 +67,10 @@ class VideoDatasetForTrain(object):
         self.misc_size = misc_size
         self.mvs_visual = mvs_visual
         self.conditions_for_train = conditions_for_train
+
+        self.force_start_from_first_frame = force_start_from_first_frame
+        self.save_first_frame = save_first_frame
+        self.root_dir = root_dir
 
         if root_dir is not None:
             video_paths, captions = get_video_paths_captions(root_dir)
@@ -89,7 +95,7 @@ class VideoDatasetForTrain(object):
         feature_framerate = self.feature_framerate
         if os.path.exists(video_key):
             vit_image, video_data, misc_data, mv_data = self._get_video_train_data(
-                video_key, feature_framerate, self.mvs_visual
+                video_key, feature_framerate, self.mvs_visual, index=index,
             )
         else:  # use dummy data
             return self._get_dummy_data(video_key)
@@ -112,6 +118,9 @@ class VideoDatasetForTrain(object):
         # style_image = vit_image
         single_image = misc_data[:1].copy()  # [1, 3, h, w]
 
+        #print(f"D--:train, single image {index} from misc_data: ", single_image.sum())
+        #np.save(f"train_si_{index}.npy", single_image)
+
         return (
             video_data,
             caption_tokens,
@@ -132,7 +141,7 @@ class VideoDatasetForTrain(object):
 
         return vit_image, video_data, misc_data, mv_data
 
-    def _get_video_train_data(self, video_key, feature_framerate, viz_mv):
+    def _get_video_train_data(self, video_key, feature_framerate, viz_mv, index=None):
         filename = video_key
         frame_types, frames, mvs, mvs_visual = extract_motion_vectors(
             input_video=filename, fps=feature_framerate, viz=viz_mv
@@ -145,13 +154,24 @@ class VideoDatasetForTrain(object):
 
         if start_indices.size == 0:  # empty, no frames
             return self._get_dummy_data(video_key)
-
-        start_index = np.random.choice(start_indices)
+        
+        if self.force_start_from_first_frame:
+            start_index = start_indices[0] 
+        else:
+            start_index = np.random.choice(start_indices) # pick random starting frames here
         indices = np.arange(start_index, start_index + self.max_frames)
 
         # note frames are in BGR mode, need to trans to RGB mode
         frames = [Image.fromarray(frames[i][:, :, ::-1]) for i in indices]
         mvs = [mvs[i].astype(np.float32) for i in indices]  # h, w, 2
+        
+        #print("D--: num frames ", len(frames))
+
+        # save first frame for motion transfer inference testing
+        if self.save_first_frame:
+            save_frm_path = f"{self.root_dir}/vid{index+1}_frm1.png"
+            frames[0].save(save_frm_path)
+            print("First frame saved in: ", save_frm_path)
 
         have_frames = len(frames) > 0
         middle_index = int(len(frames) / 2)
@@ -171,7 +191,7 @@ class VideoDatasetForTrain(object):
             video_data[: len(frames), ...] = frames
             misc_data[: len(frames), ...] = misc_imgs
             mv_data[: len(frames), ...] = mvs
-
+       
         return vit_image, video_data, misc_data, mv_data
 
 
@@ -193,7 +213,18 @@ def get_video_paths_captions(data_dir):
 
 
 def build_dataset(cfg, device_num, rank_id, tokenizer):
-    infer_transforms, misc_transforms, mv_transforms, vit_transforms = create_transforms(cfg)
+    # for overfitting experiemnts only
+    force_start_from_first_frame = cfg.get("force_start_from_first_frame", False)
+    if force_start_from_first_frame:
+        print("WARNING: Force to sample from first frame for overfitting training experiment !!")
+
+    misc_random_interpolation = cfg.get("misc_random_interpolation", True)
+    if not misc_random_interpolation:
+        print("WARNING: Resize interpolation method is fixed to LACZOS/ANTIALIAS for misc data transforms !!")
+    
+    # create_transform
+    infer_transforms, misc_transforms, mv_transforms, vit_transforms = create_transforms(cfg, misc_random_interpolation=misc_random_interpolation)
+
     dataset = VideoDatasetForTrain(
         root_dir=cfg.root_dir,
         max_words=cfg.max_words,
@@ -208,6 +239,7 @@ def build_dataset(cfg, device_num, rank_id, tokenizer):
         misc_size=cfg.misc_size,
         mvs_visual=cfg.mvs_visual,
         tokenizer=tokenizer,
+        force_start_from_first_frame=force_start_from_first_frame,
     )
 
     print("Total number of samples: ", len(dataset))
