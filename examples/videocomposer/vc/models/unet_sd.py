@@ -1019,6 +1019,8 @@ class UNetSD_temporal(nn.Cell):
             for oblock in self.output_blocks:
                 oblock.recompute(parallel_optimizer_comm_recompute=True)
 
+        self.cast = ops.Cast()
+
     def load_state_dict(self, ckpt_path, prefix_to_remove="unet."):
         # for save_unet_only, the saved params will start with 'unet.'
         if not os.path.exists(ckpt_path):
@@ -1069,6 +1071,14 @@ class UNetSD_temporal(nn.Cell):
         assert self.inpainting or masked is None, "inpainting is not supported"
         # start_time = time.time()
         batch, c, f, h, w = x.shape
+
+        # Explicitly cast input to target dtype for computation. for 910B+MS2.2
+        x = self.cast(x, self.dtype)
+        if motion is not None:
+            motion = self.cast(motion, self.dtype)
+        if local_image is not None:
+            local_iamge = self.cast(local_image, self.dtype)
+
 
         # image and video joint training, if mask_last_frame_num is set, prob_focus_present will be ignored
         if mask_last_frame_num > 0:
