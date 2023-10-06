@@ -1073,12 +1073,13 @@ class UNetSD_temporal(nn.Cell):
         batch, c, f, h, w = x.shape
 
         # Explicitly cast input to target dtype for computation. for 910B+MS2.2
+        ''' somehow these will cause unet output tuple in training
         x = self.cast(x, self.dtype)
         if motion is not None:
             motion = self.cast(motion, self.dtype)
         if local_image is not None:
             local_iamge = self.cast(local_image, self.dtype)
-
+        '''
 
         # image and video joint training, if mask_last_frame_num is set, prob_focus_present will be ignored
         if mask_last_frame_num > 0:

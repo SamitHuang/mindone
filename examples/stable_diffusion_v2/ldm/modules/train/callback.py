@@ -130,7 +130,7 @@ class EvalSaveCallback(Callback):
 
                 # adapt for 910B.
                 # TODO(MS_ENABLE_REF_MODE): Delete when remove MS_ENABLE_REF_MODE env.
-                if ms.context.get_context("enable_ge"):
+                if ms.context.get_context("enable_ge"): #and os.getenv("MS_ENABLE_REF_MODE", "0") == "0":
                     set_cur_net(cb_params.train_network)
                     cb_params.train_network.exec_checkpoint_graph()
 

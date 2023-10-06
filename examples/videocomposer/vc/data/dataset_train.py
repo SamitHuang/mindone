@@ -220,7 +220,7 @@ def build_dataset(cfg, device_num, rank_id, tokenizer):
 
     misc_random_interpolation = cfg.get("misc_random_interpolation", True)
     if not misc_random_interpolation:
-        print("WARNING: Resize interpolation method is fixed to LACZOS/ANTIALIAS for misc data transforms !!")
+        print("WARNING: Resize interpolation method is fixed to BICUBIC for misc data transforms !!")
     
     # create_transform
     infer_transforms, misc_transforms, mv_transforms, vit_transforms = create_transforms(cfg, misc_random_interpolation=misc_random_interpolation)

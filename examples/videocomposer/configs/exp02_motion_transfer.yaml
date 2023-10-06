@@ -10,6 +10,13 @@ batch_sizes: {
     "8": 1,
     "16": 1,
 }
+max_frames: &max_frames 16
+frame_lens: [
+    *max_frames,
+    *max_frames,
+    *max_frames,
+    *max_frames,
+]
 vit_image_size: 224
 network_name: UNetSD_temporal
 resume: true
@@ -19,3 +26,8 @@ mvs_visual: False
 chunk_size: 16
 resume_checkpoint: "model_weights/non_ema_228000-7f157ec2.ckpt"
 log_dir: 'outputs'
+
+# for overfiting experiment
+force_start_from_first_frame: True
+misc_random_interpolation: False
+

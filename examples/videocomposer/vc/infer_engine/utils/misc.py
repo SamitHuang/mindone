@@ -23,7 +23,7 @@ def init_infer(cfg: Config, video_name: Optional[str] = None) -> None:
     # logging
     log_dir = cfg.log_dir
     if video_name is None:
-        ct = datetime.datetime.now().strftime("-%y%m%d%H%M")
+        ct = datetime.datetime.now().strftime("-%y%m%d%H%M%S")
         exp_name = os.path.basename(cfg.cfg_file).split(".")[0] + "-S%05d" % (cfg.seed) + ct
     else:
         exp_name = os.path.basename(cfg.cfg_file).split(".")[0] + f"-{video_name}" + "-S%05d" % (cfg.seed)
