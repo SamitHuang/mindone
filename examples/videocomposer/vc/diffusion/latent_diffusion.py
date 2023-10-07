@@ -407,7 +407,7 @@ class LatentDiffusion(nn.Cell):
             canny=canny,
         )
 
-        loss_simple = self.get_loss(noise_pred, noise, mean=False).mean([1, 2, 3, 4])
+        loss_simple = self.get_loss(noise_pred.to(ms.float32), noise.to(ms.float32), mean=False).mean([1, 2, 3, 4])
 
         logvar_t = self.logvar[t]
         loss = loss_simple / ops.exp(logvar_t) + logvar_t
