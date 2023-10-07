@@ -21,21 +21,23 @@ optim_eps: 1.e-8
 offload: False #
 
 max_frames: 16
-epochs: 150
-ckpt_save_interval: 10
-ckpt_max_keep: 15
+epochs: 300
+ckpt_save_interval: 30
+ckpt_max_keep: 10
 
 batch_size: 1
 learning_rate: 1.e-5
-warmup_steps: 30
+warmup_steps: 50
 scheduler: "constant"
 end_learning_rate: 1.e-5
 
-weight_decay: 1.e-6
-clip_grad: True
+weight_decay: 0
+clip_grad: False
 
-loss_scale: 128
+use_ema: False
+
+loss_scale: 1024
 
 # for overfitting experiment only:
-force_start_from_first_frame: True
-misc_random_interpolation: False
+#force_start_from_first_frame: True
+#misc_random_interpolation: False

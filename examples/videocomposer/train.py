@@ -39,6 +39,7 @@ from ldm.modules.train.trainer import TrainOneStepWrapper
 from ldm.util import count_params
 
 os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
+os.environ['MS_ASCEND_CHECK_OVERFLOW_MODE'] = "INFNAN_MODE"
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +75,11 @@ def init_env(args):
         device_id=device_id,
         # max_device_memory="30GB", # adapt for 910b
     )
-    ms.set_context(ascend_config={"precision_mode": "allow_fp32_to_fp16"})  # Only effective on Ascend 901B
-    # ms.set_context(ascend_config={"precision_mode": "allow_fp32_to_bf16"})  # TODO: testing bf16
+    #ms.set_context(ascend_config={"precision_mode": "force_fp32"})  # Only effective on Ascend 901B
+    ms.set_context(ascend_config={"precision_mode": "allow_fp32_to_fp16",
+                                "atomic_clean_policy": 0 # needed for INFNAN, work together with os.environ['MS_ASCEND_CHECK_OVERFLOW_MODE'] = "INFNAN_MODE"
+                        })  # Only effective on Ascend 901B
+
 
     # logger
     # ct = datetime.datetime.now().strftime("_%y%m%d_%H_%M")
@@ -268,7 +272,7 @@ def main(cfg):
         num_epochs=cfg.epochs,
     )
     optimizer = build_optimizer(ldm_with_loss, cfg, learning_rate, eps=cfg.optim_eps)
-    loss_scaler = DynamicLossScaleUpdateCell(loss_scale_value=cfg.loss_scale, scale_factor=2, scale_window=2000)
+    loss_scaler = DynamicLossScaleUpdateCell(loss_scale_value=cfg.loss_scale, scale_factor=2, scale_window=1024)
     ema = (
         EMA(
             ldm_with_loss.unet,

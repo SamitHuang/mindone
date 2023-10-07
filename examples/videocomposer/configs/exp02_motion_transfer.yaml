@@ -31,3 +31,5 @@ log_dir: 'outputs'
 force_start_from_first_frame: True
 misc_random_interpolation: False
 
+use_fp16: True
+
