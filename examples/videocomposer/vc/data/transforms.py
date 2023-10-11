@@ -97,7 +97,7 @@ def create_transforms(cfg, is_training=True):
     # since is motion data, no norm
     mv_transforms = transforms.Compose(
         [
-            vision.Resize(size=cfg.resolution),
+            vision.Resize(size=cfg.resolution, interpolation=InterpolationMode.BILINEAR),
             vision.CenterCrop(cfg.resolution),
         ]
     )

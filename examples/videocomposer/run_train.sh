@@ -1,5 +1,6 @@
 export MS_ENABLE_REF_MODE=0 # will be set to 1 in latest ms version. TODO: remove for future MS version
-export MS_ASCEND_CHECK_OVERFLOW_MODE=1 #"INFNAN_MODE" # for ms+910B, check overflow
+export MS_ASCEND_CHECK_OVERFLOW_MODE="INFNAN_MODE" # for ms+910B, check overflow
+#export MS_ASCEND_CHECK_OVERFLOW_MODE=1 # for ms+910B, check overflow
 #export INF_NAN_MODE_ENABLE=1 # For pytorch+npu, recommend to enable it for mixed precision training for 910B. it determines how overflow is detected
 
 export GLOG_v=2  # Log message at or above this level. 0:INFO, 1:WARNING, 2:ERROR, 3:FATAL
@@ -8,7 +9,7 @@ export ASCEND_GLOBAL_LOG_LEVEL=1  # Global log message level for Ascend. Setting
 export ASCEND_SLOG_PRINT_TO_STDOUT=0 # 1: detail, 0: simple
 export DEVICE_ID=$1  # The device id to runing training on
 
-task_name=train_exp02_gn_ln_softmax_fp32_e10000
+task_name=train_exp02_INFNAN_trainerFixed_mvInterFixed
 yaml_file=configs/train_exp02_motion_transfer.yaml
 #yaml_file=configs/train_text_to_video.yaml
 output_path=outputs

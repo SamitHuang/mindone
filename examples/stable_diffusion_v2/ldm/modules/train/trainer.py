@@ -91,11 +91,7 @@ class TrainOneStepWrapper(nn.TrainOneStepWithLossScaleCell):
         loss = self.network(*inputs)  # mini-batch loss
         scaling_sens = self.scale_sense
 
-        # check loss overflow
-        if not self.is_cpu_device:
-            status, scaling_sens = self.start_overflow_check(loss, scaling_sens)
-        else:
-            status = None
+        status = ms.Tensor([0]*8, ms.int32)
 
         scaling_sens_filled = C.ones_like(loss) * F.cast(scaling_sens, F.dtype(loss))  # loss scale value
 

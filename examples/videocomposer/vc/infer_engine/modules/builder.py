@@ -7,6 +7,7 @@ import mindspore as ms
 from mindspore import Tensor
 from mindspore import dataset as ds
 from mindspore.dataset import transforms, vision
+from mindspore.dataset.vision import Inter as InterpolationMode
 
 from ...config import Config
 from ...data import CenterCrop, RandomResize, VideoDataset
@@ -210,7 +211,7 @@ def prepare_transforms(cfg: Config) -> Tuple[Callable, Callable, Callable, Calla
     )
     mv_transforms = transforms.Compose(
         [
-            vision.Resize(size=cfg.resolution),
+            vision.Resize(size=cfg.resolution, interpolation=InterpolationMode.BILINEAR),
             vision.CenterCrop(cfg.resolution),
         ]
     )

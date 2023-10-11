@@ -121,6 +121,9 @@ class Config(object):
         parser.add_argument(
             "--output_dir", default="outputs/train", type=str, help="output directory to save training results"
         )
+        parser.add_argument(
+            "--resume_checkpoint", default=None, type=str, help="output directory to save training results"
+        )
         return parser.parse_args()
 
     def _path_join(self, path_list):
