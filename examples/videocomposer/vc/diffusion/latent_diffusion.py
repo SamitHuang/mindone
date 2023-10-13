@@ -255,12 +255,14 @@ class LatentDiffusion(nn.Cell):
         )
 
         # 2. prepare input latent frames z
-        # (bs f c h w) -> (bs*f c h w) -> (bs*f z h//8 w//8) -> (b z f h//8 w//8)
+        # (bs f c h w) -> (bs*f c h w) -> (bs*f z h//8 w//8) 
         b, f, c, h_vid, w_vid = x.shape
         x = ops.reshape(x, (-1, c, h_vid, w_vid))
         # print("D--: vae input x shape", x.shape)
         z = ops.stop_gradient(self.scale_factor * self.vae.encode(x))
-        z = ops.reshape(z, (b, z.shape[1], f, z.shape[2], z.shape[3]))
+        # (bs*f z h//8 w//8) -> (bs f z h//8 w//8) -> (b z f h//8 w//8)
+        z = ops.reshape(z, (b, f, z.shape[1], z.shape[2], z.shape[3]))
+        z = ops.transpose(z, (0, 2, 1, 3, 4))
         # print("D--: vae output z shape: ", z.shape)
 
         # 3. prepare conditions
