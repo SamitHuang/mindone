@@ -135,6 +135,7 @@ def main(args):
 
         image = cv2.imread(args.inputs.image_path)
         input_image = np.array(image, dtype=np.uint8)
+        # TODO: forgot to convert BGR to RGB format ??
         img = resize_image(HWC3(input_image), args.inputs.image_resolution)
         H, W, C = img.shape
         args.inputs.H = H
