@@ -161,7 +161,11 @@ class VideoDatasetForTrain(object):
         filename = video_key
         if self.record_data_stat:
             vstart = time.time()
+<<<<<<< HEAD
     
+=======
+
+>>>>>>> d2588dbf52f59b787bbd34ba75cafd86cf775262
         frame_types, frames, mvs, mvs_visual = extract_motion_vectors(
             input_video=filename, fps=feature_framerate, viz=viz_mv
         )
@@ -169,9 +173,15 @@ class VideoDatasetForTrain(object):
         if self.record_data_stat:
             _raw_frames_len = len(frames) * 4
             _resolution = frames[0].shape[-3:-1]
+<<<<<<< HEAD
             _stat = f"{video_key},{_raw_frames_len},{_resolution},{time.time()-vstart}" 
             with open(self.stat_fp, "a", encoding="utf-8") as fp:
                 fp.write(_stat+ "\n")
+=======
+            _stat = f"{video_key},{_raw_frames_len},{_resolution},{time.time()-vstart}"
+            with open(self.stat_fp, "a", encoding="utf-8") as fp:
+                fp.write(_stat + "\n")
+>>>>>>> d2588dbf52f59b787bbd34ba75cafd86cf775262
 
         total_frames = len(frame_types)
         start_indices = np.where(

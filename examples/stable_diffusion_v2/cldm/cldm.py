@@ -186,6 +186,9 @@ class ControlNet(nn.Cell):
         num_attention_blocks=None,
         disable_middle_self_attn=False,
         use_linear_in_transformer=False,
+        enable_flash_attention=False,
+        cross_frame_attention=False,
+        unet_chunk_size=2,
     ):
         super().__init__()
 
@@ -322,6 +325,9 @@ class ControlNet(nn.Cell):
                                 dtype=self.dtype,
                                 dropout=self.dropout,
                                 use_linear=use_linear_in_transformer,
+                                enable_flash_attention=enable_flash_attention,
+                                cross_frame_attention=cross_frame_attention,
+                                unet_chunk_size=unet_chunk_size,
                             )
                         )
                 self.input_blocks.append(layers)
@@ -398,6 +404,9 @@ class ControlNet(nn.Cell):
                     dtype=self.dtype,
                     dropout=self.dropout,
                     use_linear=use_linear_in_transformer,
+                    enable_flash_attention=enable_flash_attention,
+                    cross_frame_attention=cross_frame_attention,
+                    unet_chunk_size=unet_chunk_size,
                 ),
                 ResBlock(
                     ch,
