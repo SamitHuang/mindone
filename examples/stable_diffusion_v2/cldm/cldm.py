@@ -34,38 +34,6 @@ from mindspore import numpy as msnp
 _logger = logging.getLogger(__name__)
 
 
-class ControlledUnetModel(UNetModel):
-    def construct(self, x, timesteps=None, context=None, control=None, only_mid_control=False, **kwargs):
-        hs = []
-
-        # self.set_train(False)
-
-        t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
-        emb = self.time_embed(t_emb)
-        h = x
-        for celllist in self.input_blocks:
-            for cell in celllist:
-                h = cell(h, emb, context)
-            hs.append(h)
-        for module in self.middle_block:
-            h = module(h, emb, context)
-
-        # TODO: only upper part was in do not need update gradients, not sure if set_train(True) needed here
-        if control is not None:
-            h += control.pop()
-
-        for celllist in self.output_blocks:
-            if only_mid_control or control is None:
-                h = self.cat((h, hs.pop()))
-            else:
-                h = self.cat([h, hs.pop() + control.pop()])
-
-            for cell in celllist:
-                h = cell(h, emb, context)
-
-        return self.out(h)
-
-
 class ControlnetUnetModel(UNetModel):
     def __init__(self, control_stage_config, guess_mode=False, strength=1.0, sd_locked=True, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -86,13 +54,15 @@ class ControlnetUnetModel(UNetModel):
 
     def construct(self, x, timesteps=None, context=None, control=None, only_mid_control=False, **kwargs):
         '''
-        x: latent image in shape [bs, z, 512//4, 512//4] 
+        x: latent image in shape [bs, z, H//4, W//4] 
         timesteps: in shape [bs] 
         context: text embedding [bs, seq_len, f] f=768 for sd1.5, 1024 for sd 2.x
-        control: control signal [bs, 3, 512, 512]
+        control: control signal [bs, 3, H, W]
         '''
-        print("D----: contorlnetunet: ")
-        print("D--- x, context, control: ", x.shape, context.shape, control.shape)
+        #print("D----: contorlnetunet: ")
+        #print("D--- x: ", x.shape)
+        #print("D--- context: ", context.shape)
+        #print("D--- control: ", control.shape)
 
         hs = []
         t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
@@ -251,7 +221,8 @@ class ControlNet(nn.Cell):
         )
 
         self.zero_convs = nn.CellList([self.make_zero_conv(model_channels)])
-
+        
+        # TODO: use SiLU fp32
         self.input_hint_block = nn.CellList(
             [
                 conv_nd(dims, hint_channels, 16, 3, padding=1, has_bias=True, pad_mode="pad").to_float(self.dtype),
@@ -460,6 +431,8 @@ class ControlLDM(LatentDiffusion):
     ):
         super().__init__(*args, **kwargs)
 
+        #self.unet_with_control = self.model.diffusion_model
+
     def construct(self, x, c, control=None):
         '''
         Diffusion forward and compute loss 
@@ -471,39 +444,43 @@ class ControlLDM(LatentDiffusion):
         return: 
             loss
         '''
+
         t = self.uniform_int(
             (x.shape[0],), Tensor(0, dtype=mstype.int32), Tensor(self.num_timesteps, dtype=mstype.int32)
         )
-        x, c = self.get_input(x, c)
-        c = self.get_learned_conditioning_fortrain(c)
+        latent_image, c = self.get_input(x, c)
+        text_emb = self.get_learned_conditioning_fortrain(c)
         
         if control is not None:
             control = ops.transpose(control, (0, 3, 1, 2))
         
-        return self.p_losses(x, c, t, control=control)
+        return self.p_losses(latent_image, text_emb, t, control=control)
 
 
-    def p_losses(self, x_start, cond, t,  control=None, **kwargs):
-        noise = msnp.randn(x_start.shape)
-        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
+    def p_losses(self, latent_image, text_emb, t,  control=None, **kwargs):
+        noise = msnp.randn(latent_image.shape)
+        latent_image_noisy = self.q_sample(x_start=latent_image, t=t, noise=noise)
 
-        # core: ControlnetUnetModel(UNetModel):
-        # def construct(self, x, timesteps=None, context=None, control=None, only_mid_control=False, **kwargs):
-        model_output = self.model(
-            x_noisy,
-            t,
-            cond=cond,
+        # DiffusionWrapper -> ControlnetUnetModel
+        #   construct(self, x, timesteps=None, context=None, control=None, only_mid_control=False, **kwargs):
+        # print("D--: infer model type: ", self.model.diffusion_model.__class__.__name__)
+        model_output = self.model.diffusion_model(
+            x=latent_image_noisy,
+            timesteps=t,
+            context=text_emb,
             control=control,
+            only_mid_control=False,
             **kwargs,
         )
-
+        
+        #print("D--: parameterization ", self.parameterization)
         if self.parameterization == "x0":
-            target = x_start
+            target = latent_image 
         elif self.parameterization == "eps":
             target = noise
         elif self.parameterization == "velocity":
             # target = sqrt_alpha_cum * noise - sqrt_one_minus_alpha_prod * x_start
-            target = self.get_velocity(x_start, noise, t)  # TODO: parse train step from randint
+            target = self.get_velocity(latent_image, noise, t)  # TODO: parse train step from randint
         else:
             raise NotImplementedError()
 
