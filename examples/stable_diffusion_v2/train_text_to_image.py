@@ -30,8 +30,10 @@ os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
 logger = logging.getLogger(__name__)
 
 
-def build_model_from_config(config):
+def build_model_from_config(config, use_recompute=None):
     config = OmegaConf.load(config).model
+    if use_recompute is not None:
+        config['params']['unet_config']['params']['use_recompute'] = use_recompute
     if "target" not in config:
         if config == "__is_first_stage__":
             return None
@@ -162,6 +164,7 @@ def parse_args():
     # parser.add_argument("--cond_stage_trainable", default=False, type=str2bool, help="whether text encoder is trainable")
     parser.add_argument("--use_ema", default=False, type=str2bool, help="whether use EMA")
     parser.add_argument("--clip_grad", default=False, type=str2bool, help="whether apply gradient clipping")
+    parser.add_argument("--use_recompute", default=None, type=str2bool, help="whether use recompute")
     parser.add_argument(
         "--max_grad_norm",
         default=1.0,
@@ -221,7 +224,7 @@ def main(args):
     set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
 
     # build model
-    latent_diffusion_with_loss = build_model_from_config(args.model_config)
+    latent_diffusion_with_loss = build_model_from_config(args.model_config, use_recompute=args.use_recompute)
     if args.custom_text_encoder is not None and os.path.exists(args.custom_text_encoder):
         load_pretrained_model_vae_unet_cnclip(
             args.pretrained_model_path, args.custom_text_encoder, latent_diffusion_with_loss

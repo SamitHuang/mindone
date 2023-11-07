@@ -273,7 +273,7 @@ class Attention(nn.Cell):
             mask = ops.expand_dims(mask, axis=1)
             sim.masked_fill(mask, max_neg_value)
 
-        attn = self.softmax(sim)
+        attn = self.softmax(sim.astype(ms.float32)).astype(v.dtype) # better precision
         out = ops.matmul(attn, v)
 
         return out
@@ -361,9 +361,9 @@ class BasicTransformerBlock(nn.Cell):
                 dtype=dtype,
                 enable_flash_attention=enable_flash_attention,
             )  # is self-attn if context is none
-        self.norm1 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
-        self.norm2 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
-        self.norm3 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
+        self.norm1 = nn.LayerNorm([dim], epsilon=1e-05).to_float(ms.float32)
+        self.norm2 = nn.LayerNorm([dim], epsilon=1e-05).to_float(ms.float32)
+        self.norm3 = nn.LayerNorm([dim], epsilon=1e-05).to_float(ms.float32)
         self.checkpoint = checkpoint
 
     def construct(self, x, context=None):
