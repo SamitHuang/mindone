@@ -17,8 +17,10 @@ import numpy as np
 from ldm.modules.logger import set_logger
 from ldm.modules.train.tools import set_random_seed
 from ldm.util import instantiate_from_config, str2bool
+
 from ldm.pipelines.load_models import load_model_from_config
-from ldm.pipelines.infer_engine import SDText2Img
+#from ldm.pipelines.infer_engine import SDText2Img
+from animate_diff.pipelines.infer_engine import Text2VideoInfer
 from ldm.pipelines.image_utils import VaeImageProcessor
 
 import mindspore as ms
@@ -152,8 +154,9 @@ def main(args):
         inputs["negative_prompt_data"] = sd_model.tokenize([n_prompt] * bs)
         inputs["timesteps"] = timesteps
         inputs["scale"] = ms.Tensor(guidance_scale, ms.float16)
-
-        noise = np.random.randn(bs, 4, args.H // 8, args.W // 8)
+        
+        # unet input latent noise: b c f h w
+        noise = np.random.randn(bs, 4, args.L, args.H // 8, args.W // 8)
         inputs["noise"] = ms.Tensor(noise, ms.float16)
 
         logger.info("Sampling prompt: ", prompts[i])
@@ -195,7 +198,7 @@ if __name__ == '__main__':
     parser.add_argument("--H", type=int, default=512)
 
     # Use ldm config method instead of diffusers and transformers 
-    parser.add_argument("--sd_config", type=str, default="configs/stable_diffusion/v1-inference.yaml")    
+    parser.add_argument("--sd_config", type=str, default="configs/stable_diffusion/v1-inference-unet3d.yaml")    
 
     # MS new args
     parser.add_argument("--target_device", type=str, default="GPU", help="Ascend or GPU")
