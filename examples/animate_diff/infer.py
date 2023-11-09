@@ -121,7 +121,6 @@ def main(args):
     sampler_config.params.beta_start = noise_scheduler_kwargs.beta_start
     sampler_config.params.beta_end = noise_scheduler_kwargs.beta_end
     sampler_config.params.beta_schedule = noise_scheduler_kwargs.beta_schedule
-    print("D--: ", sampler_config)
 
     scheduler = instantiate_from_config(sampler_config)
     timesteps = scheduler.set_timesteps(steps)
