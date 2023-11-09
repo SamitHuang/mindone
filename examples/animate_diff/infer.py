@@ -118,9 +118,10 @@ def main(args):
 
     # 2) ddim sampler
     sampler_config = OmegaConf.load("configs/inference/scheduler/ddim.yaml")
-    sampler_config.beta_start = noise_scheduler_kwargs.beta_start
-    sampler_config.beta_end = noise_scheduler_kwargs.beta_end
-    sampler_config.beta_schedule = noise_scheduler_kwargs.beta_schedule
+    sampler_config.params.beta_start = noise_scheduler_kwargs.beta_start
+    sampler_config.params.beta_end = noise_scheduler_kwargs.beta_end
+    sampler_config.params.beta_schedule = noise_scheduler_kwargs.beta_schedule
+    print("D--: ", sampler_config)
 
     scheduler = instantiate_from_config(sampler_config)
     timesteps = scheduler.set_timesteps(steps)
