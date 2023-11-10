@@ -92,6 +92,202 @@ class Downsample(nn.Cell):
     def construct(self, x, emb=None, context=None):
         return self.op(x)
 
+class CrossAttnDownBlock3D():
+    pass
+
+class CrossAttnUpBlock3D():
+    pass
+
+class DownBlock3D():
+    pass
+
+class UNetMidBlock3DCrossAttn():
+    pass
+
+class UpBlock3D():
+    pass
+##---------------------------- 3D modules ------------------- 
+def rearrange_in(x):
+    '''
+    reshape x from (b c f h w) -> (b*f c h w)
+    temporal 5d to spatial 4d
+    '''
+    # b c f h w -> b f c h w -> (b f) c h w
+    x = ops.transpose(x, (0, 2, 1, 3, 4))
+    x = ops.reshape(x, (-1, x.shape[2], x.shape[3], x.shape[4]))
+
+    return x
+
+def rearrange_out(x, f):
+    '''
+    reshape x from (b*f c h w) -> (b c f h w)
+    spatial 4d to temporal 5d
+    f: num frames
+    '''
+    # (b f) c h w -> b f c h w -> b c f h w
+    x = ops.reshape(x, (x.shape[0]//f, f, x.shape[1], x.shape[2], x.shape[3]))
+    x = ops.transpose(x, (0, 2, 1, 3, 4))
+    
+    return x
+
+#--------- Layers
+
+#class InflatedConv3d(nn.Cell):
+class conv_nd(nn.Cell):
+    def __init__(self, dims, *args, **kwargs):
+        super().__init__()
+        if dims == 2:
+            self.conv = nn.Conv2d(*args, **kwargs)
+        else:
+            raise ValueError(f"unsupported dimensions: {dims}")
+
+    def construct(self, x, emb=None, context=None):
+        # x shape: b c f h w
+        x = rearrange_in(x) # "b c f h w -> (b f) c h w"
+        video_length = x.shape[2]
+
+        x = self.conv(x)
+
+        x = rearrange_out(x, f=video_length) #  "(b f) c h w -> b c f h w"
+        return x
+
+
+class InflatedGroupNorm():
+    pass
+
+
+#------- Blocks 
+class ResBlock3D(nn.Cell):
+    """
+    A residual block that can optionally change the number of channels.
+
+    :param channels: the number of input channels.
+    :param emb_channels: the number of timestep embedding channels.
+    :param dropout: the rate of dropout.
+    :param out_channels: if specified, the number of out channels.
+    :param use_conv: if True and out_channels is specified, use a spatial
+        convolution instead of a smaller 1x1 convolution to change the
+        channels in the skip connection.
+    :param dims: determines if the signal is 1D, 2D, or 3D.
+    :param use_checkpoint: if True, use gradient checkpointing on this module.
+    :param up: if True, use this block for upsampling.
+    :param down: if True, use this block for downsampling.
+    """
+
+    def __init__(
+        self,
+        channels,
+        emb_channels,
+        dropout=1.0,
+        out_channels=None,
+        use_conv=False,
+        use_scale_shift_norm=False,
+        dims=2,
+        use_checkpoint=False,
+        up=False,
+        down=False,
+        dtype=ms.float32,
+    ):
+        super().__init__()
+        self.channels = channels
+        self.emb_channels = emb_channels
+        self.dropout = dropout
+        self.out_channels = out_channels or channels
+        self.ori_channels = channels
+        self.use_conv = use_conv
+        self.use_checkpoint = use_checkpoint
+        self.use_scale_shift_norm = use_scale_shift_norm
+        self.updown = up or down
+        self.dtype = dtype
+        self.identity = Identity()
+        self.split = ops.Split(1, 2)
+
+        self.in_layers_norm = normalization(channels)
+        self.in_layers_silu = nn.SiLU().to_float(self.dtype)
+        self.in_layers_conv = conv_nd(
+            dims, channels, self.out_channels, 3, padding=1, has_bias=True, pad_mode="pad"
+        ).to_float(self.dtype)
+
+        if up:
+            self.h_upd = Upsample(channels, False, dims, dtype=self.dtype)
+            self.x_upd = Upsample(channels, False, dims, dtype=self.dtype)
+        elif down:
+            self.h_upd = Downsample(channels, False, dims, dtype=self.dtype)
+            self.x_upd = Downsample(channels, False, dims, dtype=self.dtype)
+        else:
+            self.h_upd = self.x_upd = self.identity
+
+        self.emb_layers = nn.SequentialCell(
+            nn.SiLU().to_float(self.dtype),
+            linear(
+                emb_channels, 2 * self.out_channels if use_scale_shift_norm else self.out_channels, dtype=self.dtype
+            ),
+        )
+
+        self.out_layers_norm = normalization(self.out_channels)
+        self.out_layers_silu = nn.SiLU().to_float(self.dtype)
+
+        if is_old_ms_version():
+            self.out_layers_drop = nn.Dropout(keep_prob=self.dropout)
+        else:
+            self.out_layers_drop = nn.Dropout(p=1.0 - self.dropout)
+
+        self.out_layers_conv = zero_module(
+            conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1, has_bias=True, pad_mode="pad").to_float(
+                self.dtype
+            )
+        )
+
+        if self.out_channels == channels:
+            self.skip_connection = self.identity
+        elif use_conv:
+            self.skip_connection = conv_nd(
+                dims, channels, self.out_channels, 3, padding=1, has_bias=True, pad_mode="pad"
+            ).to_float(self.dtype)
+        else:
+            self.skip_connection = conv_nd(
+                dims, channels, self.out_channels, 1, has_bias=True, pad_mode="pad"
+            ).to_float(self.dtype)
+
+    def construct(self, x, emb, context=None):
+        '''
+        x: (b c f h w) 
+        emb: 
+        context: 
+        '''
+        if self.updown:
+            h = self.in_layers_norm(x)
+            h = self.in_layers_silu(h)
+            h = self.h_upd(h, emb, context) # h = h
+            x = self.x_upd(x, emb, context)
+            h = self.in_layers_conv(h, emb, context)
+        else:
+            h = self.in_layers_norm(x)
+            h = self.in_layers_silu(h)
+            h = self.in_layers_conv(h, emb, context)
+
+        emb_out = self.emb_layers(emb)
+        while len(emb_out.shape) < len(h.shape):
+            emb_out = ops.expand_dims(emb_out, -1)
+
+        if self.use_scale_shift_norm:
+            scale, shift = self.split(emb_out)
+            h = self.out_layers_norm(h) * (1 + scale) + shift
+            h = self.out_layers_silu(h)
+            h = self.out_layers_drop(h)
+            h = self.out_layers_conv(h, emb, context)
+
+        else:
+            h = h + emb_out
+            h = self.out_layers_norm(h)
+            h = self.out_layers_silu(h)
+            h = self.out_layers_drop(h)
+            h = self.out_layers_conv(h, emb, context)
+
+        return self.skip_connection(x) + h
+
+
+##-------------------------- 3D modules END ----------------------------
 
 class ResBlock(nn.Cell):
     """
@@ -395,7 +591,7 @@ class UNet3DModel(nn.Cell):
             [
                 nn.CellList(
                     [
-                        conv_nd(
+                        InflatedConv3d(
                             dims, in_channels, model_channels, 3, padding=1, has_bias=True, pad_mode="pad"
                         ).to_float(self.dtype)
                     ]
@@ -669,14 +865,8 @@ class UNet3DModel(nn.Cell):
         adapter_idx = 0
         for i, celllist in enumerate(self.input_blocks, 1):
             # for first cell (conv_in): (b c f h w) -> (b f c h w) -> (b*f c h w) 
-            if i == 0:
-                h = ops.transpose(h, (0, 2, 1, 3, 4))
-                h = ops.reshape(h, (-1, h.shape[2], h.shape[3], h.shape[4]))
-
             for cell in celllist:
                 h = cell(h, emb, context)
-
-            if i == 0:
 
             hs.append(h)
 

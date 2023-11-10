@@ -106,51 +106,6 @@ class UNetMidBlock3DCrossAttn():
 
 class UpBlock3D():
     pass
-##---------------------------- 3D modules ------------------- 
-def rearrange_in(x):
-    '''
-    reshape x from (b c f h w) -> (b*f c h w)
-    temporal 5d to spatial 4d
-    '''
-    # b c f h w -> b f c h w -> (b f) c h w
-    x = ops.transpose(x, (0, 2, 1, 3, 4))
-    x = ops.reshape(x, (-1, x.shape[2], x.shape[3], x.shape[4]))
-
-    return x
-
-def rearrange_out(x, f):
-    '''
-    reshape x from (b*f c h w) -> (b c f h w)
-    spatial 4d to temporal 5d
-    f: num frames
-    '''
-    # (b f) c h w -> b f c h w -> b c f h w
-    x = ops.reshape(x, (x.shape[0]//f, f, x.shape[1], x.shape[2], x.shape[3]))
-    x = ops.transpose(x, (0, 2, 1, 3, 4))
-    
-    return x
-
-#--------- Layers
-
-#class InflatedConv3d(nn.Cell):
-class conv_nd(nn.Cell):
-    def __init__(self, dims, *args, **kwargs):
-        super().__init__()
-        if dims == 2:
-            self.conv = nn.Conv2d(*args, **kwargs)
-        else:
-            raise ValueError(f"unsupported dimensions: {dims}")
-
-    def construct(self, x, emb=None, context=None):
-        # x shape: b c f h w
-        x = rearrange_in(x) # "b c f h w -> (b f) c h w"
-        video_length = x.shape[2]
-
-        x = self.conv(x)
-
-        x = rearrange_out(x, f=video_length) #  "(b f) c h w -> b c f h w"
-        return x
-
 
 class InflatedGroupNorm():
     pass
@@ -217,14 +172,14 @@ class ResBlock(nn.Cell):
             self.h_upd = self.x_upd = self.identity
 
         self.emb_layers = nn.SequentialCell(
-            nn.SiLU().to_float(self.dtype),
+                nn.SiLU().to_float(self.dtype), # TODO: keep SiLU fp32
             linear(
                 emb_channels, 2 * self.out_channels if use_scale_shift_norm else self.out_channels, dtype=self.dtype
             ),
         )
 
         self.out_layers_norm = normalization(self.out_channels)
-        self.out_layers_silu = nn.SiLU().to_float(self.dtype)
+        self.out_layers_silu = nn.SiLU().to_float(self.dtype) # TODO: keep SiLU fp32
 
         if is_old_ms_version():
             self.out_layers_drop = nn.Dropout(keep_prob=self.dropout)
@@ -250,21 +205,22 @@ class ResBlock(nn.Cell):
 
     def construct(self, x, emb, context=None):
         '''
-        x: (b c f h w) 
-        emb: 
-        context: 
+        x: (b c f h w)
+        emb: (b, dim_emb), time embedding 
+        context: None 
         '''
         if self.updown:
             h = self.in_layers_norm(x)
             h = self.in_layers_silu(h)
             h = self.h_upd(h, emb, context) # h = h
             x = self.x_upd(x, emb, context)
-            h = self.in_layers_conv(h, emb, context)
+            h = self.in_layers_conv(h, emb, context) # b c f h w
         else:
             h = self.in_layers_norm(x)
             h = self.in_layers_silu(h)
             h = self.in_layers_conv(h, emb, context)
-
+        
+        # (b dim_temb) -> (b dim_temb 1 1 1)
         emb_out = self.emb_layers(emb)
         while len(emb_out.shape) < len(h.shape):
             emb_out = ops.expand_dims(emb_out, -1)
@@ -307,7 +263,7 @@ class QKVAttentionLegacy(nn.Cell):
         super().__init__()
         self.n_heads = n_heads
 
-
+# not used
 class AttentionBlock(nn.Cell):
     """
     An attention block that allows spatial positions to attend to each other.
@@ -465,7 +421,7 @@ class UNet3DModel(nn.Cell):
             [
                 nn.CellList(
                     [
-                        InflatedConv3d(
+                        conv_nd(
                             dims, in_channels, model_channels, 3, padding=1, has_bias=True, pad_mode="pad"
                         ).to_float(self.dtype)
                     ]

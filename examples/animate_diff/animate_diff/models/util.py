@@ -71,12 +71,15 @@ class conv_nd(nn.Cell):
 
     def construct(self, x, emb=None, context=None):
         # x shape: b c f h w
-        x = rearrange_in(x) # "b c f h w -> (b f) c h w"
-        video_length = x.shape[2]
+        if x.ndim == 5:
+            x = rearrange_in(x) # "b c f h w -> (b f) c h w"
+            video_length = x.shape[2]
 
         x = self.conv(x)
 
-        x = rearrange_out(x, f=video_length) #  "(b f) c h w -> b c f h w"
+        if x.ndim == 5:
+            x = rearrange_out(x, f=video_length) #  "(b f) c h w -> b c f h w"
+
         return x
 
 # support 3D
@@ -86,11 +89,12 @@ class GroupNorm32(nn.GroupNorm):
         super().__init__(num_groups=num_groups, num_channels=num_channels, eps=eps, affine=affine)
 
     def construct(self, x):
-        # x: (b d f c h w)
-        #TODO: check
+        # x: (b c f h w)
         x_shape = x.shape
         dtype = x.dtype
         if x.ndim >= 3:
+            # (b c f h w) -> (b c f h*w), norm along b c
+            # or (b c h w) -> (b c h w)
             x = x.view(x_shape[0], x_shape[1], x_shape[2], -1)
         y = super().construct(x.to(ms.float32)).to(dtype)
         return y.view(x_shape)
@@ -102,7 +106,7 @@ def normalization(channels):
     :param channels: number of input channels.
     :return: an nn.Cell for normalization.
     """
-    return GroupNorm32(32, channels).to_float(ms.float32)
+    return GroupNorm32(32, channels)
 
 
 

@@ -24,20 +24,27 @@ Since torch AD relies heavily on diffusers and transformers, we will build a new
     - UNet 3D
         - Basic Structure
             -conv_in = InflatedConv
-                - in: b d f h w
-                - proc: reshape to b*f d h w -> conv -> reshape back
-                - out: b d f h w
+                - in: b c f h w
+                - proc: reshape to b*f c h w -> conv -> reshape back
+                - out: b c f h w
             -down_blocks
                 -CrossAttnDownBlock3D x 3
                     -ResBlock3D
-                        - in: (b d f h w)
-                        - out: (b d f h w)
+                        - in: x: (b c f h w), temb: (b dt)
+                        - out: (b c f h w)
                         - proc: 
-                            - GN [so... ch order matters], SiLU, 
-                            - InflatedConv  
+                            - GN [so... ch order matters]
+                            - SiLU 
+                            - InflatedConv 
                                 - reshape to bxf ..., conv, reshape back
-                    -SpatialTransformer3D 
-                        - input: 
+                    -SpatialTransformer3D
+                        - input: x (b c f h w), context (b 77 768)
+                        - x -> (b*f c h w) -> GN -> (b*f h w c) -> (b*f h*w c)  
+                        - context -> (b*f 77 768)
+                        - BasicTransformer:
+                            - CrossAttention
+                            - LayerNorm
+                            - FF 
                         - output: 
                     -MotionModuel /TemporalTransformer 
                 -DownBlock3D

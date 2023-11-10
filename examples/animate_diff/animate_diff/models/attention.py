@@ -444,6 +444,9 @@ class SpatialTransformer(nn.Cell):
         self.transpose = ops.Transpose()
 
     def construct(self, x, emb=None, context=None):
+        '''
+        x: b c f h w
+        '''
         # note: if no context is given, cross-attention defaults to self-attention
         b, c, h, w = x.shape
         x_in = x
