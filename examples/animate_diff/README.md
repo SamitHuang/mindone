@@ -24,9 +24,9 @@ Since torch AD relies heavily on diffusers and transformers, we will build a new
     - UNet 3D
         - Basic Structure
             -conv_in = InflatedConv
-                - in: b c f h w
+                - in: b c f h w = (2 4 16 64 64)
                 - proc: reshape to b*f c h w -> conv -> reshape back
-                - out: b c f h w
+                - out: b c f h w = ([2, 320, 16, 64, 64])
             -down_blocks
                 -CrossAttnDownBlock3D x 3
                     -ResBlock3D
@@ -52,8 +52,13 @@ Since torch AD relies heavily on diffusers and transformers, we will build a new
                         - output: 
                     -MotionModuel /TemporalTransformer 
                 -DownBlock3D
-            -middle_block
-            -up_block
+            -middle_block:
+                - in: (2, 1280, 16, 8, 8)
+            -up_block: 
+                - out: b c f h w = ([2, 320, 16, 64, 64])
+            -postprocess:
+                - proc: GN - SiLU - Conv
+                - out:  b c f h w = ([2, 4, 16, 64, 64])
         - lift 2d to pseudo 3d
         - input for  
 

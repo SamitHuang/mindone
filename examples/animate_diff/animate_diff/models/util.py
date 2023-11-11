@@ -35,7 +35,6 @@ def linear(in_channel, out_channel, dtype=ms.float32):
     """
     return nn.Dense(in_channel, out_channel).to_float(dtype)
 
-
 ##---------------------------- 3D modules ------------------- 
 def rearrange_in(x):
     '''

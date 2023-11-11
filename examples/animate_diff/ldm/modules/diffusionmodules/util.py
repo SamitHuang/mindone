@@ -36,51 +36,21 @@ def linear(in_channel, out_channel, dtype=ms.float32):
     return nn.Dense(in_channel, out_channel).to_float(dtype)
 
 
-##---------------------------- 3D modules ------------------- 
-def rearrange_in(x):
-    '''
-    reshape x from (b c f h w) -> (b*f c h w)
-    temporal 5d to spatial 4d
-    '''
-    # b c f h w -> b f c h w -> (b f) c h w
-    x = ops.transpose(x, (0, 2, 1, 3, 4))
-    x = ops.reshape(x, (-1, x.shape[2], x.shape[3], x.shape[4]))
-
-    return x
-
-def rearrange_out(x, f):
-    '''
-    reshape x from (b*f c h w) -> (b c f h w)
-    spatial 4d to temporal 5d
-    f: num frames
-    '''
-    # (b f) c h w -> b f c h w -> b c f h w
-    x = ops.reshape(x, (x.shape[0]//f, f, x.shape[1], x.shape[2], x.shape[3]))
-    x = ops.transpose(x, (0, 2, 1, 3, 4))
-    
-    return x
-
-#class InflatedConv3d(nn.Cell):
 class conv_nd(nn.Cell):
     def __init__(self, dims, *args, **kwargs):
         super().__init__()
-        if dims == 2:
+        if dims == 1:
+            self.conv = nn.Conv1d(*args, **kwargs)
+        elif dims == 2:
             self.conv = nn.Conv2d(*args, **kwargs)
+        elif dims == 3:
+            self.conv = nn.Conv3d(*args, **kwargs)
         else:
             raise ValueError(f"unsupported dimensions: {dims}")
 
     def construct(self, x, emb=None, context=None):
-        # x shape: b c f h w
-        x = rearrange_in(x) # "b c f h w -> (b f) c h w"
-        video_length = x.shape[2]
-
         x = self.conv(x)
-
-        x = rearrange_out(x, f=video_length) #  "(b f) c h w -> b c f h w"
         return x
-
-
-##-------------------------- 3D modules END ----------------------------
 
 
 def zero_module(module):
