@@ -352,7 +352,7 @@ class UNet3DModel(nn.Cell):
     ):
         super().__init__()
 
-        assert use_inflated_groupnorm==False, "Only support use_inflated_groupnorm=True currently, please use configs/inference/inference_v2.yaml for --inference_config"
+        assert use_inflated_groupnorm==True, "Only support use_inflated_groupnorm=True currently, please use configs/inference/inference_v2.yaml for --inference_config"
 
         if use_spatial_transformer:
             assert (
@@ -734,3 +734,4 @@ class UNet3DModel(nn.Cell):
             # rearrange back: (b*f c h w) -> (b c f h w)
             h = rearrange_out(h, f=F)
 
+            return h

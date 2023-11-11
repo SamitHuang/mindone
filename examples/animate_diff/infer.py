@@ -13,6 +13,7 @@ import csv, pdb, glob
 import math
 from pathlib import Path
 import numpy as np
+import mindspore as ms
 
 from ldm.modules.logger import set_logger
 from ldm.modules.train.tools import set_random_seed
@@ -20,11 +21,10 @@ from ldm.util import instantiate_from_config, str2bool
 
 from ldm.pipelines.load_models import load_model_from_config
 #from ldm.pipelines.infer_engine import SDText2Img
-from animate_diff.pipelines.infer_engine import Text2VideoInfer
 from ldm.pipelines.image_utils import VaeImageProcessor
+from animate_diff.pipelines.infer_engine import SDText2Video 
+from animate_diff.utils.util import save_videos
 
-import mindspore as ms
-import imageio
 
 #import torch
 #import diffusers
@@ -62,6 +62,7 @@ def main(args):
     # set work dir and save dir
     time_str = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     save_dir = f"samples/{Path(args.config).stem}-{time_str}"
+    set_logger(name="", output_dir=save_dir)
 
     # 0. parse and merge config
     # 1) sd config, 2) db ckpt path, 3) lora ckpt path, 4) mm ckpt path, 5) unet additional args, 6) noise schedule args
@@ -115,7 +116,7 @@ def main(args):
     text_encoder = sd_model.cond_stage_model
     unet = sd_model.model
     vae = sd_model.first_stage_model
-    img_processor = VaeImageProcessor()
+    #img_processor = VaeImageProcessor()
 
     if args.target_device!= "Ascend":
         unet.to_float(ms.float32)
@@ -131,7 +132,7 @@ def main(args):
     timesteps = scheduler.set_timesteps(steps)
 
     # 3. build inference pipeline
-    pipeline = SDText2Img(
+    pipeline = SDText2Video(
         text_encoder,
         unet,
         vae,
@@ -158,15 +159,17 @@ def main(args):
         inputs["timesteps"] = timesteps
         inputs["scale"] = ms.Tensor(guidance_scale, ms.float16)
 
-        # unet input latent noise: b c f h w
+        # latent noisy frames: b c f h w
         noise = np.random.randn(bs, 4, args.L, args.H // 8, args.W // 8)
         inputs["noise"] = ms.Tensor(noise, ms.float16)
 
-        logger.info("Sampling prompt: ", prompts[i])
+        logger.info(f"Sampling prompt: {prompts[i]}")
         start_time = time.time()
 
         # infer
         x_samples = pipeline(inputs) # (b f H W 3)
+        x_samples = x_samples.asnumpy()
+        # print("D--: pipeline output ", x_samples.shape)
 
         # x_samples = img_processor.postprocess(x_samples) # transpose, convert to PIL object
         end_time = time.time()
@@ -174,7 +177,7 @@ def main(args):
         # save result
         os.makedirs(save_dir, exist_ok=True)
         prompt = "-".join((prompt.replace("/", "").split(" ")[:10]))
-        save_fp = f"{save_dir}/{sample_idx}-{prompt}.png"
+        save_fp = f"{save_dir}/{sample_idx}-{prompt}.gif"
         save_videos(x_samples, save_fp)
 
         #save_videos_grid(sample, f"{save_dir}/sample/{sample_idx}-{prompt}.gif")
@@ -189,40 +192,20 @@ def main(args):
     OmegaConf.save(config, f"{save_dir}/config.yaml")
 
 
-def save_videos(videos: np.ndarray, path: str, fps=8, concat=False):
-    # videos: (b f H W 3), normalized to [0, 1]
-    videos = (videos * 255).astype(np.uint8)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-
-    if len(videos.shape) == 4:
-        imageio.mimsave(path, videos, fps=fps)
-    else:
-        b, f, h, w, _ = videos.shape
-        if b > 1:
-            if concat:
-                canvas = np.array((f, h, w*b, 3), dtype=np.uint8)
-                for idx in range(b):
-                    canvas[:, :, (w*idx):(w*(idx+1)), :] = videos[idx]
-                imageio.mimsave(path, canvas, fps=fps)
-            else:
-                for idx in range(b):
-                    # concat in Width
-                    imageio.mimsave(path.replace(".gif", f"-{idx}.gif"), videos[idx], fps=fps)
-
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrained_model_path", type=str, default="models/stable_diffusion/sd_v1.5-d0ab7146.ckpt",)
-    parser.add_argument("--inference_config",      type=str, default="configs/inference/inference-v1.yaml")
+    parser.add_argument("--inference_config",      type=str, default="configs/inference/inference-v2.yaml")
     parser.add_argument("--config",                type=str, default="configs/prompts/1-ToonYou.yaml")
+    # Use ldm config method instead of diffusers and transformers
+    parser.add_argument("--sd_config", type=str, default="configs/stable_diffusion/v1-inference-unet3d.yaml")
 
     parser.add_argument("--L", type=int, default=16 )
     parser.add_argument("--W", type=int, default=512)
     parser.add_argument("--H", type=int, default=512)
 
-    # Use ldm config method instead of diffusers and transformers
-    parser.add_argument("--sd_config", type=str, default="configs/stable_diffusion/v1-inference-unet3d.yaml")
 
     # MS new args
     parser.add_argument("--target_device", type=str, default="GPU", help="Ascend or GPU")
