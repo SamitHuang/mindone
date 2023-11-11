@@ -25,6 +25,7 @@ from animate_diff.models.util import (
     zero_module,
 )
 from ldm.util import is_old_ms_version
+from .util import normalization
 
 import mindspore as ms
 import mindspore.nn as nn
@@ -141,6 +142,7 @@ class ResBlock(nn.Cell):
         up=False,
         down=False,
         dtype=ms.float32,
+        use_inflated_groupnorm=False,
     ):
         super().__init__()
         self.channels = channels
@@ -156,7 +158,7 @@ class ResBlock(nn.Cell):
         self.identity = Identity()
         self.split = ops.Split(1, 2)
 
-        self.in_layers_norm = normalization(channels)
+        self.in_layers_norm = normalization(channels, use_inflated_groupnorm=use_inflated_groupnorm)
         self.in_layers_silu = nn.SiLU().to_float(self.dtype)
         self.in_layers_conv = conv_nd(
             dims, channels, self.out_channels, 3, padding=1, has_bias=True, pad_mode="pad"
@@ -178,7 +180,7 @@ class ResBlock(nn.Cell):
             ),
         )
 
-        self.out_layers_norm = normalization(self.out_channels)
+        self.out_layers_norm = normalization(self.out_channels, use_inflated_groupnorm=use_inflated_groupnorm)
         self.out_layers_silu = nn.SiLU().to_float(self.dtype) # TODO: keep SiLU fp32
 
         if is_old_ms_version():
@@ -210,6 +212,10 @@ class ResBlock(nn.Cell):
         context: None 
         '''
         if self.updown:
+            # (b c f h w) -> (b c f h*w) -> GroupNorm
+            # TODO: it's different from unet3d in VC (where x in shpae (b*f c h w))
+            ##  here (b c f h*w), divide gouop on c, (b G c//G f h*w), then average on (c//G, f, h*w), so mean is c//G features of the whole video pixels
+            ## VC: (b*f c h w), divide gouop on c, (b*f G c//G f h w), then average on (c//G, h, w), so mean is c//G features of a frame
             h = self.in_layers_norm(x)
             h = self.in_layers_silu(h)
             h = self.h_upd(h, emb, context) # h = h
@@ -352,6 +358,7 @@ class UNet3DModel(nn.Cell):
         cross_frame_attention=False,
         unet_chunk_size=2,
         adm_in_channels=None,
+        use_inflated_groupnorm=False,
     ):
         super().__init__()
 
@@ -446,6 +453,7 @@ class UNet3DModel(nn.Cell):
                             use_checkpoint=use_checkpoint,
                             use_scale_shift_norm=use_scale_shift_norm,
                             dtype=self.dtype,
+                            use_inflated_groupnorm=use_inflated_groupnorm,
                         )
                     ]
                 )
@@ -534,6 +542,7 @@ class UNet3DModel(nn.Cell):
                     use_checkpoint=use_checkpoint,
                     use_scale_shift_norm=use_scale_shift_norm,
                     dtype=self.dtype,
+                    use_inflated_groupnorm=use_inflated_groupnorm,
                 ),
                 AttentionBlock(
                     ch,
@@ -585,6 +594,7 @@ class UNet3DModel(nn.Cell):
                             use_checkpoint=use_checkpoint,
                             use_scale_shift_norm=use_scale_shift_norm,
                             dtype=self.dtype,
+                            use_inflated_groupnorm=use_inflated_groupnorm,
                         )
                     ]
                 )

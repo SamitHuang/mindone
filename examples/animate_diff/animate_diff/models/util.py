@@ -84,12 +84,16 @@ class conv_nd(nn.Cell):
 
 # support 3D
 class GroupNorm32(nn.GroupNorm):
-    # GroupNorm in calculated in FP32
+    '''
+    compute GroupNorm in FP32 for input x: (b c f h w)
+    mean, variance are computed on [c//G, f, h*w] axis, i.e. corresponding to the whole video
+    '''
     def __init__(self, num_groups, num_channels, eps=1e-5, affine=True):
         super().__init__(num_groups=num_groups, num_channels=num_channels, eps=eps, affine=affine)
 
     def construct(self, x):
         # x: (b c f h w)
+        # out: (b c f h w)
         x_shape = x.shape
         dtype = x.dtype
         if x.ndim >= 3:
@@ -99,14 +103,38 @@ class GroupNorm32(nn.GroupNorm):
         y = super().construct(x.to(ms.float32)).to(dtype)
         return y.view(x_shape)
 
+class InflatedGroupNorm32(nn.GroupNorm):
+    '''
+    compute GroupNorm in FP32 for input x: (b c f h w)
+    mean, variance are computed on [c//G, h, w] axis, i.e. corresponding to each frame
+    '''
+    def __init__(self, num_groups, num_channels, eps=1e-5, affine=True):
+        super().__init__(num_groups=num_groups, num_channels=num_channels, eps=eps, affine=affine)
 
-def normalization(channels):
+    def construct(self, x):
+        # x: (b c f h w)
+        # out: (b c f h w)
+        b, c, f, h, w = x.shape
+        dtype = x.dtype
+
+        # (b c f h w) -> (b*f c h w)
+        x = rearrange_in(x)
+        y = super().construct(x.to(ms.float32)).to(dtype)
+        # (b*f c h w) -> (b c f h w)
+        y = rearrange_out(y, f=f)
+
+        return y
+
+def normalization(channels, use_inflated_groupnorm=False):
     """
     GroupNorm supporting 5d
     :param channels: number of input channels.
     :return: an nn.Cell for normalization.
     """
-    return GroupNorm32(32, channels)
+    if use_inflated_groupnorm:
+        return InflatedGroupNorm32(32, channels)
+    else:
+        return GroupNorm32(32, channels)
 
 
 

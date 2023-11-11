@@ -19,6 +19,7 @@ from ldm.util import is_old_ms_version
 import mindspore as ms
 from mindspore import Tensor, nn, ops
 from mindspore.common.initializer import initializer
+from .util import GroupNorm32, rearrange_in, rearrange_out
 
 try:
     from mindspore.ops._op_impl._custom_op.flash_attention.flash_attention_impl import get_flash_attention
@@ -91,10 +92,10 @@ def zero_module(module):
     module.bias.set_data(bias_weight)
     return module
 
-
 def Normalize(in_channels):
+    # TODO: why eps used in SpatialTransformer-GN is different with the one in ResBlock-GN (eps=1e-5) ? check original code
     return nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True).to_float(ms.float32)
-
+    #return GroupNorm32(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True).to_float(ms.float32)
 
 class LinearAttention(nn.Cell):
     def __init__(self, dim, heads=4, dim_head=32):
@@ -149,7 +150,7 @@ class CrossAttention(nn.Cell):
         k = self.to_k(context)
         v = self.to_v(context)
 
-        def rearange_in(x):
+        def _rearange_in(x):
             # (b, n, h*d) -> (b*h, n, d)
             h = self.heads
             b, n, d = x.shape
@@ -160,16 +161,16 @@ class CrossAttention(nn.Cell):
             x = self.reshape(x, (b * h, n, d))
             return x
 
-        q = rearange_in(q)
-        k = rearange_in(k)
-        v = rearange_in(v)
+        q = _rearange_in(q)
+        k = _rearange_in(k)
+        v = _rearange_in(v)
 
         if self.enable_flash_attention and q.shape[1] % 16 == 0 and k.shape[1] % 16 == 0:
             out = self.flash_attention(q, k, v)
         else:
             out = self.attention(q, k, v, mask)
 
-        def rearange_out(x):
+        def _rearange_out(x):
             # (b*h, n, d) -> (b, n, h*d)
             h = self.heads
             b, n, d = x.shape
@@ -180,75 +181,7 @@ class CrossAttention(nn.Cell):
             x = self.reshape(x, (b, n, h * d))
             return x
 
-        out = rearange_out(out)
-        return self.to_out(out)
-
-
-class CrossFrameAttention(CrossAttention):
-    def __init__(self, unet_chunk_size=2, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.unet_chunk_size = unet_chunk_size
-
-    def construct(self, x, context=None, mask=None):
-        q = self.to_q(x)
-        is_cross_attention = context is not None
-        context = default(context, x)
-        k = self.to_k(context)
-        v = self.to_v(context)
-
-        def rearange_in(x):
-            # (b, n, h*d) -> (b*h, n, d)
-            h = self.heads
-            b, n, d = x.shape
-            d = d // h
-
-            x = self.reshape(x, (b, n, h, d))
-            x = self.transpose(x, (0, 2, 1, 3))
-            x = self.reshape(x, (b * h, n, d))
-            return x
-
-        def rearange_frame(x, f):
-            b, n, d = x.shape
-            b = b // f
-            x = self.reshape(x, (b, f, n, d))
-            return x
-
-        def rearange_frame_back(x):
-            b, f, n, d = x.shape
-            x = self.reshape(x, (b * f, n, d))
-            return x
-
-        if not is_cross_attention:
-            video_length = k.shape[0] // self.unet_chunk_size
-            former_frame_index = [0] * video_length
-            k = rearange_frame(k, video_length)
-            k = k[:, former_frame_index]
-            k = rearange_frame_back(k)
-            v = rearange_frame(v, video_length)
-            v = v[:, former_frame_index]
-            v = rearange_frame_back(v)
-
-        q = rearange_in(q)
-        k = rearange_in(k)
-        v = rearange_in(v)
-
-        if self.enable_flash_attention and q.shape[1] % 16 == 0 and k.shape[1] % 16 == 0:
-            out = self.flash_attention(q, k, v)
-        else:
-            out = self.attention(q, k, v, mask)
-
-        def rearange_out(x):
-            # (b*h, n, d) -> (b, n, h*d)
-            h = self.heads
-            b, n, d = x.shape
-            b = b // h
-
-            x = self.reshape(x, (b, h, n, d))
-            x = self.transpose(x, (0, 2, 1, 3))
-            x = self.reshape(x, (b, n, h * d))
-            return x
-
-        out = rearange_out(out)
+        out = _rearange_out(out)
         return self.to_out(out)
 
 
@@ -318,51 +251,27 @@ class BasicTransformerBlock(nn.Cell):
         checkpoint=True,
         dtype=ms.float32,
         enable_flash_attention=False,
-        cross_frame_attention=False,
         unet_chunk_size=2,
     ):
         super().__init__()
-        if cross_frame_attention:
-            self.attn1 = CrossFrameAttention(
-                unet_chunk_size=unet_chunk_size,
-                query_dim=dim,
-                heads=n_heads,
-                dim_head=d_head,
-                dropout=dropout,
-                dtype=dtype,
-                enable_flash_attention=enable_flash_attention,
-            )  # is a self-attention
-        else:
-            self.attn1 = CrossAttention(
-                query_dim=dim,
-                heads=n_heads,
-                dim_head=d_head,
-                dropout=dropout,
-                dtype=dtype,
-                enable_flash_attention=enable_flash_attention,
-            )  # is a self-attention
+        self.attn1 = CrossAttention(
+            query_dim=dim,
+            heads=n_heads,
+            dim_head=d_head,
+            dropout=dropout,
+            dtype=dtype,
+            enable_flash_attention=enable_flash_attention,
+        )  # is a self-attention
         self.ff = FeedForward(dim, dropout=dropout, glu=gated_ff, dtype=dtype)
-        if cross_frame_attention:
-            self.attn2 = CrossFrameAttention(
-                unet_chunk_size=unet_chunk_size,
-                query_dim=dim,
-                context_dim=context_dim,
-                heads=n_heads,
-                dim_head=d_head,
-                dropout=dropout,
-                dtype=dtype,
-                enable_flash_attention=enable_flash_attention,
-            )  # is self-attn if context is none
-        else:
-            self.attn2 = CrossAttention(
-                query_dim=dim,
-                context_dim=context_dim,
-                heads=n_heads,
-                dim_head=d_head,
-                dropout=dropout,
-                dtype=dtype,
-                enable_flash_attention=enable_flash_attention,
-            )  # is self-attn if context is none
+        self.attn2 = CrossAttention(
+            query_dim=dim,
+            context_dim=context_dim,
+            heads=n_heads,
+            dim_head=d_head,
+            dropout=dropout,
+            dtype=dtype,
+            enable_flash_attention=enable_flash_attention,
+        )  # is self-attn if context is none
         self.norm1 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
         self.norm2 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
         self.norm3 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
@@ -446,15 +355,28 @@ class SpatialTransformer(nn.Cell):
     def construct(self, x, emb=None, context=None):
         '''
         x: b c f h w
+        emb: time embedding, None, placeholder, not used in SpatialTransformer
+        context: text embedding (b 77 d), d=768 for sd1.5 w/ clip-vit-l/14
         '''
         # note: if no context is given, cross-attention defaults to self-attention
-        b, c, h, w = x.shape
+        b, c, f, h, w = x.shape
         x_in = x
+
+        # (b c f h w) ->  (b*f c h w)
+        x = rearrange_in(x)
+
+        # (b*f c h w) -> (b*f c h w)
         x = self.norm(x)
         if not self.use_linear:
             x = self.proj_in(x)
-        x = self.reshape(x, (b, c, h * w))  # (b, c, h*w)
-        x = self.transpose(x, (0, 2, 1))  # (b, h*w, c)
+
+        # (b*f c h w)  -> (b*f c h*w) -> (b*f h*w c)
+        x = self.reshape(x, (b*f, c, h*w))
+        x = self.transpose(x, (0, 2, 1))
+
+        # context: (b 77 d) -> (b*f 77 d)
+        context
+
         if self.use_linear:
             x = self.proj_in(x)
         for block in self.transformer_blocks:

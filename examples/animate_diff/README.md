@@ -33,16 +33,20 @@ Since torch AD relies heavily on diffusers and transformers, we will build a new
                         - in: x: (b c f h w), temb: (b dt)
                         - out: (b c f h w)
                         - proc: 
-                            - GN [so... ch order matters]
+                            - GN: support two types
+                                - normal: (b c f h w) -> GN -> (b*f c h w)  # mean on whole whole -> inference_v1.yaml, **use_inflated_groupnorm**=False
+                                - inflated: (b c f h w) -> (b*f c h w) -> GN -> (b*f c h w) -> (b c f h w)  # mean on each frame, -> inference_v2.yaml, True
                             - SiLU 
                             - InflatedConv 
                                 - reshape to bxf ..., conv, reshape back
+                            - GN
+                            - SiLU, dropout, InflatedConv
                     -SpatialTransformer3D
                         - input: x (b c f h w), context (b 77 768)
                         - x -> (b*f c h w) -> GN -> (b*f h w c) -> (b*f h*w c)  
                         - context -> (b*f 77 768)
                         - BasicTransformer:
-                            - CrossAttention
+                            - CrossAttention: 
                             - LayerNorm
                             - FF 
                         - output: 
