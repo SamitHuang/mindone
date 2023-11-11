@@ -59,7 +59,7 @@ def init_env(args):
 
 
 def main(args):
-    # set work dir and save dir 
+    # set work dir and save dir
     time_str = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     save_dir = f"samples/{Path(args.config).stem}-{time_str}"
 
@@ -76,17 +76,17 @@ def main(args):
 
     motion_module_paths = ad_config.get("motion_module", "")
 
-    seeds, steps, guidance_scale = ad_config.get("seed", 0), ad_config.steps, ad_config.guidance_scale 
+    seeds, steps, guidance_scale = ad_config.get("seed", 0), ad_config.steps, ad_config.guidance_scale
     prompts = ad_config.prompt
     n_prompts = ad_config.n_prompt
     seeds = [seeds] * len(prompts) if isinstance(seeds, int) else seeds
 
-    sd_config = OmegaConf.load(args.sd_config) 
+    sd_config = OmegaConf.load(args.sd_config)
     sd_model_path = args.pretrained_model_path
 
     if dreambooth_path != "":
         if os.path.exists(dreambooth_path):
-            sd_model_path = dreambooth_path  # DB params naming rule is the same sd ldm  
+            sd_model_path = dreambooth_path  # DB params naming rule is the same sd ldm
         else:
             logger.warning(f"dreambooth path {dreambooth_path} not exist.")
     use_lora = True if lora_model_path != "" else False
@@ -95,14 +95,14 @@ def main(args):
     inference_config = OmegaConf.load(ad_config.get("inference_config", args.inference_config))
     unet_additional_kwargs = inference_config.unet_additional_kwargs
     noise_scheduler_kwargs = inference_config.noise_scheduler_kwargs
-    
+
     # TODO: merge unet addition kwargs to sd_confg
 
-    # 1. init env 
+    # 1. init env
     init_env(args)
     set_random_seed(42)
 
-    # 2. build model components for ldm  
+    # 2. build model components for ldm
     # 1)  vae, text encoder, and unet
     # TODO: change mixed precision. fp32 at first?
     sd_model = load_model_from_config(
@@ -130,7 +130,7 @@ def main(args):
     scheduler = instantiate_from_config(sampler_config)
     timesteps = scheduler.set_timesteps(steps)
 
-    # 3. build inference pipeline 
+    # 3. build inference pipeline
     pipeline = SDText2Img(
         text_encoder,
         unet,
@@ -146,9 +146,9 @@ def main(args):
     sample_idx = 0
     for i in range(num_prompts):
         ms.set_seed(seeds[i])
-        prompt = prompts[i] 
+        prompt = prompts[i]
         n_prompt = n_prompts[i]
-        
+
         # creat inputs
         inputs = {}
         inputs["prompt"] = prompt
@@ -157,29 +157,25 @@ def main(args):
         inputs["negative_prompt_data"] = sd_model.tokenize([n_prompt] * bs)
         inputs["timesteps"] = timesteps
         inputs["scale"] = ms.Tensor(guidance_scale, ms.float16)
-        
+
         # unet input latent noise: b c f h w
         noise = np.random.randn(bs, 4, args.L, args.H // 8, args.W // 8)
         inputs["noise"] = ms.Tensor(noise, ms.float16)
 
         logger.info("Sampling prompt: ", prompts[i])
         start_time = time.time()
-        
+
         # infer
         x_samples = pipeline(inputs) # (b f H W 3)
 
         # x_samples = img_processor.postprocess(x_samples) # transpose, convert to PIL object
-        
-
         end_time = time.time()
-        
+
         # save result
         os.makedirs(save_dir, exist_ok=True)
         prompt = "-".join((prompt.replace("/", "").split(" ")[:10]))
         save_fp = f"{save_dir}/{sample_idx}-{prompt}.png"
-        #sample.save(save_fp)
-        save_videos_grid(x_samples, )
-        
+        save_videos(x_samples, save_fp)
 
         #save_videos_grid(sample, f"{save_dir}/sample/{sample_idx}-{prompt}.gif")
         logger.info(f"save to {save_fp}")
@@ -193,31 +189,40 @@ def main(args):
     OmegaConf.save(config, f"{save_dir}/config.yaml")
 
 
-def save_videos_grid(videos: np.ndarray, path: str, rescale=False, n_rows=1, fps=8):
-    # videos: ( b f H W 3), normalized to [0, 1]
-    outputs = []
-    for x in videos:
-        #x = torchvision.utils.make_grid(x, nrow=n_rows)
-        x = (x * 255).numpy().astype(np.uint8)
-        outputs.append(x)
-
+def save_videos(videos: np.ndarray, path: str, fps=8, concat=False):
+    # videos: (b f H W 3), normalized to [0, 1]
+    videos = (videos * 255).astype(np.uint8)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    imageio.mimsave(path, outputs, fps=fps)
+
+    if len(videos.shape) == 4:
+        imageio.mimsave(path, videos, fps=fps)
+    else:
+        b, f, h, w, _ = videos.shape
+        if b > 1:
+            if concat:
+                canvas = np.array((f, h, w*b, 3), dtype=np.uint8)
+                for idx in range(b):
+                    canvas[:, :, (w*idx):(w*(idx+1)), :] = videos[idx]
+                imageio.mimsave(path, canvas, fps=fps)
+            else:
+                for idx in range(b):
+                    # concat in Width
+                    imageio.mimsave(path.replace(".gif", f"-{idx}.gif"), videos[idx], fps=fps)
 
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrained_model_path", type=str, default="models/stable_diffusion/sd_v1.5-d0ab7146.ckpt",)
-    parser.add_argument("--inference_config",      type=str, default="configs/inference/inference-v1.yaml")    
+    parser.add_argument("--inference_config",      type=str, default="configs/inference/inference-v1.yaml")
     parser.add_argument("--config",                type=str, default="configs/prompts/1-ToonYou.yaml")
-    
+
     parser.add_argument("--L", type=int, default=16 )
     parser.add_argument("--W", type=int, default=512)
     parser.add_argument("--H", type=int, default=512)
 
-    # Use ldm config method instead of diffusers and transformers 
-    parser.add_argument("--sd_config", type=str, default="configs/stable_diffusion/v1-inference-unet3d.yaml")    
+    # Use ldm config method instead of diffusers and transformers
+    parser.add_argument("--sd_config", type=str, default="configs/stable_diffusion/v1-inference-unet3d.yaml")
 
     # MS new args
     parser.add_argument("--target_device", type=str, default="GPU", help="Ascend or GPU")
@@ -226,7 +231,7 @@ if __name__ == '__main__':
     )
 
     args = parser.parse_args()
-    
+
     print(args)
 
     main(args)
