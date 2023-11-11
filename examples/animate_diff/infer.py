@@ -24,6 +24,7 @@ from animate_diff.pipelines.infer_engine import Text2VideoInfer
 from ldm.pipelines.image_utils import VaeImageProcessor
 
 import mindspore as ms
+import imageio
 
 #import torch
 #import diffusers
@@ -165,9 +166,10 @@ def main(args):
         start_time = time.time()
         
         # infer
-        x_samples = pipeline(inputs)
-        x_samples = img_processor.postprocess(x_samples) # transpose, convert to PIL object
-        sample = x_samples[0]
+        x_samples = pipeline(inputs) # (b f H W 3)
+
+        # x_samples = img_processor.postprocess(x_samples) # transpose, convert to PIL object
+        
 
         end_time = time.time()
         
@@ -175,7 +177,10 @@ def main(args):
         os.makedirs(save_dir, exist_ok=True)
         prompt = "-".join((prompt.replace("/", "").split(" ")[:10]))
         save_fp = f"{save_dir}/{sample_idx}-{prompt}.png"
-        sample.save(save_fp)
+        #sample.save(save_fp)
+        save_videos_grid(x_samples, )
+        
+
         #save_videos_grid(sample, f"{save_dir}/sample/{sample_idx}-{prompt}.gif")
         logger.info(f"save to {save_fp}")
         sample_idx += 1
@@ -186,6 +191,18 @@ def main(args):
 
     logger.info(f"Done! All generated images are saved in: {save_dir}" f"\nEnjoy.")
     OmegaConf.save(config, f"{save_dir}/config.yaml")
+
+
+def save_videos_grid(videos: np.ndarray, path: str, rescale=False, n_rows=1, fps=8):
+    # videos: ( b f H W 3), normalized to [0, 1]
+    outputs = []
+    for x in videos:
+        #x = torchvision.utils.make_grid(x, nrow=n_rows)
+        x = (x * 255).numpy().astype(np.uint8)
+        outputs.append(x)
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    imageio.mimsave(path, outputs, fps=fps)
 
 
 
