@@ -50,7 +50,46 @@ Since torch AD relies heavily on diffusers and transformers, we will build a new
                             - LayerNorm
                             - FF 
                         - output: 
-                    -MotionModuel /TemporalTransformer 
+                    -MotionModuel /TemporalTransformer3DModel
+                        -Case 1 origin:
+                            -in: (b c f h w)
+                            -proc:
+                                - rearrange_in: b c f h w -> b*f c h w      # our impl can skip this since the output of SpatialTrasformer is already (b*f c h w)
+                                - norm-GroupNorm
+                                - reshape -> (b*f h*w c)   # feature sequence
+                                - proj_in = Linear(c, c) # projection in
+                                - TemporalTransformerBlock x N  # (N=num_transformer_block=1)
+                                    - in: (b*f h*w c)
+                                    - norm-LayerNorm
+                                    - Multi-head Self-Attention (named VersatileAttention) x N2   # (N2=len(attention_block_types)=2)
+                                        - in: x: (b*f h*w c),  
+                                        - proc: 
+                                            - rearrange: x: b*f h*w c -> (b*h*w f c)  # sequence compute on f-time axis, e.g. (2*16, 64*64, 320) -> (8192, 16, 320)
+                                            - temporal positional encoding: (bhw f c) -> (bhw f c)  PositionalEncoding on f sequence (max_seq_len: v1: 24, v2: 32)  # sinusoidal? 
+                                            - to_q, to_k, to_v: (bhw f c) -> (bhw f c),  c = attn_dim*num_heads, where num_heads=8, attn_dim=40, c=320 are previously defined.
+                                            - reshape_heads_to_batch_dim: (bhw f attn_dim*num_heads) -> (b*h*w*num_heads f attn_dim) # (8192*8, 16, 40) = (65536, 16, 40)
+                                            - attn compute(q, k, v)
+                                                - in: (bhw*num_heads f attn_dim)  q: (65536, 16, 40), k: (65536, 16, 40), v (65536, 16, 40)
+                                                - attn_map = qk' * scale                 #  (bhwn f f )   (65536, 16, 16) 
+                                                - attn_prob = softmax(attn_map, axis=-1) # (bhwn f f)   (65536, 16, 16)
+                                                - h = bmm(attn_prob, v)             # (bhwn f attn_dim)  (65536, 16, 40)
+                                                - reshape back: (bhwn f attn_dim) -> (bhw f attn_dim*num_heads) = (bhw f c)
+                                                - out: (bhw f num_heads*attn_dim) = (bhw f c)     # (8192, 16, 320)
+                                            - to_out: (bhw f c) -> (bhw f c), weights [320, 320], bias=True
+                                            - dropout
+                                            - rearrange back: (bhw f c) ->  (b*f h*w c)
+                                        - out: (b*f h*w c) 
+                                    - LayerNorm -> FF: (b*f h*w c) 
+                                    - out: (b*f h*w c)
+                                - proj_out = Linaer(c, c)
+                                - reshape back:  (b*f h*w c) -> (b*f h w c) -> (b*f c h w)
+                                - rearrange_out: (b*f c h w) -> (b c f h w)         # our impl can skip this, since the input format for next ResBlock is (b*f c h w)
+                        -Case 2: my impl
+                            - Depth 1: MM init & MM construct [Done]
+                            - Depth 2: TemporalTransformerBlock [Doing]
+                            - Depth 3: Multi-head Self-Attention 
+                            - Testing -  
+                        
                 -DownBlock3D
             -middle_block:
                 - in: (2, 1280, 16, 8, 8)

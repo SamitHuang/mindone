@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
+'''
 import torch
 import numpy as np
 import torch.nn.functional as F
@@ -12,6 +13,11 @@ from diffusers.modeling_utils import ModelMixin
 from diffusers.utils import BaseOutput
 from diffusers.utils.import_utils import is_xformers_available
 from diffusers.models.attention import CrossAttention, FeedForward
+'''
+import mindspore as ms
+from mindspore import nn
+from mindspore.common.initializer import initializer
+from .util import GroupNorm32
 
 from einops import rearrange, repeat
 import math
@@ -27,17 +33,6 @@ def zero_module(module):
     module.bias.set_data(bias_weight)
     return module
 
-
-@dataclass
-class TemporalTransformer3DModelOutput(BaseOutput):
-    sample: torch.FloatTensor
-
-
-if is_xformers_available():
-    import xformers
-    import xformers.ops
-else:
-    xformers = None
 
 
 def get_motion_module(
@@ -88,6 +83,80 @@ class VanillaTemporalModule(nn.Cell):
         return output
 
 
+class FeedForward(nn.Module):
+    def __init__(
+        self,
+        dim: int,
+        dim_out: Optional[int] = None,
+        mult: int = 4,
+        dropout: float = 0.0,
+        activation_fn: str = "geglu",
+        final_dropout: bool = False,
+    ):
+        super().__init__()
+        inner_dim = int(dim * mult)
+        dim_out = dim_out if dim_out is not None else dim
+        # linear_cls = LoRACompatibleLinear if not USE_PEFT_BACKEND else nn.Linear
+        linear_cls = nn.Dense  # TODO: need LoRACompatibleLinear?
+
+        if activation_fn == "geglu":
+            act_fn = GEGLU(dim, inner_dim)
+        else:
+            raise NotImplementedError
+
+        self.net = nn.CellList([])
+        # project in
+        self.net.append(act_fn)
+        # project dropout
+        self.net.append(nn.Dropout(p=dropout)) # TODO: new version > 1.9, be careful
+        # project out
+        self.net.append(linear_cls(inner_dim, dim_out))
+        # FF as used in Vision Transformer, MLP-Mixer, etc. have a final dropout
+        #if final_dropout:
+        #    self.net.append(nn.Dropout(p=dropout))
+
+    def construct(self, hidden_states: ms.Tensor, scale: float = 1.0) -> ms.Tensor:
+        # compatible_cls = (GEGLU,) if USE_PEFT_BACKEND else (GEGLU, LoRACompatibleLinear) # TODO: consider LoRACompatibleLinear
+        #for module in self.net:
+        #    if isinstance(module, compatible_cls):
+        #        hidden_states = module(hidden_states, scale)
+        #    else:
+        #        hidden_states = module(hidden_states)
+
+        for module in self.net:
+            hidden_states = module(hidden_states)
+            
+        return hidden_states
+
+class GEGLU(nn.Module):
+    r"""
+    A [variant](https://arxiv.org/abs/2002.05202) of the gated linear unit activation function.
+
+    Parameters:
+        dim_in (`int`): The number of channels in the input.
+        dim_out (`int`): The number of channels in the output.
+    """
+
+    def __init__(self, dim_in: int, dim_out: int):
+        super().__init__()
+        linear_cls = nn.Linear
+
+        self.proj = linear_cls(dim_in, dim_out * 2)
+
+    def gelu(self, gate: torch.Tensor) -> torch.Tensor:
+        if gate.device.type != "mps":
+            return F.gelu(gate)
+        # mps: gelu is not implemented for float16
+        return F.gelu(gate.to(dtype=torch.float32)).to(dtype=gate.dtype)
+
+    def forward(self, hidden_states, scale: float = 1.0):
+        args = () if USE_PEFT_BACKEND else (scale,)
+        hidden_states, gate = self.proj(hidden_states, *args).chunk(2, dim=-1)
+        return hidden_states * self.gelu(gate)
+
+
+
+
 class TemporalTransformer3DModel(nn.Cell):
     def __init__(
         self,
@@ -112,10 +181,10 @@ class TemporalTransformer3DModel(nn.Cell):
 
         inner_dim = num_attention_heads * attention_head_dim
 
-        self.norm = torch.nn.GroupNorm(num_groups=norm_num_groups, num_channels=in_channels, eps=1e-6, affine=True)
-        self.proj_in = nn.Linear(in_channels, inner_dim)
-
-        self.transformer_blocks = nn.ModuleList(
+        self.norm = GroupNorm32(num_groups=norm_num_groups, num_channels=in_channels, eps=1e-6, affine=True) # TODO: any diff in beta gamma init?
+        self.proj_in = nn.Dense(in_channels, inner_dim)
+        # cur
+        self.transformer_blocks = nn.CellList(
             [
                 TemporalTransformerBlock(
                     dim=inner_dim,
@@ -135,14 +204,21 @@ class TemporalTransformer3DModel(nn.Cell):
                 for d in range(num_layers)
             ]
         )
-        self.proj_out = nn.Linear(inner_dim, in_channels)
+        self.proj_out = nn.Dense(inner_dim, in_channels)
 
-    def forward(self, hidden_states, encoder_hidden_states=None, attention_mask=None):
-        assert hidden_states.dim() == 5, f"Expected hidden_states to have ndim=5, but got ndim={hidden_states.dim()}."
-        video_length = hidden_states.shape[2]
-        hidden_states = rearrange(hidden_states, "b c f h w -> (b f) c h w")
+    def construct(self, hidden_states, encoder_hidden_states=None, attention_mask=None, video_length=None):
+        '''
+        Args:
+            hidden_states: x, (b*f c h w)
+        Returns:
+            (b*f c h w)
+        '''
+        # assert hidden_states.dim() == 5, f"Expected hidden_states to have ndim=5, but got ndim={hidden_states.dim()}."
+        # video_length = hidden_states.shape[2]
+        # hidden_states = rearrange(hidden_states, "b c f h w -> (b f) c h w")
+        assert video_length is not None, "video_length is needed for motion module,but got None"
 
-        batch, channel, height, weight = hidden_states.shape
+        batch, channel, height, weight = hidden_states.shape # batch = b * f
         residual = hidden_states
 
         hidden_states = self.norm(hidden_states)
@@ -156,15 +232,17 @@ class TemporalTransformer3DModel(nn.Cell):
 
         # output
         hidden_states = self.proj_out(hidden_states)
-        hidden_states = hidden_states.reshape(batch, height, weight, inner_dim).permute(0, 3, 1, 2).contiguous()
+        # TODO: ms don't have contiguous API, which is for memory-access efficiency
+        hidden_states = hidden_states.reshape(batch, height, weight, inner_dim).permute(0, 3, 1, 2) # .contiguous()
 
         output = hidden_states + residual
-        output = rearrange(output, "(b f) c h w -> b c f h w", f=video_length)
+
+        # output = rearrange(output, "(b f) c h w -> b c f h w", f=video_length)
 
         return output
 
 
-class TemporalTransformerBlock(nn.Module):
+class TemporalTransformerBlock(nn.Cell):
     def __init__(
         self,
         dim,
@@ -206,10 +284,12 @@ class TemporalTransformerBlock(nn.Module):
             )
             norms.append(nn.LayerNorm(dim))
 
-        self.attention_blocks = nn.ModuleList(attention_blocks)
-        self.norms = nn.ModuleList(norms)
+        self.attention_blocks = nn.CellList(attention_blocks)
+        self.norms = nn.CellList(norms)
 
+        # TODO:
         self.ff = FeedForward(dim, dropout=dropout, activation_fn=activation_fn)
+        # TODO:
         self.ff_norm = nn.LayerNorm(dim)
 
 

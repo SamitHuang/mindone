@@ -67,7 +67,8 @@ class FeedForward(nn.Cell):
         inner_dim = int(dim * mult)
         dim_out = default(dim_out, dim)
         project_in = (
-            nn.Sequential(nn.Dense(dim, inner_dim).to_float(dtype), nn.GELU().to_float(dtype))
+            nn.Sequential(nn.Dense(dim, inner_dim).to_float(dtype),
+                          nn.GELU().to_float(dtype))
             if not glu
             else GEGLU(dim, inner_dim, dtype=dtype)
         )
@@ -79,7 +80,6 @@ class FeedForward(nn.Cell):
 
     def construct(self, x):
         return self.net(x)
-
 
 def zero_module(module):
     """

@@ -107,8 +107,8 @@ class SiLU(nn.Cell):
 
 class GroupNorm32(nn.GroupNorm):
     def construct(self, x):
-        # return ops.cast(super().construct(ops.cast(x, ms.float32)), x.dtype)
-        return super().construct(x)
+        ori_dtype = x.dtype
+        return (super().construct(x.astype(ms.float32)).astype(ori_dtype)
 
 
 def timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
