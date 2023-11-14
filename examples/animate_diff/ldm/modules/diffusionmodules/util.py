@@ -108,7 +108,9 @@ class SiLU(nn.Cell):
 class GroupNorm32(nn.GroupNorm):
     def construct(self, x):
         ori_dtype = x.dtype
-        return (super().construct(x.astype(ms.float32)).astype(ori_dtype)
+        out = super().construct(x.astype(ms.float32))
+
+        return out.astype(ori_dtype)
 
 
 def timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
@@ -184,3 +186,7 @@ def make_beta_schedule(schedule="linear", n_timestep=1000, linear_start=1e-4, li
         raise ValueError(f"schedule '{schedule}' unknown.")
 
     return betas
+
+def is_old_ms_version(last_old_version="1.10.1"):
+    # some APIs are changed after ms 1.10.1 version, such as dropout
+    return version.parse(ms.__version__) <= version.parse(last_old_version)

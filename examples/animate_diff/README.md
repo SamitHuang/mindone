@@ -79,16 +79,30 @@ Since torch AD relies heavily on diffusers and transformers, we will build a new
                                             - dropout
                                             - rearrange back: (bhw f c) ->  (b*f h*w c)
                                         - out: (b*f h*w c) 
-                                    - LayerNorm -> FF: (b*f h*w c) 
+                                    - LayerNorm: (b*f h*w c)
+                                    - FF: (b*f h*w c) 
+                                        - geglu
+                                            - linear, split
+                                            - x * F.gelu(x)
+                                        - dropout
+                                        - linear
                                     - out: (b*f h*w c)
                                 - proj_out = Linaer(c, c)
                                 - reshape back:  (b*f h*w c) -> (b*f h w c) -> (b*f c h w)
                                 - rearrange_out: (b*f c h w) -> (b c f h w)         # our impl can skip this, since the input format for next ResBlock is (b*f c h w)
-                        -Case 2: my impl
-                            - Depth 1: MM init & MM construct [Done]
-                            - Depth 2: TemporalTransformerBlock [Doing]
-                            - Depth 3: Multi-head Self-Attention 
-                            - Testing -  
+                        -Case 2: my impl **PAY attention to FP32/FP16**
+                            - Depth 1: MM init & MM construct, TemporalTransformer3DModel [Done]
+                            - Depth 2: TemporalTransformerBlock [Doing] TODO: test
+                                - VersatileAttention [Done]  
+                                    - Forward test => Forward compute is tested to be aligned on Jupyter Notebook
+                                - FeedForward [Done, Test Doing]
+                                    -GEGLU  [Done]
+                                    - Forward test [Doing]
+                                - LayerNorm: 
+                                    - Forward test?
+                                -Forward TEST:  [Done]  sum rel error: 1e-5
+                            - Depth 3: Multi-head Self-Attention (VersatileAttention) [Done & Forward tested]
+                            - Testing 
                         
                 -DownBlock3D
             -middle_block:

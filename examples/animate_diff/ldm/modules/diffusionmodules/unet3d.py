@@ -14,8 +14,8 @@
 # ============================================================================
 import logging
 
-from ldm.modules.attention import SpatialTransformer
-from ldm.modules.diffusionmodules.util import (
+from ..attention import SpatialTransformer
+from .util import (
     Identity,
     avg_pool_nd,
     conv_nd,
@@ -24,7 +24,7 @@ from ldm.modules.diffusionmodules.util import (
     timestep_embedding,
     zero_module,
 )
-from ldm.util import is_old_ms_version
+from .util import is_old_ms_version
 
 import mindspore as ms
 import mindspore.nn as nn
