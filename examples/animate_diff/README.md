@@ -28,7 +28,9 @@ Since torch AD relies heavily on diffusers and transformers, we will build a new
                 - proc: reshape to b*f c h w -> conv -> reshape back
                 - out: b c f h w = ([2, 320, 16, 64, 64])
             -down_blocks
-                -CrossAttnDownBlock3D x 3
+                -CrossAttnDownBlock3D x 3     # ftr_channel c=320, will be widen by channel_mult [1, 2, 4].  h and w will be reduced 1/2 at each block 
+                    -in: (b c f h w) 
+                    -out: (b c f h//2 w//2) 
                     -ResBlock3D
                         - in: x: (b c f h w), temb: (b dt)
                         - out: (b c f h w)
@@ -99,16 +101,32 @@ Since torch AD relies heavily on diffusers and transformers, we will build a new
                                     -GEGLU  [Done]
                                     - Forward test [Doing]
                                 - LayerNorm: 
-                                    - Forward test?
-                                -Forward TEST:  [Done]  sum rel error: 1e-5
+                                -Forward, Done.
                             - Depth 3: Multi-head Self-Attention (VersatileAttention) [Done & Forward tested]
-                            - Testing 
-                        
-                -DownBlock3D
+                    - Downsample3D 
+                        - in: (b c f h w)
+                        - out: (b c f h//2 w//2) 
+                -DownBlock3D w/o Attentionx1
+                    - ResnetBlock3D -> MotionModule
+                    - ResnetBlock3D -> MotionModule
             -middle_block:
-                - in: (2, 1280, 16, 8, 8)
+                - in: (2, 1280, 16, 8, 8) # feature channels is upsampled from 320 to 1280 ch_mult=(1,2,4,4). attention/feature resolution is downsampled from 64x64 to 8x8,  
+                - out: (2, 1280, 16, 8, 8)
+                - ResBlock
+                - SpatialTransformer
+                - MotionModule
+                - ResBlock
             -up_block: 
                 - out: b c f h w = ([2, 320, 16, 64, 64])
+                - UpBlock3D
+                    - ResnetBlock3D ->  MotionModule
+                    - ResnetBlock3D ->  MotionModule
+                    - ResnetBlock3D ->  MotionModule
+                    - UpSampler
+                - CrossAttnUpBlock3D x 3
+                    - ResnetBlock3D -> SpatialTransformer ->  MotionModule
+                    - ResnetBlock3D -> SpatialTransformer ->  MotionModule
+                    - ResnetBlock3D -> SpatialTransformer ->  MotionModule
             -postprocess:
                 - proc: GN - SiLU - Conv
                 - out:  b c f h w = ([2, 4, 16, 64, 64])

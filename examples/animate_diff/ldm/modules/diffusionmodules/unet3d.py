@@ -30,6 +30,8 @@ import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
 
+from .motion_module import get_motion_module
+
 _logger = logging.getLogger(__name__)
 
 
@@ -289,16 +291,16 @@ def rearrange_out(x, f):
 class UNet3DModel(nn.Cell):
     """
     The full UNet model with attention and timestep embedding.
-    :param in_channels: channels in the input Tensor.
-    :param model_channels: base channel count for the model.
-    :param out_channels: channels in the output Tensor.
-    :param num_res_blocks: number of residual blocks per downsample.
+    :param in_channels: channels in the input Tensor. channels of image feature encoded by vae, i.e. 4 for SD1.5.
+    :param model_channels: base channel count for the model. output channels for conv_in, i.e. 320 for SD1.5
+    :param out_channels: channels in the output Tensor. i.e., 4 for SD1.5, same as input.
+    :param num_res_blocks: number of residual blocks per downsample. 2 for SD1.5
     :param attention_resolutions: a collection of downsample rates at which
         attention will take place. May be a set, list, or tuple.
         For example, if this contains 4, then at 4x downsampling, attention
-        will be used.
+        will be used. [ 4, 2, 1 ] for SD1.5
     :param dropout: the dropout probability.
-    :param channel_mult: channel multiplier for each level of the UNet.
+    :param channel_mult: channel multiplier for each level of the UNet.  [ 1, 2, 4, 4 ] for SD1.5
     :param conv_resample: if True, use learned convolutions for upsampling and
         downsampling.
     :param dims: determines if the signal is 1D, 2D, or 3D.
@@ -314,6 +316,8 @@ class UNet3DModel(nn.Cell):
     :param resblock_updown: use residual blocks for up/downsampling.
     :param use_new_attention_order: use a different attention pattern for potentially
                                     increased efficiency.
+    Additional:
+
     """
 
     def __init__(
@@ -347,12 +351,23 @@ class UNet3DModel(nn.Cell):
         cross_frame_attention=False,
         unet_chunk_size=2,
         adm_in_channels=None,
-        # additional args
+        # Additional
         use_inflated_groupnorm=True, # diff, default is to use inference_v2.yaml, more reasonal.
+        use_motion_module              = False,
+        motion_module_resolutions      = ( 1,2,4,8 ), # used to identify which level to be injected with Motion Module
+        motion_module_mid_block        = False,
+        motion_module_decoder_only     = False,
+        motion_module_type             = None, # default:
+        motion_module_kwargs           = {}, #
+        unet_use_cross_frame_attention = None,
+        unet_use_temporal_attention    = None,
     ):
         super().__init__()
 
         assert use_inflated_groupnorm==True, "Only support use_inflated_groupnorm=True currently, please use configs/inference/inference_v2.yaml for --inference_config"
+        assert unet_use_cross_frame_attention==False, "not support"
+        assert unet_use_temporal_attention==False, "not support"
+        assert motion_module_type=='Vanilla', 'not support'
 
         if use_spatial_transformer:
             assert (
@@ -427,11 +442,12 @@ class UNet3DModel(nn.Cell):
                 )
             ]
         )
-        self._feature_size = model_channels
+        self._feature_size = model_channels #
         input_block_chans = [model_channels]
         ch = model_channels
         ds = 1
 
+        # down blocks, add 2*3+2=8 MotionModules
         for level, mult in enumerate(channel_mult):
             for _ in range(num_res_blocks):
                 layers = nn.CellList(
@@ -448,7 +464,8 @@ class UNet3DModel(nn.Cell):
                         )
                     ]
                 )
-                ch = mult * model_channels
+                ch = mult * model_channels  # feature channels are doubled in each CrossAttnDownBlock
+                # For the first 3 times, ds=1, 2, 4, create SpatialTransformer. For 4-th, skip.
                 if ds in attention_resolutions:
                     if num_head_channels == -1:
                         dim_head = ch // num_heads
@@ -481,6 +498,17 @@ class UNet3DModel(nn.Cell):
                             unet_chunk_size=unet_chunk_size,
                         )
                     )
+
+                # add MotionModule 1) after SpatialTransformer in DownBlockWithAttn, 3 times, or 2) after ResBlock in DownBlockWithoutAttn, 1 time.
+                if use_motion_module:
+                    layers.append(
+                        get_motion_module( # return VanillaTemporalModule
+                            in_channels=ch,
+                            motion_module_type=motion_module_type,
+                            motion_module_kwargs=motion_module_kwargs,
+                        )
+                    )
+
                 self.input_blocks.append(layers)
                 self._feature_size += ch
                 input_block_chans.append(ch)
@@ -523,6 +551,7 @@ class UNet3DModel(nn.Cell):
             )
         )
 
+        # middle block, add 1 MM
         self.middle_block = nn.CellList(
             [
                 ResBlock(
@@ -569,6 +598,7 @@ class UNet3DModel(nn.Cell):
         )
         self._feature_size += ch
 
+        # up blocks
         self.output_blocks = nn.CellList([])
         for level, mult in list(enumerate(channel_mult))[::-1]:
             for i in range(num_res_blocks + 1):
