@@ -42,6 +42,7 @@ model:
         use_fp16: True
         dropout: 0.
         use_recompute: False
+        enable_flash_attention: False
         sd_locked: True
         # only_mid_control: False # TODO: impl later
 

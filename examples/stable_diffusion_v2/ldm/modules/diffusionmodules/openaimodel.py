@@ -329,6 +329,8 @@ class UNetModel(nn.Cell):
         use_recompute=False,
     ):
         super().__init__()
+        
+        print("D---: FA: ", enable_flash_attention)
 
         if use_spatial_transformer:
             assert (
@@ -637,7 +639,7 @@ class UNetModel(nn.Cell):
 
         # recompute to save NPU mem
         if use_recompute:
-            print("D--: ", use_recompute)
+            print("D--: recompute: ", use_recompute)
             for mblock in self.middle_block:
                 mblock.recompute()
             for oblock in self.output_blocks:

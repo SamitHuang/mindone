@@ -162,6 +162,7 @@ class ControlNet(nn.Cell):
     ):
         super().__init__()
 
+        print("D--: cldm fa: ", enable_flash_attention)
         if use_spatial_transformer:
             assert (
                 context_dim is not None

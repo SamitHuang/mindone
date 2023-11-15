@@ -53,7 +53,8 @@ class GEGLU(nn.Cell):
         super().__init__()
         self.proj = nn.Dense(dim_in, dim_out * 2).to_float(dtype)
         self.split = ops.Split(-1, 2)
-        self.gelu = nn.GELU(approximate=False)
+        self.gelu = ops.GeLU()
+        #self.gelu = nn.GELU(approximate=False)
 
     def construct(self, x):
         x, gate = self.split(self.proj(x))

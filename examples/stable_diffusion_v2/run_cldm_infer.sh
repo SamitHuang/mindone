@@ -1,6 +1,11 @@
 export DEVICE_ID=$1
 
+task_name=$3 #infer_cldm_pretrained
+output_dir=output/$task_name
+
 cd inference
+mkdir -p $output_dir
+
 python sd_infer.py \
 --device_target=Ascend \
 --task=controlnet \
@@ -10,13 +15,13 @@ python sd_infer.py \
 --n_iter=2 \
 --n_samples=4 \
 --controlnet_mode=canny \
---control_path "../datasets/fill5/source/3.png" \
---image_path "../datasets/fill5/target/3.png" \
---prompt "cornflower blue circle with light golden rod yellow background" \
+--control_path "../datasets/fill5/source/0.png" \
+--image_path "../datasets/fill5/target/0.png" \
+--prompt "pale golden rod circle with old lace background" \
 --a_prompt "" \
 --negative_prompt "" \
---pretrained_ckpt=../output/train_cldm_canny_fill50k_moreFp32_wd1e-3/ckpt/sd-59.ckpt \
---output_path=../output/infer_cldm_fill50k/sd15_controlnet_tr3e59i3 \
+--pretrained_ckpt=../$2 \
+--output_path=$output_dir \
 
 #--pretrained_ckpt=../output/train_cldm_canny_fill50k/ckpt/sd-16.ckpt \
 #--output_path=../output/infer_cldm_fill50k/sd15_controlnet_tr2e16i3 \

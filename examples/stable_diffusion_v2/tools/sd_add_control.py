@@ -1,10 +1,13 @@
+
+import sys
+sys.path.append(".")
+
 import argparse
 import copy
 from omegaconf import OmegaConf
 import mindspore as ms
 from mindspore import load_param_into_net
 from mindspore.train.serialization import _update_param
-
 from train_text_to_image import get_obj_from_str
 
 
@@ -58,7 +61,7 @@ def convert(args):
                 print(f"WARNING: {sd_param_name} not in preatrined_weights! Ignore this warning if the param belongs to input hint block or zero moduels.")
     
     save_fn = args.pretrained_model_path.replace(".ckpt", "_controlnet_init.ckpt")
-    # ms.save_checkpoint(sd_controlnet, save_fn) 
+    ms.save_checkpoint(sd_controlnet, save_fn) 
 
     print("Finish! Checkpoint saved in : ", save_fn)
 
@@ -79,6 +82,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--pretrained_model_path", "-p", default="models/sd_v1.5-d0ab7146.ckpt", type=str, help="Specify the pretrained model from this checkpoint"
     )
+    # parser.add_argument("--output_dir", "-o", default="models", type=str, help="dir to save the converted checkpoint")
 
     args = parser.parse_args()
     convert(args)
