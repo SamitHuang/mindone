@@ -134,7 +134,7 @@ class CrossAttention(nn.Cell):
             nn.Dense(inner_dim, query_dim).to_float(dtype),
             nn.Dropout(dropout) if is_old_ms_version() else nn.Dropout(p=1 - dropout),
         )
-
+        print("D-- enable flash attention: ", enable_flash_attention)
         self.enable_flash_attention = (
             enable_flash_attention and FLASH_IS_AVAILABLE and (ms.context.get_context("device_target") == "Ascend")
         )
@@ -274,7 +274,9 @@ class Attention(nn.Cell):
             mask = ops.expand_dims(mask, axis=1)
             sim.masked_fill(mask, max_neg_value)
 
-        attn = self.softmax(sim.astype(ms.float32)).astype(v.dtype) # better precision
+        # use fp32 for exponential inside
+        attn = self.softmax(sim.astype(ms.float32)).astype(v.dtype)
+
         out = ops.matmul(attn, v)
 
         return out
