@@ -172,13 +172,10 @@ def parse_args():
     # parser.add_argument("--cond_stage_trainable", default=False, type=str2bool, help="whether text encoder is trainable")
     parser.add_argument("--use_ema", default=False, type=str2bool, help="whether use EMA")
     parser.add_argument("--clip_grad", default=False, type=str2bool, help="whether apply gradient clipping")
-<<<<<<< HEAD
-    parser.add_argument("--use_recompute", default=None, type=str2bool, help="whether use recompute")
-=======
+    # parser.add_argument("--use_recompute", default=None, type=str2bool, help="whether use recompute")
     parser.add_argument("--enable_flash_attention", default=None, type=str2bool, help="whether enable flash attention. If not None, it will overwrite the value in model config yaml.")
     parser.add_argument("--drop_overflow_update", default=True, type=str2bool, help="drop overflow update")
     parser.add_argument("--loss_scaler_type", default='dynamic', type=str, help="dynamic or static")
->>>>>>> 910b_lora
     parser.add_argument(
         "--max_grad_norm",
         default=1.0,
@@ -238,11 +235,7 @@ def main(args):
     set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
 
     # build model
-<<<<<<< HEAD
-    latent_diffusion_with_loss = build_model_from_config(args.model_config, use_recompute=args.use_recompute)
-=======
     latent_diffusion_with_loss = build_model_from_config(args.model_config, args.enable_flash_attention)
->>>>>>> 910b_lora
     if args.custom_text_encoder is not None and os.path.exists(args.custom_text_encoder):
         load_pretrained_model_vae_unet_cnclip(
             args.pretrained_model_path, args.custom_text_encoder, latent_diffusion_with_loss

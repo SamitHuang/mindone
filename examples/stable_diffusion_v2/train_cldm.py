@@ -163,6 +163,7 @@ def parse_args():
     parser.add_argument("--gradient_accumulation_steps", default=1, type=int, help="gradient accumulation steps")
     # parser.add_argument("--cond_stage_trainable", default=False, type=str2bool, help="whether text encoder is trainable")
     parser.add_argument("--use_ema", default=False, type=str2bool, help="whether use EMA")
+    parser.add_argument("--drop_overflow_update", default=True, type=str2bool, help="drop overflow update")
     parser.add_argument("--clip_grad", default=False, type=str2bool, help="whether apply gradient clipping")
     parser.add_argument(
         "--max_grad_norm",
@@ -337,7 +338,7 @@ def main(args):
         latent_diffusion_with_loss,
         optimizer=optimizer,
         scale_sense=loss_scaler,
-        drop_overflow_update=True,  # TODO: allow config
+        drop_overflow_update=args.drop_overflow_update,  # TODO: allow config
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         clip_grad=args.clip_grad,
         clip_norm=args.max_grad_norm,
@@ -348,8 +349,9 @@ def main(args):
 
     # callbacks
     callback = [TimeMonitor(args.callback_size), LossMonitor(args.callback_size)]
-    ofm_cb = OverflowMonitor()
-    callback.append(ofm_cb)
+    if not args.drop_overflow_update:
+        ofm_cb = OverflowMonitor()
+        callback.append(ofm_cb)
 
     if rank_id == 0:
         save_cb = EvalSaveCallback(

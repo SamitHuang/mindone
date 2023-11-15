@@ -20,7 +20,7 @@ python sd_infer.py \
 --prompt "pale golden rod circle with old lace background" \
 --a_prompt "" \
 --negative_prompt "" \
---pretrained_ckpt=../$2 \
+--pretrained_ckpt=$2 \
 --output_path=$output_dir \
 
 #--pretrained_ckpt=../output/train_cldm_canny_fill50k/ckpt/sd-16.ckpt \
