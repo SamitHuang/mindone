@@ -14,8 +14,8 @@ image_filter_size: 200
 model_config: "configs/v1-train-cldm2.yaml"
 pretrained_model_path: "/path/to/pretrained_model"
 output_path: "/path/to/save/output_data"
-ckpt_save_interval: 500
-epochs: 8000
+ckpt_save_interval: 4
+epochs: 1000
 use_ema: False
 clip_grad: False
 use_recompute: False
