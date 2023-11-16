@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 def build_model_from_config(config, use_recompute=None):
     config = OmegaConf.load(config).model
     if use_recompute is not None:
-        config['params']['unet_config']['params']['use_recompute'] = use_recompute
+        config["params"]["unet_config"]["params"]["use_recompute"] = use_recompute
     if "target" not in config:
         if config == "__is_first_stage__":
             return None
@@ -43,6 +43,7 @@ def build_model_from_config(config, use_recompute=None):
     config_params = config.get("params", dict())
     # config_params['cond_stage_trainable'] = cond_stage_trainable # TODO: easy config
     return get_obj_from_str(config["target"])(**config_params)
+
 
 def get_obj_from_str(string, reload=False):
     module, cls = string.rsplit(".", 1)

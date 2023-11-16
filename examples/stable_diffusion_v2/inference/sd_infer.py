@@ -32,7 +32,7 @@ def main(args):
     config = OmegaConf.load(f"{args.model}")
     version = config.model.version
     os.environ["SD_VERSION"] = version
-    
+
     if args.pretrained_ckpt is not None:
         config.model.pretrained_ckpt = args.pretrained_ckpt
         print("Use pretrained model: ", config.model.pretrained_ckpt)
@@ -149,13 +149,13 @@ def main(args):
         if args.controlnet_mode == "canny":
             if args.control_path is not None:
                 detected_map = cv2.imread(args.control_path)
-                print("D---: use input canny image: ", args.control_path)  
-            else: 
+                print("D---: use input canny image: ", args.control_path)
+            else:
                 apply_canny = CannyDetector()
                 detected_map = apply_canny(img, args.inputs.low_threshold, args.inputs.high_threshold)
-            print("D--: sum canny: ", (detected_map / 255.).sum())
+            print("D--: sum canny: ", (detected_map / 255.0).sum())
             if visualize:
-                _save_fp = os.path.join(args.output_path, "canny.png") 
+                _save_fp = os.path.join(args.output_path, "canny.png")
                 cv2.imwrite(_save_fp, detected_map)
                 print("----- Canny image saved in ", _save_fp)
             detected_map = HWC3(detected_map)
@@ -260,22 +260,37 @@ if __name__ == "__main__":
         "--lora_ckpt_path", type=str, default=None, help="path to lora only checkpoint. Set it if use_lora is not None"
     )
     parser.add_argument(
-        "--pretrained_ckpt", type=str, default=None, help="path to model checkpoint. If not None, it will overwrite the value in yaml"
+        "--pretrained_ckpt",
+        type=str,
+        default=None,
+        help="path to model checkpoint. If not None, it will overwrite the value in yaml",
     )
     parser.add_argument(
-        "--image_path", type=str, default=None, help="path to input image. If not None, it will overwrite the value in yaml"
+        "--image_path",
+        type=str,
+        default=None,
+        help="path to input image. If not None, it will overwrite the value in yaml",
     )
     parser.add_argument(
-        "--control_path", type=str, default=None, help="path to control image. e.g. canny edge map. If not None, controlnet will use it as source control image and `image_path` will not be effective"
+        "--control_path",
+        type=str,
+        default=None,
+        help="path to control image. e.g. canny edge map. If not None, controlnet will use it as source control image and `image_path` will not be effective",
     )
     parser.add_argument(
         "--prompt", type=str, default=None, help="text prompt. If not None, it will overwrite the value in yaml"
     )
     parser.add_argument(
-        "--a_prompt", type=str, default=None, help="auxilary prompt, e.g. 'best quality'. If not None, it will overwrite the value in yaml"
+        "--a_prompt",
+        type=str,
+        default=None,
+        help="auxilary prompt, e.g. 'best quality'. If not None, it will overwrite the value in yaml",
     )
     parser.add_argument(
-        "--negative_prompt", type=str, default=None, help="negative prompt, e.g. 'best quality'. If not None, it will overwrite the value in yaml"
+        "--negative_prompt",
+        type=str,
+        default=None,
+        help="negative prompt, e.g. 'best quality'. If not None, it will overwrite the value in yaml",
     )
     parser.add_argument("--seed", type=int, default=42, help="the seed (for reproducible sampling)")
     parser.add_argument("--log_level", type=str, default="INFO", help="log level, options: DEBUG, INFO, WARNING, ERROR")
@@ -286,7 +301,7 @@ if __name__ == "__main__":
         help="control mode for controlnet, should be in [canny, segmentation]",
     )
     args = parser.parse_args()
-    
+
     os.makedirs(args.output_path, exist_ok=True)
     set_logger(name="", output_dir=args.output_path, rank=0, log_level=args.log_level)
 

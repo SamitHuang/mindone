@@ -329,7 +329,7 @@ class UNetModel(nn.Cell):
         use_recompute=False,
     ):
         super().__init__()
-        
+
         print("D---: FA: ", enable_flash_attention)
 
         if use_spatial_transformer:
@@ -644,8 +644,6 @@ class UNetModel(nn.Cell):
                 mblock.recompute()
             for oblock in self.output_blocks:
                 oblock.recompute()
-
-
 
     def construct(
         self, x, timesteps=None, context=None, y=None, features_adapter: list = None, append_to_context=None, **kwargs

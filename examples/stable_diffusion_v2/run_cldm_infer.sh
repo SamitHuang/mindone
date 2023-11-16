@@ -36,4 +36,3 @@ python sd_infer.py \
 
 # --image_path "../test_imgs/dog2.png" \
 # --prompt "cute dog" \
-

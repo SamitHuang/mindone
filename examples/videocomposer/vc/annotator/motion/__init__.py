@@ -46,13 +46,9 @@ def extract_motion_vectors(
         dur = frames_num / fps_video
         if dur > max_duration:
             videocapture.release()
-<<<<<<< HEAD
-            raise ValueError(f"{input_video} is too long. frames: {frames_num}, video_fps: {fps_video}, dur: {dur}. Will be skipped! Please trim it in pre-processing")
-=======
             raise ValueError(
                 f"{input_video} is too long. frames: {frames_num}, video_fps: {fps_video}, dur: {dur}. Will be skipped! Please trim it in pre-processing"
             )
->>>>>>> d2588dbf52f59b787bbd34ba75cafd86cf775262
 
     # check if enough frames
     if frames_num / fps_video * fps > 16:

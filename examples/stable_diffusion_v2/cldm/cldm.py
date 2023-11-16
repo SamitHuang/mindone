@@ -14,7 +14,6 @@
 # ============================================================================
 import logging
 
-from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.ddpm import LatentDiffusion
 from ldm.modules.attention import SpatialTransformer
 from ldm.modules.diffusionmodules.openaimodel import AttentionBlock, Downsample, ResBlock, UNetModel
@@ -22,14 +21,11 @@ from ldm.modules.diffusionmodules.util import conv_nd, linear, timestep_embeddin
 from ldm.util import exists, instantiate_from_config
 
 import mindspore as ms
-from mindspore import Tensor
 import mindspore.nn as nn
 import mindspore.ops as ops
-
-from mindspore import Parameter
+from mindspore import Tensor
 from mindspore import dtype as mstype
 from mindspore import numpy as msnp
-
 
 _logger = logging.getLogger(__name__)
 
@@ -38,31 +34,31 @@ class ControlnetUnetModel(UNetModel):
     def __init__(self, control_stage_config, guess_mode=False, strength=1.0, sd_locked=True, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        if sd_locked: 
+        if sd_locked:
             for param in self.get_parameters():
                 param.requires_grad = False
-        
-        # add controlnet init 
+
+        # add controlnet init
         self.controlnet = instantiate_from_config(control_stage_config)
         self.control_scales = (
             [strength * (0.825 ** float(12 - i)) for i in range(13)] if guess_mode else ([strength] * 13)
         )
-        
+
         for param in self.controlnet.get_parameters():
             print("D-- controlnet param trainable: ", param.requires_grad)
             break
 
     def construct(self, x, timesteps=None, context=None, control=None, only_mid_control=False, **kwargs):
-        '''
-        x: latent image in shape [bs, z, H//4, W//4] 
-        timesteps: in shape [bs] 
+        """
+        x: latent image in shape [bs, z, H//4, W//4]
+        timesteps: in shape [bs]
         context: text embedding [bs, seq_len, f] f=768 for sd1.5, 1024 for sd 2.x
         control: control signal [bs, 3, H, W]
-        '''
-        #print("D----: contorlnetunet: ")
-        #print("D--- x: ", x.shape)
-        #print("D--- context: ", context.shape)
-        #print("D--- control: ", control.shape)
+        """
+        # print("D----: contorlnetunet: ")
+        # print("D--- x: ", x.shape)
+        # print("D--- context: ", context.shape)
+        # print("D--- control: ", control.shape)
 
         hs = []
         t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
@@ -222,7 +218,7 @@ class ControlNet(nn.Cell):
         )
 
         self.zero_convs = nn.CellList([self.make_zero_conv(model_channels)])
-        
+
         # TODO: use SiLU fp32
         self.input_hint_block = nn.CellList(
             [
@@ -424,7 +420,7 @@ class ControlNet(nn.Cell):
         return outs
 
 
-class ControlLDM(LatentDiffusion):    
+class ControlLDM(LatentDiffusion):
     def __init__(
         self,
         *args,
@@ -432,33 +428,32 @@ class ControlLDM(LatentDiffusion):
     ):
         super().__init__(*args, **kwargs)
 
-        #self.unet_with_control = self.model.diffusion_model
+        # self.unet_with_control = self.model.diffusion_model
 
     def construct(self, x, c, control=None):
-        '''
-        Diffusion forward and compute loss 
+        """
+        Diffusion forward and compute loss
         args:
             x: preprocessed gt image, (bs H W 3)
             c: text condition
             control: normlaized control image, e.g. canny, (bs H W 3)
 
-        return: 
+        return:
             loss
-        '''
+        """
 
         t = self.uniform_int(
             (x.shape[0],), Tensor(0, dtype=mstype.int32), Tensor(self.num_timesteps, dtype=mstype.int32)
         )
         latent_image, c = self.get_input(x, c)
         text_emb = self.get_learned_conditioning_fortrain(c)
-        
+
         if control is not None:
             control = ops.transpose(control, (0, 3, 1, 2))
-        
+
         return self.p_losses(latent_image, text_emb, t, control=control)
 
-
-    def p_losses(self, latent_image, text_emb, t,  control=None, **kwargs):
+    def p_losses(self, latent_image, text_emb, t, control=None, **kwargs):
         noise = msnp.randn(latent_image.shape)
         latent_image_noisy = self.q_sample(x_start=latent_image, t=t, noise=noise)
 
@@ -473,10 +468,10 @@ class ControlLDM(LatentDiffusion):
             only_mid_control=False,
             **kwargs,
         )
-        
-        #print("D--: parameterization ", self.parameterization)
+
+        # print("D--: parameterization ", self.parameterization)
         if self.parameterization == "x0":
-            target = latent_image 
+            target = latent_image
         elif self.parameterization == "eps":
             target = noise
         elif self.parameterization == "velocity":
