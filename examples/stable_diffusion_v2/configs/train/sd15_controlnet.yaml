@@ -22,8 +22,8 @@ use_recompute: False
 
 # lr scheduler
 scheduler: "constant"
-start_learning_rate: 5.e-4
-end_learning_rate: 5.e-4
+start_learning_rate: 1.e-4
+end_learning_rate: 1.e-4
 warmup_steps: 0
 decay_steps: 0
 

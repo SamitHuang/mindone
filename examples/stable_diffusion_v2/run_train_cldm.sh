@@ -2,7 +2,7 @@ export DEVICE_ID=$1
 export MS_ASCEND_CHECK_OVERFLOW_MODE="INFNAN_MODE" # debug
 # export MS_ASCEND_CHECK_OVERFLOW_MODE=1 # debug
 
-task_name=train_cldm_canny_fill1k_bs2_lr5e-4_wd1e-2
+task_name=train_cldm_canny_fill1k_bs2_lr1e-4_wd1e-2
 output_dir=outputs/$task_name
 
 rm -rf $output_dir
