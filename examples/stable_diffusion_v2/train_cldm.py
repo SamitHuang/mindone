@@ -398,7 +398,6 @@ def main(args):
                 f"Init loss scale: {args.init_loss_scale}",
                 f"Max grad norm: {args.max_grad_norm}",
                 f"EMA: {args.use_ema}",
-                f"Enable flash attention: {args.enable_flash_attention}",
             ]
         )
         key_info += "\n" + "=" * 50

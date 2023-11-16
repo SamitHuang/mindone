@@ -45,7 +45,7 @@ class ControlnetUnetModel(UNetModel):
         )
 
         for param in self.controlnet.get_parameters():
-            print("D-- controlnet param trainable: ", param.requires_grad)
+            print("INFO: controlnet param trainable: ", param.requires_grad)
             break
 
     def construct(self, x, timesteps=None, context=None, control=None, only_mid_control=False, **kwargs):
@@ -158,7 +158,7 @@ class ControlNet(nn.Cell):
     ):
         super().__init__()
 
-        print("D--: cldm fa: ", enable_flash_attention)
+        print("INFO: flash attention: ", enable_flash_attention)
         if use_spatial_transformer:
             assert (
                 context_dim is not None
