@@ -131,7 +131,20 @@ Since torch AD relies heavily on diffusers and transformers, we will build a new
                 - proc: GN - SiLU - Conv
                 - out:  b c f h w = ([2, 4, 16, 64, 64])
         - lift 2d to pseudo 3d
-        - input for  
+            - Our logics: 
+                - input_blocks: nn.CellList
+                    - noname-conv_in: nn.CellList(conv_nd) 
+                    - layers1: nn.CellList([ResBlock, SpatialTrans, MM])  or nn.CellList([ResBlock, MM]), equivlant of half of CrossAttnDownBlock / DownBlock in diffusers
+                    - layers2, ... 
+                    - nonname-downsample: nn.CellList([Downsample(...)] 
+                
+        - Inject MM to our pseudo 3d unet
+            - init. [Done, need deubg]
+            - forward, need video_length as input param! [Doing] => parse F in init, or construct?  TemporalTransformerBlock.construct need it.
+            - log inject architecture to check. 21 MM in total. [Doing]
+            - Checkpoint conversion script for MM
+            - Load sd1.5 at first, then converted MM
+            - test infer and overall forward error
 
 3. Inference pipeline
     - Basic t2i

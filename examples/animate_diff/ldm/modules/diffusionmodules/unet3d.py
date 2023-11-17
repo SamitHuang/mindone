@@ -365,9 +365,10 @@ class UNet3DModel(nn.Cell):
         super().__init__()
 
         assert use_inflated_groupnorm==True, "Only support use_inflated_groupnorm=True currently, please use configs/inference/inference_v2.yaml for --inference_config"
-        assert unet_use_cross_frame_attention==False, "not support"
-        assert unet_use_temporal_attention==False, "not support"
-        assert motion_module_type=='Vanilla', 'not support'
+        if use_motion_module:
+            assert unet_use_cross_frame_attention==False, "not support"
+            assert unet_use_temporal_attention==False, "not support"
+            assert motion_module_type=='Vanilla', 'not support'
 
         if use_spatial_transformer:
             assert (
@@ -380,7 +381,7 @@ class UNet3DModel(nn.Cell):
             ), "Fool!! You forgot to use the spatial transformer for your cross-attention conditioning..."
             from omegaconf.listconfig import ListConfig
 
-            if type(context_dim) == ListConfig:
+            if isinstance(context_dim, ListConfig):
                 context_dim = list(context_dim)
 
         if num_heads_upsample == -1:
@@ -450,6 +451,7 @@ class UNet3DModel(nn.Cell):
         # down blocks, add 2*3+2=8 MotionModules
         for level, mult in enumerate(channel_mult):
             for _ in range(num_res_blocks):
+                # layers: consist of ResBlock-SptailTrans-MM or ResBlock-MM
                 layers = nn.CellList(
                     [
                         ResBlock(
@@ -465,7 +467,7 @@ class UNet3DModel(nn.Cell):
                     ]
                 )
                 ch = mult * model_channels  # feature channels are doubled in each CrossAttnDownBlock
-                # For the first 3 times, ds=1, 2, 4, create SpatialTransformer. For 4-th, skip.
+                # For the first 3 levels, ds=1, 2, 4, create SpatialTransformer. For 4-th level, skip.
                 if ds in attention_resolutions:
                     if num_head_channels == -1:
                         dim_head = ch // num_heads
@@ -499,7 +501,7 @@ class UNet3DModel(nn.Cell):
                         )
                     )
 
-                # add MotionModule 1) after SpatialTransformer in DownBlockWithAttn, 3 times, or 2) after ResBlock in DownBlockWithoutAttn, 1 time.
+                # add MotionModule 1) after SpatialTransformer in DownBlockWithAttn, 3*2 times, or 2) after ResBlock in DownBlockWithoutAttn, 1*2 time.
                 if use_motion_module:
                     layers.append(
                         get_motion_module( # return VanillaTemporalModule
@@ -512,6 +514,8 @@ class UNet3DModel(nn.Cell):
                 self.input_blocks.append(layers)
                 self._feature_size += ch
                 input_block_chans.append(ch)
+
+            # for the first 3 levels, add a DownSampler at each level
             if level != len(channel_mult) - 1:
                 out_ch = ch
                 self.input_blocks.append(
@@ -537,6 +541,7 @@ class UNet3DModel(nn.Cell):
                 input_block_chans.append(ch)
                 ds *= 2
                 self._feature_size += ch
+
         if num_head_channels == -1:
             dim_head = ch // num_heads
         else:
@@ -569,8 +574,7 @@ class UNet3DModel(nn.Cell):
                     num_heads=num_heads,
                     num_head_channels=dim_head,
                     use_new_attention_order=use_new_attention_order,
-                )
-                if not use_spatial_transformer
+                ) if not use_spatial_transformer
                 else SpatialTransformer(
                     ch,
                     num_heads,
@@ -585,6 +589,18 @@ class UNet3DModel(nn.Cell):
                     cross_frame_attention=cross_frame_attention,
                     unet_chunk_size=unet_chunk_size,
                 ),
+            ]
+        )
+        # Add MM after SpatialTrans in MiddleBlock, 1
+        if use_motion_module and motion_module_mid_block:
+            self.middle_block.append(
+                get_motion_module(
+                            in_channels=ch,
+                            motion_module_type=motion_module_type,
+                            motion_module_kwargs=motion_module_kwargs,
+                 )
+            )
+        self.middle_block.append(
                 ResBlock(
                     ch,
                     time_embed_dim,
@@ -593,15 +609,15 @@ class UNet3DModel(nn.Cell):
                     use_checkpoint=use_checkpoint,
                     use_scale_shift_norm=use_scale_shift_norm,
                     dtype=self.dtype,
-                ),
-            ]
+                )
         )
+
         self._feature_size += ch
 
         # up blocks
         self.output_blocks = nn.CellList([])
-        for level, mult in list(enumerate(channel_mult))[::-1]:
-            for i in range(num_res_blocks + 1):
+        for level, mult in list(enumerate(channel_mult))[::-1]: # run 4 times
+            for i in range(num_res_blocks + 1):  # run 3 times
                 ich = input_block_chans.pop()
                 layers = nn.CellList(
                     [
@@ -651,6 +667,18 @@ class UNet3DModel(nn.Cell):
                             unet_chunk_size=unet_chunk_size,
                         )
                     )
+
+                # Add MM after ResBlock in UpBlockWithoutAttn (1*3), or after SpatialTransformer in UpBlockWithAttn (3*3)
+                if use_motion_module:
+                    layers.append(
+                        get_motion_module(
+                            in_channels=ch,
+                            motion_module_type=motion_module_type,
+                            motion_module_kwargs=motion_module_kwargs,
+                        )
+                    )
+
+                # Upsample except for the last level
                 if level and i == num_res_blocks:
                     out_ch = ch
                     layers.append(

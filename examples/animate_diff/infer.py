@@ -76,6 +76,7 @@ def main(args):
     lora_alpha = lora_scale = ad_config.get("lora_alpha", 0.8)
 
     motion_module_paths = ad_config.get("motion_module", "")
+    motion_module_path = motion_module_paths[0]
 
     seeds, steps, guidance_scale = ad_config.get("seed", 0), ad_config.steps, ad_config.guidance_scale
     prompts = ad_config.prompt
@@ -104,7 +105,7 @@ def main(args):
     set_random_seed(42)
 
     # 2. build model components for ldm
-    # 1)  vae, text encoder, and unet
+    # 1)  create vae, text encoder, and unet and load weights
     # TODO: change mixed precision. fp32 at first?
     sd_model = load_model_from_config(
         sd_config,
@@ -113,9 +114,29 @@ def main(args):
         lora_only_ckpt=lora_model_path,
         lora_scale=lora_scale,
     )
+
     text_encoder = sd_model.cond_stage_model
     unet = sd_model.model
     vae = sd_model.first_stage_model
+
+    # load motion module weights if use mm
+    use_motion_module = sd_config.model.params.unet_config.params.use_motion_module
+    add_ldm_prefix = True
+    ldm_prefix = 'model.diffusion_model.'
+    if use_motion_module:
+        print("Loading motion module from ", motion_module_path)
+        mm_state_dict = ms.load_checkpoint(motion_module_path)
+
+        # add prefix (used in the whole sd model) to param if needed
+        mm_pnames = list(mm_state_dict.keys())
+        for pname in mm_pnames:
+            if add_ldm_prefix:
+                if not pname.startswith(ldm_prefix):
+                    new_pname = ldm_prefix + pname
+                    mm_state_dict[new_pname] = mm_state_dict.pop(pname)
+
+        params_not_load, ckpt_not_load = ms.load_param_into_net(unet, mm_state_dict)
+        print("The following params in checkpoint are not loaded into net: ", ckpt_not_load)
     #img_processor = VaeImageProcessor()
 
     if args.target_device!= "Ascend":
