@@ -30,7 +30,7 @@ import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
 
-from .motion_module import get_motion_module
+from .motion_module import get_motion_module, VanillaTemporalModule
 
 _logger = logging.getLogger(__name__)
 
@@ -760,7 +760,10 @@ class UNet3DModel(nn.Cell):
         adapter_idx = 0
         for i, celllist in enumerate(self.input_blocks, 1):
             for cell in celllist:
-                h = cell(h, emb, context)
+                if isinstance(cell, VanillaTemporalModule):
+                    h = cell(h, temb=emb, encoder_hidden_states=context, video_length=F)
+                else:
+                    h = cell(h, emb, context)
 
             if features_adapter and i % 3 == 0:
                 h = h + features_adapter[adapter_idx]
@@ -770,17 +773,25 @@ class UNet3DModel(nn.Cell):
 
         if features_adapter:
             assert len(features_adapter) == adapter_idx, "Wrong features_adapter"
-
+        
         # 2. middle block
         for module in self.middle_block:
-            h = module(h, emb, context)
+            # h = module(h, emb, context)
+            if isinstance(module, VanillaTemporalModule):
+                h = module(h, temb=emb, encoder_hidden_states=context, video_length=F)
+            else:
+                h = module(h, emb, context)
 
         # 3. up blocks
         hs_index = -1
         for celllist in self.output_blocks:
             h = self.cat((h, hs[hs_index]))
             for cell in celllist:
-                h = cell(h, emb, context)
+                # h = cell(h, emb, context)
+                if isinstance(cell, VanillaTemporalModule):
+                    h = cell(h, temb=emb, encoder_hidden_states=context, video_length=F)
+                else:
+                    h = cell(h, emb, context)
             hs_index -= 1
 
         if self.predict_codebook_ids:
