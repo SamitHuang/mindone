@@ -54,10 +54,16 @@ def get_obj_from_str(string, reload=False):
     return getattr(importlib.import_module(module, package=None), cls)
 
 
-def load_pretrained_model(pretrained_ckpt, net):
+def load_pretrained_model(pretrained_ckpt, net, skip_unet_ckpt_loading=False):
     logger.info(f"Loading pretrained model from {pretrained_ckpt}")
     if os.path.exists(pretrained_ckpt):
         param_dict = load_checkpoint(pretrained_ckpt)
+        pnames_all = list(param_dict.keys())
+        if skip_unet_ckpt_loading:
+            for pname in pnames_all:
+                if 'model.diffusion_model' in pname:
+                    param_dict.pop(pname) 
+                    print("D--: del ", pname)
         if is_old_ms_version():
             param_not_load = load_param_into_net(net, param_dict)
         else:
@@ -171,15 +177,8 @@ def parse_args():
     # parser.add_argument("--cond_stage_trainable", default=False, type=str2bool, help="whether text encoder is trainable")
     parser.add_argument("--use_ema", default=False, type=str2bool, help="whether use EMA")
     parser.add_argument("--clip_grad", default=False, type=str2bool, help="whether apply gradient clipping")
+    parser.add_argument("--skip_unet_ckpt_loading", default=False, type=str2bool, help="whether skip")
     # parser.add_argument("--use_recompute", default=None, type=str2bool, help="whether use recompute")
-    parser.add_argument(
-        "--enable_flash_attention",
-        default=None,
-        type=str2bool,
-        help="whether enable flash attention. If not None, it will overwrite the value in model config yaml.",
-    )
-    parser.add_argument("--drop_overflow_update", default=True, type=str2bool, help="drop overflow update")
-    parser.add_argument("--loss_scaler_type", default="dynamic", type=str, help="dynamic or static")
     parser.add_argument(
         "--enable_flash_attention",
         default=None,
@@ -253,7 +252,7 @@ def main(args):
             args.pretrained_model_path, args.custom_text_encoder, latent_diffusion_with_loss
         )
     else:
-        load_pretrained_model(args.pretrained_model_path, latent_diffusion_with_loss)
+        load_pretrained_model(args.pretrained_model_path, latent_diffusion_with_loss, skip_unet_ckpt_loading=args.skip_unet_ckpt_loading)
 
     # build dataset
     tokenizer = latent_diffusion_with_loss.cond_stage_model.tokenizer

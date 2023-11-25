@@ -45,6 +45,8 @@ def init_env(
         logger.warning("Debug mode is on, switching execution mode to PyNative.")
         mode = ms.PYNATIVE_MODE
 
+    ms.set_context(mode=mode, device_target="Ascend")
+
     if distributed:
         init()
         device_id = int(os.getenv("DEVICE_ID"))
