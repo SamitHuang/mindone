@@ -3,6 +3,9 @@ import argparse
 import ast
 import os
 import time
+import sys
+
+sys.path.append('.')
 
 from gm.helpers import SD_XL_BASE_RATIOS, VERSION2SPECS, create_model, init_sampling, load_img, perform_save_locally
 from gm.util import seed_everything
