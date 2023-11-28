@@ -34,6 +34,10 @@ def get_parser_train():
             "txt2img",
         ],
     )
+    parser.add_argument("--loss_scaler_type", default="dynamic", type=str, help="dynamic or static")
+    parser.add_argument("--init_loss_scale", default=65536, type=float, help="loss scale")
+    parser.add_argument("--loss_scale_factor", default=2, type=float, help="loss scale factor")
+
     parser.add_argument("--weight", type=str, default="checkpoints/sd_xl_base_1.0_ms.ckpt")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--sd_xl_base_ratios", type=str, default="1.0")
@@ -105,7 +109,7 @@ def train(args):
     lr = get_learning_rate(config.optim, config.data.total_step)
     optimizer = get_optimizer(config.optim, lr, params=model.model.trainable_params())
     reducer = get_grad_reducer(is_parallel=args.is_parallel, parameters=optimizer.parameters)
-    scaler = get_loss_scaler(ms_loss_scaler="static", scale_value=1024)
+    scaler = get_loss_scaler(ms_loss_scaler=args.loss_scaler_type, scale_value=args.init_loss_scale)
     if args.ms_mode == 1:
         # Pynative Mode
         train_step_fn = partial(
