@@ -204,6 +204,8 @@ def train(args):
 
     # 3. Create loader
     assert "data" in config
+    assert os.path.exists(args.instance_data_path), f"{instance_data_path} not exist"
+    # assert os.path.exists(args.class_data_path), f"{args.class_data_path} not exist"
     dataloader = create_loader_dreambooth(
         instance_data_path=args.instance_data_path,
         class_data_path=args.class_data_path,

@@ -4,7 +4,7 @@ export MS_PYNATIVE_GE=1
 export MS_ASCEND_CHECK_OVERFLOW_MODE=1 # "INFNAN_MODE"
 export PYTHONPATH=$(pwd):$PYTHONPATH
 
-task_name=train_lora_r4_noInfNan
+task_name=train_lora_r4_noInfNan_nopyge
 save_path=outputs/$task_name
 
 rm -rf $save_path
