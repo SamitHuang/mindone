@@ -47,13 +47,11 @@ class BaseDiffusionSampler:
 
         return x, s_in, sigmas, num_sigmas, cond, uc
 
-    def denoise(self, x, model, sigma, cond, uc, **kwargs):
+    def denoise(self, x, model, sigma, cond, uc):
         noised_input, sigmas, cond = self.guider.prepare_inputs(x, sigma, cond, uc)
         cond = model.openai_input_warpper(cond)
         c_skip, c_out, c_in, c_noise = model.denoiser(sigmas, noised_input.ndim)
-        model_output = model.model(
-            ops.cast(noised_input * c_in, ms.float32), ops.cast(c_noise, ms.int32), **cond, **kwargs
-        )
+        model_output = model.model(ops.cast(noised_input * c_in, ms.float32), ops.cast(c_noise, ms.int32), **cond)
         model_output = model_output.astype(ms.float32)
         denoised = model_output * c_out + noised_input * c_skip
         denoised = self.guider(denoised, sigma)
@@ -75,13 +73,13 @@ class BaseDiffusionSampler:
 
 
 class SingleStepDiffusionSampler(BaseDiffusionSampler):
-    def sampler_step(self, sigma, next_sigma, model, x, cond, uc=None, gamma=0.0, **kwargs):
+    def sampler_step(self, sigma, next_sigma, model, x, cond, uc=None, gamma=0.0):
         sigma_hat = sigma * (gamma + 1.0)
         if gamma > 0:
             eps = Tensor(np.random.randn(*x.shape), x.dtype) * self.s_noise
             x = x + eps * append_dims(sigma_hat**2 - sigma**2, x.ndim) ** 0.5
 
-        denoised = self.denoise(x, model, sigma_hat, cond, uc, **kwargs)
+        denoised = self.denoise(x, model, sigma_hat, cond, uc)
         d = to_d(x, sigma_hat, denoised)
         dt = append_dims(next_sigma - sigma_hat, x.ndim)
 
@@ -115,11 +113,18 @@ class AncestralSampler(SingleStepDiffusionSampler):
         )
         return x
 
-    def __call__(self, model, x, cond, uc=None, num_steps=None, **kwargs):
+    def __call__(self, model, x, cond, uc=None, num_steps=None):
         x, s_in, sigmas, num_sigmas, cond, uc = self.prepare_sampling_loop(x, cond, uc, num_steps)
 
         for i in self.get_sigma_gen(num_sigmas):
-            x = self.sampler_step(s_in * sigmas[i], s_in * sigmas[i + 1], model, x, cond, uc, **kwargs)
+            x = self.sampler_step(
+                s_in * sigmas[i],
+                s_in * sigmas[i + 1],
+                model,
+                x,
+                cond,
+                uc,
+            )
 
         return x
 
@@ -150,7 +155,7 @@ class LinearMultistepSampler(BaseDiffusionSampler):
         sigmas_cpu = sigmas  # 转换为NumPy数组
         for i in self.get_sigma_gen(num_sigmas):
             sigma = s_in * sigmas[i]
-            denoised = self.denoise(x, model, sigma, cond, uc, **kwargs)
+            denoised = self.denoise(x, model, sigma, cond, uc)
             d = to_d(x, sigma, denoised)  # 假定有一个名为to_d的函数用于计算d
             ds.append(d)
             if len(ds) > self.order:
@@ -172,13 +177,13 @@ class EDMSampler(SingleStepDiffusionSampler):
         self.s_tmax = s_tmax
         self.s_noise = s_noise
 
-    def sampler_step(self, sigma, next_sigma, model, x, cond, uc=None, gamma=0.0, **kwargs):
+    def sampler_step(self, sigma, next_sigma, model, x, cond, uc=None, gamma=0.0):
         sigma_hat = sigma * (gamma + 1.0)
         if gamma > 0:
             eps = Tensor(np.random.randn(*x.shape), x.dtype) * self.s_noise
             x = x + eps * append_dims(sigma_hat**2 - sigma**2, x.ndim) ** 0.5
 
-        denoised = self.denoise(x, model, sigma_hat, cond, uc, **kwargs)
+        denoised = self.denoise(x, model, sigma_hat, cond, uc)
         d = to_d(x, sigma_hat, denoised)
         dt = append_dims(next_sigma - sigma_hat, x.ndim)
 
@@ -186,7 +191,7 @@ class EDMSampler(SingleStepDiffusionSampler):
         x = self.possible_correction_step(euler_step, x, d, dt, next_sigma, model, cond, uc)
         return x
 
-    def __call__(self, model, x, cond, uc=None, num_steps=None, **kwargs):
+    def __call__(self, model, x, cond, uc=None, num_steps=None):
         x = ops.cast(x, ms.float32)
         x, s_in, sigmas, num_sigmas, cond, uc = self.prepare_sampling_loop(x, cond, uc, num_steps)
 
@@ -194,7 +199,15 @@ class EDMSampler(SingleStepDiffusionSampler):
             gamma = (
                 min(self.s_churn / (num_sigmas - 1), 2**0.5 - 1) if self.s_tmin <= sigmas[i] <= self.s_tmax else 0.0
             )
-            x = self.sampler_step(s_in * sigmas[i], s_in * sigmas[i + 1], model, x, cond, uc, gamma, **kwargs)
+            x = self.sampler_step(
+                s_in * sigmas[i],
+                s_in * sigmas[i + 1],
+                model,
+                x,
+                cond,
+                uc,
+                gamma,
+            )
 
         return x
 
@@ -204,9 +217,9 @@ class EulerAncestralSampler(AncestralSampler):
         super(EulerAncestralSampler, self).__init__(*args, **kwargs)
         self.eta = eta
 
-    def sampler_step(self, sigma, next_sigma, model, x, cond, uc, **kwargs):
+    def sampler_step(self, sigma, next_sigma, model, x, cond, uc):
         sigma_down, sigma_up = get_ancestral_step(sigma, next_sigma)
-        denoised = self.denoise(x, model, sigma, cond, uc, **kwargs)
+        denoised = self.denoise(x, model, sigma, cond, uc)
         x = self.ancestral_euler_step(x, denoised, sigma, sigma_down)
         x = self.ancestral_step(x, sigma, next_sigma, sigma_up)
 
@@ -294,8 +307,18 @@ class DPMPP2MSampler(BaseDiffusionSampler):
         else:
             return mult1, mult2
 
-    def sampler_step(self, old_denoised, previous_sigma, sigma, next_sigma, model, x, cond, uc=None, **kwargs):
-        denoised = self.denoise(x, model, sigma, cond, uc, **kwargs)
+    def sampler_step(
+        self,
+        old_denoised,
+        previous_sigma,
+        sigma,
+        next_sigma,
+        model,
+        x,
+        cond,
+        uc=None,
+    ):
+        denoised = self.denoise(x, model, sigma, cond, uc)
 
         h, r, t, t_next = self.get_variables(sigma, next_sigma, previous_sigma)
         mult = [append_dims(mult, x.ndim) for mult in self.get_mult(h, r, t, t_next, previous_sigma)]
@@ -327,7 +350,6 @@ class DPMPP2MSampler(BaseDiffusionSampler):
                 x,
                 cond,
                 uc=uc,
-                **kwargs,
             )
 
         return x

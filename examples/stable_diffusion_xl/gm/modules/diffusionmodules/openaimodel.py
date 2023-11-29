@@ -14,7 +14,8 @@ from gm.modules.diffusionmodules.util import (
 )
 from gm.util import default, exists
 
-from mindspore import jit, nn, ops
+import mindspore as ms
+from mindspore import nn, ops
 
 
 class TimestepBlock(nn.Cell):
@@ -765,7 +766,7 @@ class UNetModel(nn.Cell):
             self.output_blocks.recompute()
             print("Turn on recompute, and the unet middle/output blocks will be recomputed.")
 
-    @jit
+    @ms.jit
     def construct(self, x, timesteps=None, context=None, y=None, **kwargs):
         """
         Apply the model to an input batch.
@@ -827,6 +828,19 @@ class UNetModel_lora(UNetModel):
                 )
                 _ = [_ for _ in map(partial(self._prefix_param, cell_name), cell.to_q.get_parameters())]
 
+                # assert hasattr(cell, "to_k")
+                # context_dim, inner_dim = cell.to_k.in_channels, cell.to_k.out_channels
+                # cell.to_k = Dense_lora(
+                #     context_dim,
+                #     inner_dim,
+                #     has_bias=False,
+                #     r=lora_dim,
+                #     lora_alpha=lora_alpha,
+                #     lora_dropout=lora_dropout,
+                #     merge_weights=lora_merge_weights,
+                # )
+                # _ = [_ for _ in map(partial(self._prefix_param, cell_name), cell.to_k.get_parameters())]
+                
                 assert hasattr(cell, "to_v")
                 context_dim, inner_dim = cell.to_v.in_channels, cell.to_v.out_channels
                 cell.to_v = Dense_lora(
@@ -839,6 +853,19 @@ class UNetModel_lora(UNetModel):
                     merge_weights=lora_merge_weights,
                 )
                 _ = [_ for _ in map(partial(self._prefix_param, cell_name), cell.to_v.get_parameters())]
+                
+                # assert hasattr(cell, "to_out")
+                # inner_dim, query_dim = cell.to_out[0].in_channels, cell.to_out[0].out_channels
+                # cell.to_out[0] = Dense_lora(
+                #     inner_dim,
+                #     query_dim,
+                #     # has_bias=False,
+                #     r=lora_dim,
+                #     lora_alpha=lora_alpha,
+                #     lora_dropout=lora_dropout,
+                #     merge_weights=lora_merge_weights,
+                # )
+                # _ = [_ for _ in map(partial(self._prefix_param, cell_name), cell.to_out.get_parameters())]
 
         mark_only_lora_as_trainable(self, bias="none")
 

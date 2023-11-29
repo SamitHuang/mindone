@@ -12,11 +12,13 @@ from gm.helpers import (
     VERSION2SPECS,
     create_model,
     get_grad_reducer,
+    get_learning_rate,
     get_loss_scaler,
+    get_optimizer,
     save_checkpoint,
     set_default,
 )
-from gm.util import get_obj_from_str, instantiate_from_config
+# from gm.util import get_obj_from_str, instantiate_from_config
 from omegaconf import OmegaConf
 
 import mindspore as ms
@@ -51,7 +53,7 @@ def get_parser_train():
     # parser.add_argument("--data_path", type=str, default="")
     parser.add_argument("--save_path", type=str, default="./runs")
     parser.add_argument("--log_interval", type=int, default=1, help="log interval")
-    parser.add_argument("--save_ckpt_interval", type=int, default=1000, help="save ckpt interval")
+    parser.add_argument("--save_ckpt_interval", type=int, default=500, help="save ckpt interval")
 
     # args for infer
     parser.add_argument("--infer_during_train", type=ast.literal_eval, default=False)
@@ -60,12 +62,14 @@ def get_parser_train():
     # args for env
     parser.add_argument("--device_target", type=str, default="Ascend", help="device target, Ascend/GPU/CPU")
     parser.add_argument(
-        "--ms_mode", type=int, default=1, help="Running in GRAPH_MODE(0) or PYNATIVE_MODE(1) (default=1)"
+        "--ms_mode", type=int, default=0, help="Running in GRAPH_MODE(0) or PYNATIVE_MODE(1) (default=0)"
     )
     parser.add_argument("--ms_amp_level", type=str, default="O2")
     parser.add_argument(
         "--ms_enable_graph_kernel", type=ast.literal_eval, default=False, help="use enable_graph_kernel or not"
     )
+    parser.add_argument("--param_fp16", type=ast.literal_eval, default=False)
+    parser.add_argument("--overflow_still_update", type=ast.literal_eval, default=True)
     parser.add_argument("--is_parallel", type=ast.literal_eval, default=False)
 
     # args for ModelArts
@@ -116,6 +120,9 @@ def get_parser_train():
         "--prior_loss_weight", type=float, default=1.0, help="Specify the weight of the prior preservation loss."
     )
     parser.add_argument(
+        "--gradient_accumulation_steps", type=int, default=4, help="Gradient accumulation steps to increase global batch size."
+    )
+    parser.add_argument(
         "--num_class_images",
         type=int,
         default=50,
@@ -152,7 +159,7 @@ def generate_class_images(args):
 
     config = OmegaConf.load(args.config)
     model, _ = create_model(
-        config, checkpoints=args.weight.split(","), freeze=True, load_filter=False, amp_level=args.ms_amp_level
+        config, checkpoints=args.weight, freeze=True, load_filter=False, amp_level=args.ms_amp_level
     )
     model.set_train(False)
     for param in model.get_parameters():
@@ -180,17 +187,22 @@ def generate_class_images(args):
 
 
 def train(args):
-    # Init Env
+    # 1. Init Env
     args = set_default(args)
 
-    # Create model
+    # 2. Create model
     config = OmegaConf.load(args.config)
     model, _ = create_model(
-        config, checkpoints=args.weight.split(","), freeze=False, load_filter=False, amp_level=args.ms_amp_level
+        config, 
+        checkpoints=args.weight, 
+        freeze=False, 
+        load_filter=False, 
+        param_fp16=args.param_fp16,
+        amp_level=args.ms_amp_level
     )
     model.model.set_train(True)  # only unet
 
-    # Create loader
+    # 3. Create loader
     assert "data" in config
     dataloader = create_loader_dreambooth(
         instance_data_path=args.instance_data_path,
@@ -203,30 +215,34 @@ def train(args):
         **config.data,
     )
 
-    # Create train step func
+    # 4. Create train step func
     assert "optim" in config
+    
     # get scheduler and lr
-    base_lr = config.optim.get("base_learning_rate", 1.0e-4)
-    if "scheduler_config" in config.optim:
-        scheduler_config = config.optim.get("scheduler_config")
-        scheduler = instantiate_from_config(scheduler_config)
-        lr = [base_lr * scheduler(step) for step in range(config.data.total_step)]
-    else:
-        print(f"scheduler_config not exist, train with base_lr {base_lr}")
-        lr = base_lr
-    # get optimizer
-    optimizer_config = config.optim.get("optimizer_config", {"target": "mindspore.nn.SGD"})
-    optimizer = get_obj_from_str(optimizer_config["target"])(
-        model.model.trainable_params(), learning_rate=lr, **optimizer_config.get("params", dict())
-    )
-    reducer = get_grad_reducer(is_parallel=False, parameters=optimizer.parameters)
+    lr = get_learning_rate(config.optim, config.data.total_step)
+    optimizer = get_optimizer(config.optim, lr, params=model.model.trainable_params())
+    reducer = get_grad_reducer(is_parallel=args.is_parallel, parameters=optimizer.parameters)
     scaler = get_loss_scaler(ms_loss_scaler="static", scale_value=1024)
-    train_step_fn = partial(
-        model.train_step,
-        grad_func=model.get_grad_func(optimizer, reducer, scaler, jit=True),
-    )
+    if args.ms_mode == 1:
+        # Pynative Mode
+        train_step_fn = partial(
+            model.train_step_pynative,
+            grad_func=model.get_grad_func(
+                optimizer, reducer, scaler, jit=True, overflow_still_update=args.overflow_still_update
+            ),
+        )
+    elif args.ms_mode == 0:
+        # Graph Mode
+        from gm.models.trainer_factory import TrainOneStepCellDreamBooth
 
-    # Start Training
+        train_step_fn = TrainOneStepCellDreamBooth(
+            model, optimizer, reducer, scaler, overflow_still_update=args.overflow_still_update, prior_loss_weight=args.prior_loss_weight,
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
+        )
+    else:
+        raise ValueError("args.ms_mode value must in [0, 1]")
+
+    # 5. Start Training
     if args.task == "txt2img":
         train_txt2img(
             args, train_step_fn, dataloader=dataloader, optimizer=optimizer, model=model  # for log lr  # for infer
@@ -243,12 +259,22 @@ def train_txt2img(args, train_step_fn, dataloader, optimizer=None, model=None): 
     loader = dataloader.create_dict_iterator(output_numpy=True, num_epochs=1)
     s_time = time.time()
     for i, data in enumerate(loader):
-        # Data to tensor
+        # Get data, to tensor
         instance_data = data["instance_samples"]
         class_data = data["class_samples"]
         instance_data = {k: (Tensor(v, dtype) if k != "txt" else v.tolist()) for k, v in instance_data.items()}
         class_data = {k: (Tensor(v, dtype) if k != "txt" else v.tolist()) for k, v in class_data.items()}
-        data["instance_samples"], data["class_samples"] = instance_data, class_data
+        # data["instance_samples"], data["class_samples"] = instance_data, class_data
+
+        # Get image and tokens
+        class_image = class_data[model.input_key]
+        instance_image = instance_data[model.input_key]
+        
+        class_tokens, _ = model.conditioner.tokenize(class_data)
+        class_tokens = [Tensor(t) for t in class_tokens]
+        instance_tokens, _ = model.conditioner.tokenize(instance_data)
+        instance_tokens = [Tensor(t) for t in instance_tokens]
+        assert len(instance_tokens) == len(class_tokens)
 
         # Train a step
         if i == 0:
@@ -257,8 +283,13 @@ def train_txt2img(args, train_step_fn, dataloader, optimizer=None, model=None): 
                 "You can come back later :).",
                 flush=True,
             )
-        loss = train_step_fn(data)
-
+        loss, overflow = train_step_fn(instance_image, class_image, *instance_tokens, *class_tokens)
+        if overflow:
+            if args.overflow_still_update:
+                print(f"Step {i + 1}/{total_step}, overflow, still update.")
+            else:
+                print(f"Step {i + 1}/{total_step}, overflow, skip.")
+    
         # Print meg
         if (i + 1) % args.log_interval == 0 and args.rank % 8 == 0:
             if optimizer.dynamic_lr:
@@ -266,7 +297,7 @@ def train_txt2img(args, train_step_fn, dataloader, optimizer=None, model=None): 
             else:
                 cur_lr = optimizer.learning_rate.asnumpy().item()
             print(
-                f"Step {i + 1}/{total_step}, size: {data['instance_samples']['image'].shape[2:]}, lr: {cur_lr}, loss: {loss.asnumpy():.6f}"
+                f"Step {i + 1}/{total_step}, size: {instance_data['image'].shape[2:]}, lr: {cur_lr}, loss: {loss.asnumpy():.6f}"
                 f", time cost: {(time.time()-s_time) * 1000 / args.log_interval:.2f} ms",
                 flush=True,
             )
