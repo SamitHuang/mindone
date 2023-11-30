@@ -9,5 +9,5 @@ python demo/sampling_without_streamlit.py \
   --config configs/training/sd_xl_base_finetune_lora_910b.yaml \
   --weight $base_ckpt_path,$ckpt_path \
   --prompt "a painting of a tree with a mountain in the background and a person standing in the foreground with a snow covered ground" \
-  --num_cols 4 \
-  --device_target Ascend
+  --device_target Ascend \
+  # --num_cols 4 \
