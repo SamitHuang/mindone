@@ -1,4 +1,5 @@
 import mindspore as ms
+import argparse
 import torch
 import os
 
@@ -27,7 +28,7 @@ def convert_pt_ms_state_dict(pt_ckpt_path, pt_pinfo_path, ms_pinfo_path, add_ldm
         if add_ldm_prefix:
             ms_pname = ldm_prefix + ms_pname
         target_data.append({"name": ms_pname, "data": ms.Tensor(pt_sd[pt_pname].detach().numpy())})
-    
+
     ms_path = os.path.join( output_dir, os.path.basename(pt_ckpt_path))
     if ms_path == pt_ckpt_path:
         raise ValueError
@@ -38,11 +39,16 @@ def convert_pt_ms_state_dict(pt_ckpt_path, pt_pinfo_path, ms_pinfo_path, add_ldm
     return ms_path
 
 
-if __name__ == "__main__":
-    src_pt_ckpt = '/home/hyx/AnimateDiff/models/Motion_Module/mm_sd_v15_v2.ckpt'
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--src", type=str, default="/home/hyx/AnimateDiff/models/Motion_Module/mm_sd_v15_v2.ckpt",)
+    parser.add_argument("--target", type=str, default="../models/Motion_Module")
+    args = parser.parse_args()
+
+    src_pt_ckpt = args.src
     torch_names_txt = './torch_mm_params.txt'
     ms_names_txt = './ms_mm_params.txt'
 
-    output_dir = '../models/Motion_Module'
+    output_dir = args.target
 
     ms_path = convert_pt_ms_state_dict(src_pt_ckpt, torch_names_txt, ms_names_txt, output_dir=output_dir)

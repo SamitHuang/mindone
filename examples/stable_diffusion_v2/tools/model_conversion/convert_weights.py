@@ -194,7 +194,7 @@ def MINDSPORE_PYTORCH_DIFFUSERS_V2():
     torch.save(target_clip, os.path.join(args.target, "text_encoder", "pytorch_model.bin"))
 
 
-def _load_v1_and_merge_qkv(source_data, lines_ms, lines_pt):
+def _load_v1_and_merge_qkv(source_data, lines_ms, lines_pt, force_fp32=True):
     target_data = []
     i = j = 0
     while i < len(lines_ms):
@@ -203,7 +203,10 @@ def _load_v1_and_merge_qkv(source_data, lines_ms, lines_pt):
         if "attn.attn.in_proj" not in line_ms:
             line_pt = lines_pt[j]
             _name_pt, _, _ = line_pt.strip().split("#")
-            target_data.append({"name": _name_ms, "data": ms.Tensor(source_data[_name_pt].cpu().detach().numpy())})
+            if force_fp32:
+                target_data.append({"name": _name_ms, "data": ms.Tensor(source_data[_name_pt].cpu().detach().numpy(), dtype=ms.float32)})
+            else:
+                target_data.append({"name": _name_ms, "data": ms.Tensor(source_data[_name_pt].cpu().detach().numpy())})
             i += 1
             j += 1
         else:
@@ -216,11 +219,17 @@ def _load_v1_and_merge_qkv(source_data, lines_ms, lines_pt):
                     w.append(source_data[_name_pt].cpu().detach().numpy())
                 else:
                     b.append(source_data[_name_pt].cpu().detach().numpy())
-            target_data.append({"name": _name_ms, "data": ms.Tensor(np.concatenate([b[1], b[0], b[2]]))})
+            if force_fp32:
+                target_data.append({"name": _name_ms, "data": ms.Tensor(np.concatenate([b[1], b[0], b[2]]), dtype=ms.float32)})
+            else:
+                target_data.append({"name": _name_ms, "data": ms.Tensor(np.concatenate([b[1], b[0], b[2]]))})
             i += 1
             line_ms = lines_ms[i]
             _name_ms, _, _ = line_ms.strip().split("#")
-            target_data.append({"name": _name_ms, "data": ms.Tensor(np.concatenate([w[1], w[0], w[2]]))})
+            if force_fp32:
+                target_data.append({"name": _name_ms, "data": ms.Tensor(np.concatenate([w[1], w[0], w[2]]), dtype=ms.float32)})
+            else:
+                target_data.append({"name": _name_ms, "data": ms.Tensor(np.concatenate([w[1], w[0], w[2]]))})
             i += 1
     return target_data
 
@@ -231,7 +240,7 @@ def PYTORCH_MINDSPORE_STABLE_DIFFUSION_V1():
     with open("tools/model_conversion/pt_names_v1.txt") as file_pt:
         lines_pt = file_pt.readlines()
     source_data = load_torch_ckpt(args.source)
-    target_data = _load_v1_and_merge_qkv(source_data, lines_ms, lines_pt)
+    target_data = _load_v1_and_merge_qkv(source_data, lines_ms, lines_pt, force_fp32=True)
     ms.save_checkpoint(target_data, args.target)
 
 
