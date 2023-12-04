@@ -85,15 +85,22 @@ def get_parser_sample():
 
 
 def run_txt2img(
-    args, model, version_dict, is_legacy=False, return_latents=False, filter=None, stage2strength=None, amp_level="O0"
+    args, model, version_dict, is_legacy=False, return_latents=False, filter=None, stage2strength=None, amp_level="O0", save_path='./',
 ):
     assert args.sd_xl_base_ratios in SD_XL_BASE_RATIOS
     W, H = SD_XL_BASE_RATIOS[args.sd_xl_base_ratios]
     C = version_dict["C"]
     F = version_dict["f"]
-
+    
+    prompts = []
+    if os.path.exists(args.prompt):
+        with open(args.prompt, "r") as f:
+            prompts = f.read().splitlines()
+    else:
+        prompts = [args.prompt]
+     
     value_dict = {
-        "prompt": args.prompt,
+        "prompt": prompts[0],
         "negative_prompt": args.negative_prompt,
         "orig_width": args.orig_width if args.orig_width else W,
         "orig_height": args.orig_height if args.orig_height else H,
@@ -115,23 +122,34 @@ def run_txt2img(
     num_samples = num_rows * num_cols
 
     print("Txt2Img Sampling")
-    s_time = time.time()
-    out = model.do_sample(
-        sampler,
-        value_dict,
-        num_samples,
-        H,
-        W,
-        C,
-        F,
-        force_uc_zero_embeddings=["txt"] if not is_legacy else [],
-        return_latents=return_latents,
-        filter=filter,
-        amp_level=amp_level,
-    )
-    print(f"Txt2Img sample step {sampler.num_steps}, time cost: {time.time() - s_time:.2f}s")
+    outs = []
+    for i, prompt in enumerate(prompts):
+        print(f"[{i+1}/{len(prompts)}]: sampling prompt: ",value_dict['prompt'])
+        value_dict['prompt'] = prompt
+        s_time = time.time()
+        out = model.do_sample(
+            sampler,
+            value_dict,
+            num_samples,
+            H,
+            W,
+            C,
+            F,
+            force_uc_zero_embeddings=["txt"] if not is_legacy else [],
+            return_latents=return_latents,
+            filter=filter,
+            amp_level=amp_level,
+        )
+        print(f"Txt2Img sample step {sampler.num_steps}, time cost: {time.time() - s_time:.2f}s")
 
-    return out
+        out = out if isinstance(out, (tuple, list)) else [out, None]
+        (samples, samples_z) = out
+
+        perform_save_locally(save_path, samples)
+
+        outs.append(out)
+
+    return outs
 
 
 def run_img2img(args, model, is_legacy=False, return_latents=False, filter=None, stage2strength=None, amp_level="O0"):
@@ -300,6 +318,7 @@ def sample(args):
             filter=filter,
             stage2strength=stage2strength,
             amp_level=args.ms_amp_level,
+            save_path=save_path,
         )
     elif task == "img2img":
         out = run_img2img(
@@ -313,11 +332,12 @@ def sample(args):
         )
     else:
         raise ValueError(f"Unknown task {task}")
+    
+    if task != 'txt2img':
+        out = out if isinstance(out, (tuple, list)) else [out, None]
+        (samples, samples_z) = out
 
-    out = out if isinstance(out, (tuple, list)) else [out, None]
-    (samples, samples_z) = out
-
-    perform_save_locally(save_path, samples)
+        perform_save_locally(save_path, samples)
 
     if add_pipeline:
         print("**Running Refinement Stage**")

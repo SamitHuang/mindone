@@ -47,7 +47,7 @@ model:
             params:
               layer: hidden
               layer_idx: 11
-              version: ./checkpoints/models--openai--clip-vit-large-patch14/snapshots/8d052a0f05efbaefbc9e8786ba291cfdf93e5bff
+              version: models/openai-clip-vit-large-patch14
               # pretrained: ''
           # crossattn and vector cond
           - is_trainable: False
