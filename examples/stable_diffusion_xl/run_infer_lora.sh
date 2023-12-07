@@ -3,7 +3,7 @@ export MS_PYNATIVE_GE=1
 
 base_ckpt_path='models/sd_xl_base_1.0_ms.ckpt'
 #ckpt_path="outputs/train_lora_r4_noInfNan/2023.11.29-16.52.15/weights/SDXL-base-1.0_15000_lora.ckpt"
-ckpt_path="outputs/train_lora_r4_clipFixed_noInfNan/2023.11.30-13.26.12/weights/SDXL-base-1.0_4000_lora.ckpt"
+ckpt_path="outputs/train_lora_r4_clipFixed_noInfNan/2023.11.30-13.26.12/weights/SDXL-base-1.0_6000_lora.ckpt"
 
 python demo/sampling_without_streamlit.py \
   --task txt2img \
