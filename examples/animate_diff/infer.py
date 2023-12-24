@@ -20,9 +20,9 @@ from ldm.modules.train.tools import set_random_seed
 from ldm.util import instantiate_from_config, str2bool
 
 from ldm.pipelines.load_models import load_model_from_config
-#from ldm.pipelines.infer_engine import SDText2Img
+from ldm.pipelines.infer_engine import SDText2Img
 from ldm.pipelines.image_utils import VaeImageProcessor
-from animate_diff.pipelines.infer_engine import SDText2Video 
+# from animate_diff.pipelines.infer_engine import SDText2Video 
 from animate_diff.utils.util import save_videos
 
 
@@ -223,7 +223,7 @@ if __name__ == '__main__':
     # Use ldm config method instead of diffusers and transformers
     parser.add_argument("--sd_config", type=str, default="configs/stable_diffusion/v1-inference-unet3d.yaml")
 
-    parser.add_argument("--L", type=int, default=16 )
+    parser.add_argument("--L", type=int, default=4 )
     parser.add_argument("--W", type=int, default=512)
     parser.add_argument("--H", type=int, default=512)
 
