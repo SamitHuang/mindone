@@ -22,7 +22,7 @@ from ldm.util import instantiate_from_config, str2bool
 from ldm.pipelines.load_models import load_model_from_config
 #from ldm.pipelines.infer_engine import SDText2Img
 from ldm.pipelines.image_utils import VaeImageProcessor
-from animate_diff.pipelines.infer_engine import SDText2Video 
+from animate_diff.pipelines.infer_engine import SDText2Video
 from animate_diff.utils.util import save_videos
 
 
@@ -86,6 +86,10 @@ def main(args):
     sd_config = OmegaConf.load(args.sd_config)
     sd_model_path = args.pretrained_model_path
 
+    mm_zero_initialize = sd_config.model.params.unet_config.params.motion_module_kwargs.get('zero_initialize', True)
+    print("D--: mm_zero_initialize", mm_zero_initialize)
+
+
     if dreambooth_path != "":
         if os.path.exists(dreambooth_path):
             sd_model_path = dreambooth_path  # DB params naming rule is the same sd ldm
@@ -98,7 +102,6 @@ def main(args):
     inference_config = OmegaConf.load(ad_config.get("inference_config", args.inference_config))
     # unet_additional_kwargs = inference_config.unet_additional_kwargs
     noise_scheduler_kwargs = inference_config.noise_scheduler_kwargs
-
 
     # 1. init env
     init_env(args)
@@ -130,13 +133,27 @@ def main(args):
         # add prefix (used in the whole sd model) to param if needed
         mm_pnames = list(mm_state_dict.keys())
         for pname in mm_pnames:
+            # NOTE: zero_initialize for VanillaTemporalModule affects param name for proj_out
+            #       zero_initialize                  cell param name
+            # if zero_initialize = False   		temporal_transformer.proj_out.weight
+			# if zero_initialize = True			proj_out.weight
+            if mm_zero_initialize:
+                if '.proj_out.' in pname:
+                    # remove 'temporal_transformer.' for loading to mm cell
+                    new_pname = pname.replace('.temporal_transformer.', '.')
+                    mm_state_dict[new_pname] = mm_state_dict.pop(pname)
+                else:
+                    new_pname = pname
+
             if add_ldm_prefix:
                 if not pname.startswith(ldm_prefix):
-                    new_pname = ldm_prefix + pname
+                    new_pname = ldm_prefix + new_pname
                     mm_state_dict[new_pname] = mm_state_dict.pop(pname)
 
         params_not_load, ckpt_not_load = ms.load_param_into_net(unet, mm_state_dict)
-        print("The following params in checkpoint are not loaded into net: ", ckpt_not_load)
+        print("The following params in mm ckpt are not loaded into net: ", ckpt_not_load)
+        assert len(ckpt_not_load) == 0, 'All params in motion module must be loaded'
+
         if len(ckpt_not_load) > 0:
             print('unet mm param name: ')
             for param in unet.get_parameters():
@@ -148,7 +165,7 @@ def main(args):
 
             raise ValueError
     #img_processor = VaeImageProcessor()
-    ''' 
+    '''
     i = 0
     for param in unet.get_parameters():
         if 'temporal_' in param.name:
@@ -159,7 +176,7 @@ def main(args):
         if i >= 4:
             exit()
     '''
-    
+
     # TODO: is it necessary to use full fp32?
     if args.target_device!= "Ascend":
         # unet.to_float(ms.float32)
