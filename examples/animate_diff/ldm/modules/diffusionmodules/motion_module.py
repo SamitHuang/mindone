@@ -276,6 +276,7 @@ class TemporalTransformerBlock(nn.Cell):
 
     def construct(self, hidden_states, encoder_hidden_states=None, attention_mask=None, video_length=None):
         for attention_block, norm in zip(self.attention_blocks, self.norms):
+            # print("D--: attention_block.is_cross_attention ", attention_block.is_cross_attention)
             norm_hidden_states = norm(hidden_states)
             hidden_states = attention_block(
                 norm_hidden_states,
@@ -337,6 +338,8 @@ class VersatileAttention(ms.nn.Cell):
         super().__init__()
         assert attention_mode == "Temporal"
 
+        self.is_cross_attention = cross_attention_dim is not None
+
         inner_dim = dim_head * heads
         cross_attention_dim = cross_attention_dim if cross_attention_dim is not None else query_dim
         self.upcast_attention = upcast_attention
@@ -376,7 +379,7 @@ class VersatileAttention(ms.nn.Cell):
                 nn.Dropout(p=dropout),
                 )
         self.attention_mode = attention_mode
-        self.is_cross_attention = cross_attention_dim is not None
+
 
         # TODO: adapt
         self.pos_encoder = PositionalEncoding(

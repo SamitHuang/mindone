@@ -137,7 +137,28 @@ def main(args):
 
         params_not_load, ckpt_not_load = ms.load_param_into_net(unet, mm_state_dict)
         print("The following params in checkpoint are not loaded into net: ", ckpt_not_load)
+        if len(ckpt_not_load) > 0:
+            print('unet mm param name: ')
+            for param in unet.get_parameters():
+                if 'temporal_' in param.name:
+                    print(param.name)
+
+            print('ckpt mm param name: ')
+            print(list(mm_state_dict.keys()))
+
+            raise ValueError
     #img_processor = VaeImageProcessor()
+    ''' 
+    i = 0
+    for param in unet.get_parameters():
+        if 'temporal_' in param.name:
+            print(param.name, param.data.sum())
+            i += 1
+        else:
+            print(param.name, param.data.sum())
+        if i >= 4:
+            exit()
+    '''
 
     if args.target_device!= "Ascend":
         unet.to_float(ms.float32)
