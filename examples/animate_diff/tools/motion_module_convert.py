@@ -23,6 +23,7 @@ def convert_pt_ms_state_dict(pt_ckpt_path, pt_pinfo_path, ms_pinfo_path, add_ldm
     target_data = []
     for i, (pt_pname, pt_pshape, pt_ptype) in enumerate(pt_param_info):
         ms_pname, ms_pshape, ms_dtype = ms_param_info[i]
+        # check param order and shape
         assert pt_pshape==ms_pshape, f"pt and ms param shape mismatch, please check order correspondance. pt: {pt_pname}, {pt_pshape}, ms: {ms_pname}, {ms_pshape}. "
         assert pt_pname in pt_sd, f"param not in torch ckpt, please check: {pt_pname}"
         if add_ldm_prefix:

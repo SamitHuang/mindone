@@ -72,10 +72,14 @@ class VanillaTemporalModule(nn.Cell):
         Returns:
             (b*f c h w)
         '''
+        dtype = input_tensor.dtype
+
         hidden_states = input_tensor
         hidden_states = self.temporal_transformer(hidden_states, encoder_hidden_states, attention_mask, video_length=video_length)
 
         output = hidden_states
+
+        output = output.to(dtype) # TODO: need debug for fp16 or fp32
         return output
 
 class FeedForward(nn.Cell):
@@ -277,6 +281,7 @@ class TemporalTransformerBlock(nn.Cell):
 
     def construct(self, hidden_states, encoder_hidden_states=None, attention_mask=None, video_length=None):
         for attention_block, norm in zip(self.attention_blocks, self.norms):
+            # print("D--: attention_block.is_cross_attention ", attention_block.is_cross_attention)
             norm_hidden_states = norm(hidden_states)
             hidden_states = attention_block(
                 norm_hidden_states,
