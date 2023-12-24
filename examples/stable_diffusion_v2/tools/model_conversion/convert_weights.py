@@ -202,8 +202,8 @@ def np2ms_tensor(inp, force_fp32=True):
     return out
 
 
-def _load_v1_and_merge_qkv(source_data, lines_ms, lines_pt, force_fp32=True):
-    dtype = ms.float32 if force_fp32 else None
+def _load_v1_and_merge_qkv(source_data, lines_ms, lines_pt):
+    # dtype = ms.float32 if force_fp32 else None
     target_data = []
     i = j = 0
     while i < len(lines_ms):
@@ -240,7 +240,7 @@ def PYTORCH_MINDSPORE_STABLE_DIFFUSION_V1():
     with open("tools/model_conversion/pt_names_v1.txt") as file_pt:
         lines_pt = file_pt.readlines()
     source_data = load_torch_ckpt(args.source)
-    target_data = _load_v1_and_merge_qkv(source_data, lines_ms, lines_pt)
+    target_data = _load_v1_and_merge_qkv(source_data, lines_ms, lines_pt, force_fp32=True)
     ms.save_checkpoint(target_data, args.target)
 
 

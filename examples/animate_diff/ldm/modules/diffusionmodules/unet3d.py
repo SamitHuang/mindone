@@ -369,6 +369,8 @@ class UNet3DModel(nn.Cell):
             assert unet_use_cross_frame_attention==False, "not support"
             assert unet_use_temporal_attention==False, "not support"
             assert motion_module_type=='Vanilla', 'not support'
+        else:
+            print("D---: WARNING: not using motion module")
 
         if use_spatial_transformer:
             assert (
