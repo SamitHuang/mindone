@@ -48,6 +48,7 @@ class VanillaTemporalModule(nn.Cell):
     ):
         super().__init__()
 
+
         self.temporal_transformer = TemporalTransformer3DModel(
             in_channels=in_channels,
             num_attention_heads=num_attention_heads,
@@ -338,7 +339,10 @@ class VersatileAttention(ms.nn.Cell):
         assert attention_mode == "Temporal"
 
         inner_dim = dim_head * heads
+
+        self.is_cross_attention = cross_attention_dim is not None # MUST be placed before
         cross_attention_dim = cross_attention_dim if cross_attention_dim is not None else query_dim
+
         self.upcast_attention = upcast_attention
         self.upcast_softmax = upcast_softmax
 
@@ -376,7 +380,6 @@ class VersatileAttention(ms.nn.Cell):
                 nn.Dropout(p=dropout),
                 )
         self.attention_mode = attention_mode
-        self.is_cross_attention = cross_attention_dim is not None
 
         # TODO: adapt
         self.pos_encoder = PositionalEncoding(
