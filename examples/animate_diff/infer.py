@@ -94,11 +94,11 @@ def main(args):
     use_lora = True if lora_model_path != "" else False
     #print("D--: ", lora_model_path, use_lora)
 
+    # TODO: merge unet addition kwargs to sd_confg
     inference_config = OmegaConf.load(ad_config.get("inference_config", args.inference_config))
-    unet_additional_kwargs = inference_config.unet_additional_kwargs
+    # unet_additional_kwargs = inference_config.unet_additional_kwargs
     noise_scheduler_kwargs = inference_config.noise_scheduler_kwargs
 
-    # TODO: merge unet addition kwargs to sd_confg
 
     # 1. init env
     init_env(args)
@@ -159,9 +159,10 @@ def main(args):
         if i >= 4:
             exit()
     '''
-
+    
+    # TODO: is it necessary to use full fp32?
     if args.target_device!= "Ascend":
-        unet.to_float(ms.float32)
+        # unet.to_float(ms.float32)
         vae.to_float(ms.float32)
 
     # 2) ddim sampler

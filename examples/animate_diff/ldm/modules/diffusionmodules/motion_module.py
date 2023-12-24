@@ -71,10 +71,14 @@ class VanillaTemporalModule(nn.Cell):
         Returns:
             (b*f c h w)
         '''
+        dtype = input_tensor.dtype
+        
         hidden_states = input_tensor
         hidden_states = self.temporal_transformer(hidden_states, encoder_hidden_states, attention_mask, video_length=video_length)
 
         output = hidden_states
+        
+        output = output.to(dtype) # TODO: need debug for fp16 or fp32
         return output
 
 class FeedForward(nn.Cell):
