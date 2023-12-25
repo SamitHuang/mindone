@@ -40,7 +40,7 @@ def update_unet2d_params_for_unet3d(ckpt_param_dict):
 def load_model_from_config(config, ckpt, use_lora=False, lora_rank=4, lora_fp16=True, lora_only_ckpt=None, lora_scale=1.0, is_training=False, use_motion_module=True):
     model = instantiate_from_config(config.model)
 
-    def _load_model(_model, ckpt_fp, verbose=True, filter=None):
+    def _load_model(_model, ckpt_fp, verbose=True, ignore_net_param_not_load_warning=False):
         if os.path.exists(ckpt_fp):
             param_dict = ms.load_checkpoint(ckpt_fp)
             # update param dict loading unet2d checkpoint to unet3d
@@ -48,6 +48,10 @@ def load_model_from_config(config, ckpt, use_lora=False, lora_rank=4, lora_fp16=
                 param_dict = update_unet2d_params_for_unet3d(param_dict)
 
             if param_dict:
+                if ignore_net_param_not_load_warning:
+                    filter = param_dict.keys() 
+                else:
+                    filter = None
                 param_not_load, ckpt_not_load = model_utils.load_param_into_net_with_filter(
                     _model, param_dict, filter=filter
                 )
@@ -78,7 +82,7 @@ def load_model_from_config(config, ckpt, use_lora=False, lora_rank=4, lora_fp16=
                 raise ValueError(f"{lora_only_ckpt} doesn't exist")
             # load the main pretrained model
             logger.info(f"Loading pretrained model from {ckpt}")
-            _load_model(model, ckpt, verbose=True, filter=ms.load_checkpoint(ckpt).keys())
+            _load_model(model, ckpt, ignore_net_param_not_load_warning=True)
             # inject lora params
             injected_attns, injected_trainable_params = inject_trainable_lora(
                 model,
@@ -88,15 +92,10 @@ def load_model_from_config(config, ckpt, use_lora=False, lora_rank=4, lora_fp16=
             )
             # load fine-tuned lora params
             logger.info(f"Loading LoRA params from {lora_only_ckpt}")
-            _load_model(model, lora_only_ckpt, verbose=True, filter=injected_trainable_params.keys())
+            _load_model(model, lora_only_ckpt, ignore_net_param_not_load_warning=True)
     else:
         logger.info(f"Loading model from {ckpt}")
-        if use_motion_module:
-            # ckpt does not contain motion module params yet.
-            filter = ms.load_checkpoint(ckpt).keys()
-        else:
-            filter = None
-        _load_model(model, ckpt, filter=filter)
+        _load_model(model, ckpt, ignore_net_param_not_load_warning=True)
     
     if not is_training:
         model.set_train(False)

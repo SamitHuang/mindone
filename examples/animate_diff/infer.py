@@ -26,19 +26,6 @@ from ldm.pipelines.image_utils import VaeImageProcessor
 from animate_diff.pipelines.infer_engine import SDText2Video
 from animate_diff.utils.util import save_videos
 
-
-#import torch
-#import diffusers
-#from diffusers import AutoencoderKL, DDIMScheduler
-#from transformers import CLIPTextModel, CLIPTokenizer
-
-#from animatediff.models.unet import UNet3DConditionModel
-#from animatediff.pipelines.pipeline_animation import AnimationPipeline
-#from animatediff.utils.util import save_videos_grid
-#from animatediff.utils.util import load_weights
-#from diffusers.utils.import_utils import is_xformers_available
-#from einops import rearrange, repeat
-
 logger = logging.getLogger(__name__)
 
 def init_env(args):
@@ -123,11 +110,9 @@ def main(args):
     text_encoder = sd_model.cond_stage_model
     unet = sd_model.model
     vae = sd_model.first_stage_model
-
-    with open('unet_mm_params.txt', 'w') as fp:
-        for param in unet.get_parameters():
-            fp.write(param.name+'\n')
-    print("D--: unet mm cell param names saved")
+    # with open('unet_mm_params.txt', 'w') as fp:
+    #    for param in unet.get_parameters():
+    #        fp.write(param.name+'\n')
 
     # load motion module weights if use mm
     add_ldm_prefix = True
@@ -139,25 +124,11 @@ def main(args):
         # add prefix (used in the whole sd model) to param if needed
         mm_pnames = list(mm_state_dict.keys())
         for pname in mm_pnames:
-            # NOTE: zero_initialize for VanillaTemporalModule affects param name for proj_out
-            #       zero_initialize                  cell param name
-            # if zero_initialize = False   		temporal_transformer.proj_out.weight
-			# if zero_initialize = True			proj_out.weight
-            if mm_zero_initialize:
-                if '.proj_out.' in pname:
-                    # remove 'temporal_transformer.' for loading to mm cell
-                    # new_pname = pname.replace('.temporal_transformer.', '.')
-                    # mm_state_dict[new_pname] = mm_state_dict.pop(pname)
-                    new_pname = pname
-                else:
-                    new_pname = pname
-
             if add_ldm_prefix:
                 if not pname.startswith(ldm_prefix):
                     new_pname = ldm_prefix + new_pname
                     mm_state_dict[new_pname] = mm_state_dict.pop(pname)
 
-        # params_not_load, ckpt_not_load = ms.load_param_into_net(unet, mm_state_dict)
         params_not_load, ckpt_not_load = model_utils.load_param_into_net_with_filter(
                 unet, 
                 mm_state_dict, 
@@ -178,22 +149,6 @@ def main(args):
 
             raise ValueError
     #img_processor = VaeImageProcessor()
-    '''
-    i = 0
-    for param in unet.get_parameters():
-        if 'temporal_' in param.name:
-            print(param.name, param.data.sum())
-            i += 1
-        else:
-            print(param.name, param.data.sum())
-        if i >= 4:
-            exit()
-    '''
-
-    # TODO:  
-    if args.target_device!= "Ascend":
-        # unet.to_float(ms.float32)
-        vae.to_float(ms.float32) # goog for reducing noise in generated images
 
     # 2) ddim sampler
     sampler_config = OmegaConf.load("configs/inference/scheduler/ddim.yaml")
