@@ -20,6 +20,7 @@ from ldm.modules.train.tools import set_random_seed
 from ldm.util import instantiate_from_config, str2bool
 
 from ldm.pipelines.load_models import load_model_from_config
+from ldm.utils import model_utils
 from ldm.pipelines.infer_engine import SDText2Img
 from ldm.pipelines.image_utils import VaeImageProcessor
 from animate_diff.pipelines.infer_engine import SDText2Video
@@ -87,8 +88,7 @@ def main(args):
     sd_model_path = args.pretrained_model_path
 
     mm_zero_initialize = sd_config.model.params.unet_config.params.motion_module_kwargs.get('zero_initialize', True)
-    print("D--: mm_zero_initialize", mm_zero_initialize)
-
+    # print("D--: mm_zero_initialize", mm_zero_initialize)
 
     if dreambooth_path != "":
         if os.path.exists(dreambooth_path):
@@ -102,6 +102,7 @@ def main(args):
     inference_config = OmegaConf.load(ad_config.get("inference_config", args.inference_config))
     # unet_additional_kwargs = inference_config.unet_additional_kwargs
     noise_scheduler_kwargs = inference_config.noise_scheduler_kwargs
+    use_motion_module = sd_config.model.params.unet_config.params.use_motion_module
 
     # 1. init env
     init_env(args)
@@ -116,14 +117,19 @@ def main(args):
         use_lora=use_lora,
         lora_only_ckpt=lora_model_path,
         lora_scale=lora_scale,
+        use_motion_module=use_motion_module,
     )
 
     text_encoder = sd_model.cond_stage_model
     unet = sd_model.model
     vae = sd_model.first_stage_model
 
+    with open('unet_mm_params.txt', 'w') as fp:
+        for param in unet.get_parameters():
+            fp.write(param.name+'\n')
+    print("D--: unet mm cell param names saved")
+
     # load motion module weights if use mm
-    use_motion_module = sd_config.model.params.unet_config.params.use_motion_module
     add_ldm_prefix = True
     ldm_prefix = 'model.diffusion_model.'
     if use_motion_module:
@@ -140,8 +146,9 @@ def main(args):
             if mm_zero_initialize:
                 if '.proj_out.' in pname:
                     # remove 'temporal_transformer.' for loading to mm cell
-                    new_pname = pname.replace('.temporal_transformer.', '.')
-                    mm_state_dict[new_pname] = mm_state_dict.pop(pname)
+                    # new_pname = pname.replace('.temporal_transformer.', '.')
+                    # mm_state_dict[new_pname] = mm_state_dict.pop(pname)
+                    new_pname = pname
                 else:
                     new_pname = pname
 
@@ -150,7 +157,13 @@ def main(args):
                     new_pname = ldm_prefix + new_pname
                     mm_state_dict[new_pname] = mm_state_dict.pop(pname)
 
-        params_not_load, ckpt_not_load = ms.load_param_into_net(unet, mm_state_dict)
+        # params_not_load, ckpt_not_load = ms.load_param_into_net(unet, mm_state_dict)
+        params_not_load, ckpt_not_load = model_utils.load_param_into_net_with_filter(
+                unet, 
+                mm_state_dict, 
+                filter=mm_state_dict.keys(),
+                )
+
         print("The following params in mm ckpt are not loaded into net: ", ckpt_not_load)
         assert len(ckpt_not_load) == 0, 'All params in motion module must be loaded'
 
@@ -177,10 +190,10 @@ def main(args):
             exit()
     '''
 
-    # TODO: is it necessary to use full fp32?
+    # TODO:  
     if args.target_device!= "Ascend":
         # unet.to_float(ms.float32)
-        vae.to_float(ms.float32)
+        vae.to_float(ms.float32) # goog for reducing noise in generated images
 
     # 2) ddim sampler
     sampler_config = OmegaConf.load("configs/inference/scheduler/ddim.yaml")
@@ -250,8 +263,6 @@ def main(args):
 
     logger.info(f"Done! All generated images are saved in: {save_dir}" f"\nEnjoy.")
     OmegaConf.save(config, f"{save_dir}/config.yaml")
-
-
 
 
 if __name__ == '__main__':

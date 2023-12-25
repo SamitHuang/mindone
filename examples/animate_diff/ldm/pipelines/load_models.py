@@ -15,16 +15,43 @@ from mindspore import ops
 logger = logging.getLogger()
 
 
-def load_model_from_config(config, ckpt, use_lora=False, lora_rank=4, lora_fp16=True, lora_only_ckpt=None, lora_scale=1.0, is_training=False):
+def update_unet2d_params_for_unet3d(ckpt_param_dict):
+    # after injecting temporal moduels to unet2d cell, param name of some layers are changed.
+    # apply the change to ckpt param names as well to load all unet ckpt params to unet3d cell
+
+    # map the name change from 2d to 3d, annotated from vimdiff compare, 
+    prefix_mapping = {
+            'model.diffusion_model.middle_block.2': 'model.diffusion_model.middle_block.3',
+            'model.diffusion_model.output_blocks.2.1': 'model.diffusion_model.output_blocks.2.2',
+            'model.diffusion_model.output_blocks.5.2': 'model.diffusion_model.output_blocks.5.3',
+            'model.diffusion_model.output_blocks.8.2': 'model.diffusion_model.output_blocks.8.3',
+            }
+
+    pnames = list(ckpt_param_dict.keys()) 
+    for pname in pnames:
+        for prefix_2d, prefix_3d in prefix_mapping.items():
+            if pname.startswith(prefix_2d):
+                new_pname = pname.replace(prefix_2d, prefix_3d)
+                ckpt_param_dict[new_pname] = ckpt_param_dict.pop(pname)
+
+    return ckpt_param_dict
+
+
+def load_model_from_config(config, ckpt, use_lora=False, lora_rank=4, lora_fp16=True, lora_only_ckpt=None, lora_scale=1.0, is_training=False, use_motion_module=True):
     model = instantiate_from_config(config.model)
 
     def _load_model(_model, ckpt_fp, verbose=True, filter=None):
         if os.path.exists(ckpt_fp):
             param_dict = ms.load_checkpoint(ckpt_fp)
+            # update param dict loading unet2d checkpoint to unet3d
+            if use_motion_module:
+                param_dict = update_unet2d_params_for_unet3d(param_dict)
+
             if param_dict:
                 param_not_load, ckpt_not_load = model_utils.load_param_into_net_with_filter(
                     _model, param_dict, filter=filter
                 )
+                assert len(ckpt_not_load)==0, f"All params in SD checkpoint must be loaded. but got these not loaded {ckpt_not_load}"
                 if verbose:
                     if len(param_not_load) > 0:
                         logger.info(
@@ -64,7 +91,12 @@ def load_model_from_config(config, ckpt, use_lora=False, lora_rank=4, lora_fp16=
             _load_model(model, lora_only_ckpt, verbose=True, filter=injected_trainable_params.keys())
     else:
         logger.info(f"Loading model from {ckpt}")
-        _load_model(model, ckpt)
+        if use_motion_module:
+            # ckpt does not contain motion module params yet.
+            filter = ms.load_checkpoint(ckpt).keys()
+        else:
+            filter = None
+        _load_model(model, ckpt, filter=filter)
     
     if not is_training:
         model.set_train(False)

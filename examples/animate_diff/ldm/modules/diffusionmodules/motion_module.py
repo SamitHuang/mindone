@@ -48,7 +48,7 @@ class VanillaTemporalModule(nn.Cell):
     ):
         super().__init__()
 
-
+        # print("D---: zero_initialize in MM", zero_initialize)
         self.temporal_transformer = TemporalTransformer3DModel(
             in_channels=in_channels,
             num_attention_heads=num_attention_heads,
