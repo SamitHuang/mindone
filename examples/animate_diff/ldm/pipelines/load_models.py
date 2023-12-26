@@ -56,6 +56,8 @@ def merge_motion_lora_to_unet(unet, lora_ckpt_path, alpha=1.0):
 
             unet_pdict[attn_pname].set_data(merged_weight)
 
+    logger.info(f"Inspected LoRA rank: {down_weight.shape[0]}")
+
     return unet
 
 
@@ -73,8 +75,8 @@ def merge_motion_lora_to_mm_pdict(mm_param_dict, lora_ckpt_path, alpha=1.0):
 
     for lora_pname in lora_pdict:
         if "lora.down." in lora_pname: # skip lora.up
-            lora_down_pname = lora_name
-            lora_up_pname = lora_name.replace("lora.down.", "lora.up.")
+            lora_down_pname = lora_pname
+            lora_up_pname = lora_pname.replace("lora.down.", "lora.up.")
 
             # 1. locate the target attn dense layer weight (q/k/v/out) by param name
             attn_pname = lora_pname.replace("processor.", "").replace("_lora", "").replace("down.", "").replace("up.", "")
