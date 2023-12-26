@@ -19,7 +19,7 @@ from ldm.modules.logger import set_logger
 from ldm.modules.train.tools import set_random_seed
 from ldm.util import instantiate_from_config, str2bool
 
-from ldm.pipelines.load_models import load_model_from_config
+from ldm.pipelines.load_models import load_model_from_config, merge_motion_lora_to_unet
 from ldm.utils import model_utils
 from ldm.pipelines.infer_engine import SDText2Img
 from ldm.pipelines.image_utils import VaeImageProcessor
@@ -55,7 +55,7 @@ def main(args):
     # 0. parse and merge config
     # 1) sd config, 2) db ckpt path, 3) lora ckpt path, 4) mm ckpt path, 5) unet additional args, 6) noise schedule args
     config = OmegaConf.load(args.config)
-    task_name = list(config.keys())[0]
+    task_name = list(config.keys())[0] # TODO: support multiple tasks
     ad_config = config[task_name]
     # print("D--: ", ad_config)
 
@@ -64,7 +64,9 @@ def main(args):
     lora_alpha = lora_scale = ad_config.get("lora_alpha", 0.8)
 
     motion_module_paths = ad_config.get("motion_module", "")
-    motion_module_path = motion_module_paths[0]
+    motion_module_path = motion_module_paths[0] # TODO: support testing multiple ckpts
+    motion_lora_config = ad_config.get("motion_module_lora_configs", [None])[0]
+    print("D--: motion lora config: ", motion_lora_config)
 
     seeds, steps, guidance_scale = ad_config.get("seed", 0), ad_config.steps, ad_config.guidance_scale
     prompts = ad_config.prompt
@@ -130,25 +132,18 @@ def main(args):
                     mm_state_dict[new_pname] = mm_state_dict.pop(pname)
 
         params_not_load, ckpt_not_load = model_utils.load_param_into_net_with_filter(
-                unet, 
-                mm_state_dict, 
+                unet,
+                mm_state_dict,
                 filter=mm_state_dict.keys(),
                 )
 
         print("The following params in mm ckpt are not loaded into net: ", ckpt_not_load)
         assert len(ckpt_not_load) == 0, 'All params in motion module must be loaded'
 
-        if len(ckpt_not_load) > 0:
-            print('unet mm param name: ')
-            for param in unet.get_parameters():
-                if 'temporal_' in param.name:
-                    print(param.name)
-
-            print('ckpt mm param name: ')
-            print(list(mm_state_dict.keys()))
-
-            raise ValueError
-    #img_processor = VaeImageProcessor()
+        if motion_lora_config is not None:
+            _mlora_path, alpha = motion_lora_config["path"], motion_lora_config["alpha"]
+            print("Loading motion lora from ", path)
+            unet = merge_motion_lora_to_unet(unet, _mlora_path, alpha)
 
     # 2) ddim sampler
     sampler_config = OmegaConf.load("configs/inference/scheduler/ddim.yaml")
@@ -224,7 +219,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrained_model_path", type=str, default="models/stable_diffusion/sd_v1.5-d0ab7146.ckpt",)
     parser.add_argument("--inference_config",      type=str, default="configs/inference/inference-v2.yaml")
-    parser.add_argument("--config",                type=str, default="configs/prompts/1-ToonYou.yaml")
+    parser.add_argument("--config",                type=str, default="configs/prompts/v2/1-ToonYou.yaml")
     # Use ldm config method instead of diffusers and transformers
     parser.add_argument("--sd_config", type=str, default="configs/stable_diffusion/v1-inference-unet3d.yaml")
 
