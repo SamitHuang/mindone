@@ -40,8 +40,8 @@ def merge_motion_lora_to_unet(unet, lora_ckpt_path, alpha=1.0):
 
     for lora_pname in lora_pdict:
         if "lora.down." in lora_pname: # skip lora.up
-            lora_down_pname = lora_name
-            lora_up_pname = lora_name.replace("lora.down.", "lora.up.")
+            lora_down_pname = lora_pname
+            lora_up_pname = lora_pname.replace("lora.down.", "lora.up.")
 
             # 1. locate the target attn dense layer weight (q/k/v/out) by param name
             attn_pname = lora_pname.replace("processor.", "").replace("_lora", "").replace("down.", "").replace("up.", "")
@@ -171,7 +171,7 @@ def load_model_from_config(config, ckpt, use_lora=False, lora_rank=4, lora_fp16=
             logger.info(f"Loading LoRA params from {lora_only_ckpt}")
             _load_model(model, lora_only_ckpt, ignore_net_param_not_load_warning=True)
     else:
-        logger.info(f"Loading model from {ckpt}")
+        logger.info(f"Loading main model from {ckpt}")
         _load_model(model, ckpt, ignore_net_param_not_load_warning=True)
 
     if not is_training:

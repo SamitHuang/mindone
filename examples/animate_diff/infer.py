@@ -120,7 +120,7 @@ def main(args):
     add_ldm_prefix = True
     ldm_prefix = 'model.diffusion_model.'
     if use_motion_module:
-        print("Loading motion module from ", motion_module_path)
+        logger.info("Loading motion module from {}".format(motion_module_path))
         mm_state_dict = ms.load_checkpoint(motion_module_path)
 
         # add prefix (used in the whole sd model) to param if needed
@@ -136,13 +136,13 @@ def main(args):
                 mm_state_dict,
                 filter=mm_state_dict.keys(),
                 )
-
-        print("The following params in mm ckpt are not loaded into net: ", ckpt_not_load)
+        if len(ckpt_not_load) > 0:
+            logger.warning("The following params in mm ckpt are not loaded into net: {}".format(ckpt_not_load))
         assert len(ckpt_not_load) == 0, 'All params in motion module must be loaded'
 
         if motion_lora_config is not None:
             _mlora_path, alpha = motion_lora_config["path"], motion_lora_config["alpha"]
-            print("Loading motion lora from ", path)
+            logger.info("Loading motion lora from {}".format(_mlora_path))
             unet = merge_motion_lora_to_unet(unet, _mlora_path, alpha)
 
     # 2) ddim sampler
