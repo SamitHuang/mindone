@@ -146,12 +146,13 @@ def main(args):
             unet = merge_motion_lora_to_unet(unet, _mlora_path, alpha)
 
     # 2) ddim sampler
-    sampler_config = OmegaConf.load("configs/inference/scheduler/ddim.yaml") # TODO: currently fixed to ddim, but it's better to merege to inference yaml
-    sampler_config.params.beta_start = noise_scheduler_kwargs.beta_start
+    # TODO: merge noise_scheduler_kwargs and ddim.yaml  
+    sampler_config = OmegaConf.load("configs/inference/scheduler/ddim.yaml")  #base template
+    sampler_config.params.beta_start = noise_scheduler_kwargs.beta_start # overwrite
     sampler_config.params.beta_end = noise_scheduler_kwargs.beta_end
     sampler_config.params.beta_schedule = noise_scheduler_kwargs.beta_schedule
 
-    logger.info(f"noise beta scheduler: {beta_schedule}")
+    logger.info(f"noise beta scheduler: {sampler_config.params.beta_schedule}")
 
     scheduler = instantiate_from_config(sampler_config)
     timesteps = scheduler.set_timesteps(steps)
