@@ -187,7 +187,3 @@ def make_beta_schedule(schedule="linear", n_timestep=1000, linear_start=1e-4, li
         raise ValueError(f"schedule '{schedule}' unknown.")
 
     return betas
-
-def is_old_ms_version(last_old_version="1.10.1"):
-    # some APIs are changed after ms 1.10.1 version, such as dropout
-    return version.parse(ms.__version__) <= version.parse(last_old_version)

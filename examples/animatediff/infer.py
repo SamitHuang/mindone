@@ -70,7 +70,7 @@ def main(args):
     motion_module_paths = ad_config.get("motion_module", "")
     motion_module_path = motion_module_paths[0] # TODO: support testing multiple ckpts
     motion_lora_config = ad_config.get("motion_module_lora_configs", [None])[0]
-    print("D--: motion lora config: ", motion_lora_config)
+    # print("D--: motion lora config: ", motion_lora_config)
 
     seeds, steps, guidance_scale = ad_config.get("seed", 0), ad_config.steps, ad_config.guidance_scale
     prompts = ad_config.prompt
@@ -150,6 +150,8 @@ def main(args):
     sampler_config.params.beta_start = noise_scheduler_kwargs.beta_start
     sampler_config.params.beta_end = noise_scheduler_kwargs.beta_end
     sampler_config.params.beta_schedule = noise_scheduler_kwargs.beta_schedule
+
+    logger.info(f"noise beta scheduler: {beta_schedule}")
 
     scheduler = instantiate_from_config(sampler_config)
     timesteps = scheduler.set_timesteps(steps)

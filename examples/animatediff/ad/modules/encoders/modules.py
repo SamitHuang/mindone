@@ -1,7 +1,7 @@
 import numpy as np
-from ldm.models.clip.simple_tokenizer import get_tokenizer
-from ldm.modules.diffusionmodules.openaimodel import Timestep
-from ldm.modules.diffusionmodules.upscaling import ImageConcatWithNoiseAugmentation
+from ad.models.clip.simple_tokenizer import get_tokenizer
+from ad.modules.diffusionmodules.openaimodel import Timestep
+from ad.modules.diffusionmodules.upscaling import ImageConcatWithNoiseAugmentation
 from PIL import Image
 
 import mindspore as ms

@@ -16,7 +16,7 @@ import logging
 from functools import partial
 
 import numpy as np
-from ldm.modules.diffusionmodules.util import make_beta_schedule
+from ad.modules.diffusionmodules.util import make_beta_schedule
 from mindone.utils.misc import default, exists, extract_into_tensor
 from mindone.utils.config import instantiate_from_config
 

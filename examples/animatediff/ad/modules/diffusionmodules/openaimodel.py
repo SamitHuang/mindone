@@ -14,8 +14,8 @@
 # ============================================================================
 import logging
 
-from animate_diff.models.attention import SpatialTransformer
-from animate_diff.models.util import (
+from ldm.modules.attention import SpatialTransformer
+from ldm.modules.diffusionmodules.util import (
     Identity,
     avg_pool_nd,
     conv_nd,
@@ -25,7 +25,6 @@ from animate_diff.models.util import (
     zero_module,
 )
 from ldm.util import is_old_ms_version
-from .util import normalization
 
 import mindspore as ms
 import mindspore.nn as nn
@@ -93,24 +92,6 @@ class Downsample(nn.Cell):
     def construct(self, x, emb=None, context=None):
         return self.op(x)
 
-class CrossAttnDownBlock3D():
-    pass
-
-class CrossAttnUpBlock3D():
-    pass
-
-class DownBlock3D():
-    pass
-
-class UNetMidBlock3DCrossAttn():
-    pass
-
-class UpBlock3D():
-    pass
-
-class InflatedGroupNorm():
-    pass
-
 
 class ResBlock(nn.Cell):
     """
@@ -142,7 +123,6 @@ class ResBlock(nn.Cell):
         up=False,
         down=False,
         dtype=ms.float32,
-        use_inflated_groupnorm=False,
     ):
         super().__init__()
         self.channels = channels
@@ -158,7 +138,7 @@ class ResBlock(nn.Cell):
         self.identity = Identity()
         self.split = ops.Split(1, 2)
 
-        self.in_layers_norm = normalization(channels, use_inflated_groupnorm=use_inflated_groupnorm)
+        self.in_layers_norm = normalization(channels)
         self.in_layers_silu = nn.SiLU().to_float(self.dtype)
         self.in_layers_conv = conv_nd(
             dims, channels, self.out_channels, 3, padding=1, has_bias=True, pad_mode="pad"
@@ -174,14 +154,14 @@ class ResBlock(nn.Cell):
             self.h_upd = self.x_upd = self.identity
 
         self.emb_layers = nn.SequentialCell(
-                nn.SiLU().to_float(self.dtype), # TODO: keep SiLU fp32
+            nn.SiLU().to_float(self.dtype),
             linear(
                 emb_channels, 2 * self.out_channels if use_scale_shift_norm else self.out_channels, dtype=self.dtype
             ),
         )
 
-        self.out_layers_norm = normalization(self.out_channels, use_inflated_groupnorm=use_inflated_groupnorm)
-        self.out_layers_silu = nn.SiLU().to_float(self.dtype) # TODO: keep SiLU fp32
+        self.out_layers_norm = normalization(self.out_channels)
+        self.out_layers_silu = nn.SiLU().to_float(self.dtype)
 
         if is_old_ms_version():
             self.out_layers_drop = nn.Dropout(keep_prob=self.dropout)
@@ -206,27 +186,17 @@ class ResBlock(nn.Cell):
             ).to_float(self.dtype)
 
     def construct(self, x, emb, context=None):
-        '''
-        x: (b c f h w)
-        emb: (b, dim_emb), time embedding 
-        context: None 
-        '''
         if self.updown:
-            # (b c f h w) -> (b c f h*w) -> GroupNorm
-            # TODO: it's different from unet3d in VC (where x in shpae (b*f c h w))
-            ##  here (b c f h*w), divide gouop on c, (b G c//G f h*w), then average on (c//G, f, h*w), so mean is c//G features of the whole video pixels
-            ## VC: (b*f c h w), divide gouop on c, (b*f G c//G f h w), then average on (c//G, h, w), so mean is c//G features of a frame
             h = self.in_layers_norm(x)
             h = self.in_layers_silu(h)
-            h = self.h_upd(h, emb, context) # h = h
+            h = self.h_upd(h, emb, context)
             x = self.x_upd(x, emb, context)
-            h = self.in_layers_conv(h, emb, context) # b c f h w
+            h = self.in_layers_conv(h, emb, context)
         else:
             h = self.in_layers_norm(x)
             h = self.in_layers_silu(h)
             h = self.in_layers_conv(h, emb, context)
-        
-        # (b dim_temb) -> (b dim_temb 1 1 1)
+
         emb_out = self.emb_layers(emb)
         while len(emb_out.shape) < len(h.shape):
             emb_out = ops.expand_dims(emb_out, -1)
@@ -248,8 +218,6 @@ class ResBlock(nn.Cell):
         return self.skip_connection(x) + h
 
 
-##-------------------------- 3D modules END ----------------------------
-
 class QKVAttention(nn.Cell):
     """
     A module which performs QKV attention and splits in a different order.
@@ -269,7 +237,7 @@ class QKVAttentionLegacy(nn.Cell):
         super().__init__()
         self.n_heads = n_heads
 
-# not used
+
 class AttentionBlock(nn.Cell):
     """
     An attention block that allows spatial positions to attend to each other.
@@ -297,7 +265,7 @@ class Timestep(nn.Cell):
         return timestep_embedding(t, self.dim)
 
 
-class UNet3DModel(nn.Cell):
+class UNetModel(nn.Cell):
     """
     The full UNet model with attention and timestep embedding.
     :param in_channels: channels in the input Tensor.
@@ -358,7 +326,6 @@ class UNet3DModel(nn.Cell):
         cross_frame_attention=False,
         unet_chunk_size=2,
         adm_in_channels=None,
-        use_inflated_groupnorm=False,
     ):
         super().__init__()
 
@@ -453,7 +420,6 @@ class UNet3DModel(nn.Cell):
                             use_checkpoint=use_checkpoint,
                             use_scale_shift_norm=use_scale_shift_norm,
                             dtype=self.dtype,
-                            use_inflated_groupnorm=use_inflated_groupnorm,
                         )
                     ]
                 )
@@ -542,7 +508,6 @@ class UNet3DModel(nn.Cell):
                     use_checkpoint=use_checkpoint,
                     use_scale_shift_norm=use_scale_shift_norm,
                     dtype=self.dtype,
-                    use_inflated_groupnorm=use_inflated_groupnorm,
                 ),
                 AttentionBlock(
                     ch,
@@ -594,7 +559,6 @@ class UNet3DModel(nn.Cell):
                             use_checkpoint=use_checkpoint,
                             use_scale_shift_norm=use_scale_shift_norm,
                             dtype=self.dtype,
-                            use_inflated_groupnorm=use_inflated_groupnorm,
                         )
                     ]
                 )
@@ -671,50 +635,49 @@ class UNet3DModel(nn.Cell):
         self.cat = ops.Concat(axis=1)
 
     def construct(
-        self, x, timesteps=None, context=None, y=None, append_to_context=None, **kwargs
+        self, x, timesteps=None, context=None, y=None, features_adapter: list = None, append_to_context=None, **kwargs
     ):
         """
         Apply the model to an input batch.
-        :param x: (b c f h w)
-        :param context: conditioning plugged in via crossattn, text embedding shape: (b seq_len ftr_dim), i.e. (b 77 768) for sd1.5
-        :param timesteps: (b,)  a 1-D batch of timesteps.
-        :param y: an [N] Tensor of class labels, if class-conditional.
+        :param x: an [N x C x ...] Tensor of inputs.
+        :param timesteps: a 1-D batch of timesteps.
+        :param context: conditioning plugged in via crossattn
+        :param y: an [N] Tensor of labels, if class-conditional.
         :return: an [N x C x ...] Tensor of outputs.
         """
         assert (y is not None) == (
             self.num_classes is not None
         ), "must specify y if and only if the model is class-conditional"
-        
-        # 1. time embedding: (bs,) -> (bs, 1280)
+        hs = []
         t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
         emb = self.time_embed(t_emb)
-        
-        # class embedding if have class condition
+
         if self.num_classes is not None:
             assert y.shape[0] == x.shape[0]
             emb = emb + self.label_emb(y)
 
-        # 1.5 reshape inputs
         h = x
 
         if append_to_context is not None:
             context = ops.cat([context, append_to_context], axis=1)
-        
-        # 2. input blocks: a) input conv, b) down blocks 
-        hs = []
+
         adapter_idx = 0
         for i, celllist in enumerate(self.input_blocks, 1):
-            # for first cell (conv_in): (b c f h w) -> (b f c h w) -> (b*f c h w) 
             for cell in celllist:
                 h = cell(h, emb, context)
 
+            if features_adapter and i % 3 == 0:
+                h = h + features_adapter[adapter_idx]
+                adapter_idx += 1
+
             hs.append(h)
 
-        # middle block
+        if features_adapter:
+            assert len(features_adapter) == adapter_idx, "Wrong features_adapter"
+
         for module in self.middle_block:
             h = module(h, emb, context)
 
-        # output blocks: up blocks
         hs_index = -1
         for celllist in self.output_blocks:
             h = self.cat((h, hs[hs_index]))

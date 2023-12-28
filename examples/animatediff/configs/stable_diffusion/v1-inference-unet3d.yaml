@@ -1,6 +1,6 @@
 model:
   base_learning_rate: 1.0e-04
-  target: ldm.models.diffusion.ddpm.LatentDiffusion
+  target: ad.models.diffusion.ddpm.LatentDiffusion
   params:
     linear_start: 0.00085
     linear_end: 0.0120
@@ -19,7 +19,7 @@ model:
     use_fp16: True
 
     unet_config:
-      target: ldm.modules.diffusionmodules.unet3d.UNet3DModel
+      target: ad.modules.diffusionmodules.unet3d.UNet3DModel
       params:
         image_size: 32 # unused
         in_channels: 4
@@ -55,7 +55,7 @@ model:
           temporal_attention_dim_div: 1
 
     first_stage_config:
-      target: ldm.models.autoencoder.AutoencoderKL
+      target: ad.models.autoencoder.AutoencoderKL
       params:
         embed_dim: 4
         monitor: val/rec_loss
@@ -77,7 +77,7 @@ model:
           dropout: 0.0
 
     cond_stage_config:
-      target: ldm.modules.encoders.modules.FrozenCLIPEmbedder
+      target: ad.modules.encoders.modules.FrozenCLIPEmbedder
       params:
         use_fp16: True
         tokenizer_name: "BpeTokenizer"

@@ -5,7 +5,7 @@ from tqdm import tqdm
 import mindspore as ms
 from mindspore import ops
 
-from ldm.modules.diffusionmodules.unet3d import rearrange_in
+from ad.modules.diffusionmodules.unet3d import rearrange_in
 
 
 class AnimateDiffText2Video(ABC):
