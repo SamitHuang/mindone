@@ -146,7 +146,7 @@ def main(args):
             unet = merge_motion_lora_to_unet(unet, _mlora_path, alpha)
 
     # 2) ddim sampler
-    sampler_config = OmegaConf.load("configs/inference/scheduler/ddim.yaml")
+    sampler_config = OmegaConf.load("configs/inference/scheduler/ddim.yaml") # TODO: currently fixed to ddim, but it's better to merege to inference yaml
     sampler_config.params.beta_start = noise_scheduler_kwargs.beta_start
     sampler_config.params.beta_end = noise_scheduler_kwargs.beta_end
     sampler_config.params.beta_schedule = noise_scheduler_kwargs.beta_schedule
@@ -216,9 +216,9 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument("--config",                type=str, default="configs/prompts/v2/1-ToonYou.yaml")
     parser.add_argument("--pretrained_model_path", type=str, default="models/stable_diffusion/sd_v1.5-d0ab7146.ckpt",)
     parser.add_argument("--inference_config",      type=str, default="configs/inference/inference-v2.yaml")
-    parser.add_argument("--config",                type=str, default="configs/prompts/v2/1-ToonYou.yaml")
     # Use ldm config method instead of diffusers and transformers
     parser.add_argument("--sd_config", type=str, default="configs/stable_diffusion/v1-inference-unet3d.yaml")
 

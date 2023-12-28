@@ -17,7 +17,8 @@ from functools import partial
 
 import numpy as np
 from ldm.modules.diffusionmodules.util import make_beta_schedule
-from ldm.util import default, exists, extract_into_tensor, instantiate_from_config
+from mindone.utils.misc import default, exists, extract_into_tensor
+from mindone.utils.config import instantiate_from_config
 
 from mindspore import Parameter, Tensor
 from mindspore import dtype as mstype

@@ -15,7 +15,7 @@
 import logging
 
 import numpy as np
-from ldm.util import is_old_ms_version
+from mindone.utils.version_control import is_old_ms_version
 
 import mindspore as ms
 import mindspore.nn as nn

@@ -102,7 +102,7 @@ class DDIMScheduler(nn.Cell):
         else:
             raise NotImplementedError(f"{beta_schedule} does is not implemented for {self.__class__}")
 
-        print("D--: beta scheduler", beta_schedule, beta_start, beta_end)
+        print("INFO: beta scheduler", beta_schedule, beta_start, beta_end)
 
         # Rescale for zero SNR
         if rescale_betas_zero_snr:

@@ -14,7 +14,7 @@
 # ============================================================================
 
 import numpy as np
-from ..util import is_old_ms_version
+from mindone.utils.version_control import is_old_ms_version
 
 import mindspore as ms
 from mindspore import Tensor, nn, ops

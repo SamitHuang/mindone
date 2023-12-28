@@ -2,7 +2,7 @@ from functools import partial
 
 import numpy as np
 from ldm.modules.diffusionmodules.util import make_beta_schedule
-from ldm.util import extract_into_tensor
+from mindone.utils.misc import extract_into_tensor
 
 import mindspore as ms
 import mindspore.nn as nn
