@@ -24,10 +24,13 @@ from mindspore import ops
 _logger = logging.getLogger(__name__)
 
 
-def nonlinearity(x):
+def nonlinearity(x, upcast=False):
     # swish
     ori_dtype = x.dtype
-    return x * (ops.Sigmoid()(x.astype(ms.float32))).astype(ori_dtype)
+    if upcast:
+        return x * (ops.Sigmoid()(x.astype(ms.float32))).astype(ori_dtype)
+    else:
+        return x * (ops.Sigmoid()(x))
 
 
 def Normalize(in_channels, num_groups=32):
@@ -75,9 +78,18 @@ class Downsample(nn.Cell):
         return x
 
 
+# used in vae
 class ResnetBlock(nn.Cell):
     def __init__(
-        self, *, in_channels, out_channels=None, conv_shortcut=False, dropout, temb_channels=512, dtype=ms.float32
+        self,
+        *,
+        in_channels,
+        out_channels=None,
+        conv_shortcut=False,
+        dropout,
+        temb_channels=512,
+        dtype=ms.float32,
+        upcast_sigmoid=False,
     ):
         super().__init__()
         self.dtype = dtype
@@ -85,6 +97,7 @@ class ResnetBlock(nn.Cell):
         out_channels = in_channels if out_channels is None else out_channels
         self.out_channels = out_channels
         self.use_conv_shortcut = conv_shortcut
+        self.upcast_sigmoid = upcast_sigmoid
 
         self.norm1 = Normalize(in_channels)
         self.conv1 = nn.Conv2d(
@@ -113,14 +126,14 @@ class ResnetBlock(nn.Cell):
     def construct(self, x, temb):
         h = x
         h = self.norm1(h)
-        h = nonlinearity(h)
+        h = nonlinearity(h, upcast=self.upcast_sigmoid)
         h = self.conv1(h)
 
         if temb is not None:
-            h = h + self.temb_proj(nonlinearity(temb))[:, :, None, None]
+            h = h + self.temb_proj(nonlinearity(temb, upcast=self.upcast_sigmoid))[:, :, None, None]
 
         h = self.norm2(h)
-        h = nonlinearity(h)
+        h = nonlinearity(h, upcast=self.upcast_sigmoid)
         h = self.dropout(h)
         h = self.conv2(h)
 
@@ -188,6 +201,7 @@ def make_attn(in_channels, attn_type="vanilla", dtype=ms.float32):
         return AttnBlock(in_channels, dtype=dtype)
 
 
+# used in vae
 class Encoder(nn.Cell):
     def __init__(
         self,
@@ -206,6 +220,7 @@ class Encoder(nn.Cell):
         use_linear_attn=False,
         attn_type="vanilla",
         dtype=ms.float32,
+        upcast_sigmoid=False,
         **ignore_kwargs,
     ):
         super().__init__()
@@ -217,6 +232,7 @@ class Encoder(nn.Cell):
         self.resolution = resolution
         self.in_channels = in_channels
         self.dtype = dtype
+        self.upcast_sigmoid = (upcast_sigmoid,)
 
         # downsampling
         self.conv_in = nn.Conv2d(
@@ -240,6 +256,7 @@ class Encoder(nn.Cell):
                         temb_channels=self.temb_ch,
                         dropout=dropout,
                         dtype=self.dtype,
+                        upcast_sigmoid=upcast_sigmoid,
                     )
                 )
                 block_in = block_out
@@ -259,11 +276,21 @@ class Encoder(nn.Cell):
         # middle
         self.mid = nn.Cell()
         self.mid.block_1 = ResnetBlock(
-            in_channels=block_in, out_channels=block_in, temb_channels=self.temb_ch, dropout=dropout, dtype=self.dtype
+            in_channels=block_in,
+            out_channels=block_in,
+            temb_channels=self.temb_ch,
+            dropout=dropout,
+            dtype=self.dtype,
+            upcast_sigmoid=upcast_sigmoid,
         )
         self.mid.attn_1 = make_attn(block_in, attn_type=attn_type, dtype=self.dtype)
         self.mid.block_2 = ResnetBlock(
-            in_channels=block_in, out_channels=block_in, temb_channels=self.temb_ch, dropout=dropout, dtype=self.dtype
+            in_channels=block_in,
+            out_channels=block_in,
+            temb_channels=self.temb_ch,
+            dropout=dropout,
+            dtype=self.dtype,
+            upcast_sigmoid=upcast_sigmoid,
         )
 
         # end
@@ -301,11 +328,12 @@ class Encoder(nn.Cell):
 
         # end
         h = self.norm_out(h)
-        h = nonlinearity(h)
+        h = nonlinearity(h, upcast=self.upcast_sigmoid)
         h = self.conv_out(h)
         return h
 
 
+# used in vae
 class Decoder(nn.Cell):
     def __init__(
         self,
@@ -325,6 +353,7 @@ class Decoder(nn.Cell):
         use_linear_attn=False,
         attn_type="vanilla",
         dtype=ms.float32,
+        upcast_sigmoid=False,
         **ignorekwargs,
     ):
         super().__init__()
@@ -338,6 +367,7 @@ class Decoder(nn.Cell):
         self.give_pre_end = give_pre_end
         self.tanh_out = tanh_out
         self.dtype = dtype
+        self.upcast_sigmoid = upcast_sigmoid
 
         # compute in_ch_mult, block_in and curr_res at lowest res
         # in_ch_mult = (1,) + tuple(ch_mult)
@@ -427,7 +457,7 @@ class Decoder(nn.Cell):
         if self.give_pre_end:
             return h
         h = self.norm_out(h)
-        h = nonlinearity(h)
+        h = nonlinearity(h, upcast=self.upcast_sigmoid)
         h = self.conv_out(h)
         if self.tanh_out:
             h = ops.tanh(h)
