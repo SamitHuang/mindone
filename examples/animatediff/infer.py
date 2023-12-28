@@ -6,7 +6,7 @@ import time
 import argparse
 import datetime
 import inspect
-import os
+import os, sys
 from omegaconf import OmegaConf
 from tqdm.auto import tqdm
 import csv, pdb, glob
@@ -15,16 +15,20 @@ from pathlib import Path
 import numpy as np
 import mindspore as ms
 
-from ldm.modules.logger import set_logger
-from ldm.modules.train.tools import set_random_seed
-from ldm.util import instantiate_from_config, str2bool
+# TODO: remove in future when mindone is ready for install
+__dir__ = os.path.dirname(os.path.abspath(__file__))
+mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../"))
+sys.path.insert(0, mindone_lib_path)
 
-from ldm.pipelines.load_models import load_model_from_config, merge_motion_lora_to_unet
-from ldm.utils import model_utils
-from ldm.pipelines.infer_engine import SDText2Img
-from ldm.pipelines.image_utils import VaeImageProcessor
-from animate_diff.pipelines.infer_engine import SDText2Video
-from animate_diff.utils.util import save_videos
+from ad.pipelines.infer_engine import AnimateDiffText2Video
+from ad.utils.load_models import load_model_from_config, merge_motion_lora_to_unet
+
+from mindone.utils.logger import set_logger
+from mindone.utils.seed import set_random_seed
+from mindone.utils.config import instantiate_from_config, str2bool
+from mindone.utils.videos import save_videos 
+from mindone.utils.load_params import load_param_into_net_with_filter
+
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +81,6 @@ def main(args):
     sd_model_path = args.pretrained_model_path
 
     mm_zero_initialize = sd_config.model.params.unet_config.params.motion_module_kwargs.get('zero_initialize', True)
-    # print("D--: mm_zero_initialize", mm_zero_initialize)
 
     if dreambooth_path != "":
         if os.path.exists(dreambooth_path):
@@ -99,14 +102,10 @@ def main(args):
 
     # 2. build model components for ldm
     # 1)  create vae, text encoder, and unet and load weights
-    # TODO: change mixed precision. fp32 at first?
     sd_model = load_model_from_config(
         sd_config,
         ckpt=sd_model_path,
-        use_lora=use_lora,
-        lora_only_ckpt=lora_model_path,
-        lora_scale=lora_scale,
-        use_motion_module=use_motion_module,
+        use_motion_module=use_motion_module, # indicate unet 2d->3d param name changes
     )
 
     text_encoder = sd_model.cond_stage_model
@@ -130,8 +129,8 @@ def main(args):
                 if not pname.startswith(ldm_prefix):
                     new_pname = ldm_prefix + new_pname
                     mm_state_dict[new_pname] = mm_state_dict.pop(pname)
-
-        params_not_load, ckpt_not_load = model_utils.load_param_into_net_with_filter(
+        
+        params_not_load, ckpt_not_load = load_param_into_net_with_filter(
                 unet,
                 mm_state_dict,
                 filter=mm_state_dict.keys(),
@@ -139,7 +138,8 @@ def main(args):
         if len(ckpt_not_load) > 0:
             logger.warning("The following params in mm ckpt are not loaded into net: {}".format(ckpt_not_load))
         assert len(ckpt_not_load) == 0, 'All params in motion module must be loaded'
-
+        
+        # motion lora
         if motion_lora_config is not None:
             _mlora_path, alpha = motion_lora_config["path"], motion_lora_config["alpha"]
             logger.info("Loading motion lora from {}".format(_mlora_path))
@@ -155,7 +155,7 @@ def main(args):
     timesteps = scheduler.set_timesteps(steps)
 
     # 3. build inference pipeline
-    pipeline = SDText2Video(
+    pipeline = AnimateDiffText2Video(
         text_encoder,
         unet,
         vae,
@@ -194,7 +194,6 @@ def main(args):
         x_samples = x_samples.asnumpy()
         # print("D--: pipeline output ", x_samples.shape)
 
-        # x_samples = img_processor.postprocess(x_samples) # transpose, convert to PIL object
         end_time = time.time()
 
         # save result
@@ -239,6 +238,4 @@ if __name__ == '__main__':
     print(args)
 
     main(args)
-
-
 

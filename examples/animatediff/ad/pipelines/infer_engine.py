@@ -8,9 +8,9 @@ from mindspore import ops
 from ldm.modules.diffusionmodules.unet3d import rearrange_in
 
 
-class SDText2Video(ABC):
+class AnimateDiffText2Video(ABC):
     """
-    Stable Diffusion inference.
+    Text2Video inference pipeline
 
     Args:
         text_encoder (nn.Cell): Frozen text-encoder.
@@ -154,7 +154,4 @@ class SDText2Video(ABC):
         # latents: (b c f h w)
         frames = self.vae_decode(latents)
         return frames
-
-
-
 
