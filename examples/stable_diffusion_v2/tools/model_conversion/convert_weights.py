@@ -194,11 +194,11 @@ def MINDSPORE_PYTORCH_DIFFUSERS_V2():
     torch.save(target_clip, os.path.join(args.target, "text_encoder", "pytorch_model.bin"))
 
 
-def np2ms_tensor(inp, force_fp32=True): 
+def np2ms_tensor(inp, force_fp32=True):
     ms_dtype = None
     if inp.dtype == np.float16 and force_fp32:
-        ms_dtype = ms.float32 
-    out = ms.Tensor(inp, dtype=ms_dtype) 
+        ms_dtype = ms.float32
+    out = ms.Tensor(inp, dtype=ms_dtype)
     return out
 
 
@@ -240,7 +240,7 @@ def PYTORCH_MINDSPORE_STABLE_DIFFUSION_V1():
     with open("tools/model_conversion/pt_names_v1.txt") as file_pt:
         lines_pt = file_pt.readlines()
     source_data = load_torch_ckpt(args.source)
-    target_data = _load_v1_and_merge_qkv(source_data, lines_ms, lines_pt, force_fp32=True)
+    target_data = _load_v1_and_merge_qkv(source_data, lines_ms, lines_pt)
     ms.save_checkpoint(target_data, args.target)
 
 

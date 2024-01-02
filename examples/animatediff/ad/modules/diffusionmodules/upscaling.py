@@ -2,12 +2,13 @@ from functools import partial
 
 import numpy as np
 from ad.modules.diffusionmodules.util import make_beta_schedule
-from mindone.utils.misc import extract_into_tensor
 
 import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
 from mindspore import Tensor
+
+from mindone.utils.misc import extract_into_tensor
 
 
 class AbstractLowScaleModel(nn.Cell):

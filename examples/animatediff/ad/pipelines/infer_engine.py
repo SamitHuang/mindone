@@ -1,11 +1,10 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 
+from ad.modules.diffusionmodules.unet3d import rearrange_in
 from tqdm import tqdm
 
 import mindspore as ms
 from mindspore import ops
-
-from ad.modules.diffusionmodules.unet3d import rearrange_in
 
 
 class AnimateDiffText2Video(ABC):
@@ -50,23 +49,23 @@ class AnimateDiffText2Video(ABC):
 
     @ms.jit
     def vae_decode(self, x):
-        '''
+        """
         Args:
             x: (b c f h w), denoised latent
         Return:
             y: (b f H W 3), batch of video frames, normalized to [0, 1]
-        '''
+        """
         b, c, f, h, w = x.shape
         # (b c f h w) -> (b*f c h w)
         x = rearrange_in(x)
-        
+
         # (b*f 4 64 64) -> (b*f 3 512 512)
         y = self.vae.decode(x / self.scale_factor)
         y = ops.clip_by_value((y + 1.0) / 2.0, clip_value_min=0.0, clip_value_max=1.0)
 
-        # (b*f 3 H W) -> (b*f H W 3) -> (b f H W 3) 
+        # (b*f 3 H W) -> (b*f H W 3) -> (b f H W 3)
         y = ops.transpose(y, (0, 2, 3, 1))
-        y = ops.reshape(y, (y.shape[0]//f, f, y.shape[1], y.shape[2], y.shape[3]))
+        y = ops.reshape(y, (y.shape[0] // f, f, y.shape[1], y.shape[2], y.shape[3]))
 
         return y
 
@@ -117,31 +116,29 @@ class AnimateDiffText2Video(ABC):
         noise_pred = self.guidance_rescale * noise_pred_rescaled + (1 - self.guidance_rescale) * noise_pred
         return noise_pred
 
-
     def data_prepare(self, inputs):
         latents = inputs["noise"]
         c_crossattn = self.prompt_embed(inputs["prompt_data"], inputs["negative_prompt_data"])
         return latents, c_crossattn, None
 
     def tensor_to_video(self, frames):
-        '''
+        """
         Args:
             frames: (b*f 3 H W)
         Return:
-            frames: (b f H W 3) 
-        '''
-        
-        frames= frames.asnumpy().transpose(0, 2, 3, 1)
+            frames: (b f H W 3)
+        """
 
+        frames = frames.asnumpy().transpose(0, 2, 3, 1)
 
     def __call__(self, inputs):
-        '''
+        """
         args:
             inputs: dict
 
         return:
-            frames (b f H W 3) 
-        '''
+            frames (b f H W 3)
+        """
         latents, c_crossattn, c_concat = self.data_prepare(inputs)
         timesteps = inputs["timesteps"]
         iterator = tqdm(timesteps, desc="Sampling", total=len(timesteps))
@@ -150,8 +147,7 @@ class AnimateDiffText2Video(ABC):
             latents = self.scale_model_input(latents, ts)
             noise_pred = self.predict_noise(latents, ts, c_crossattn, inputs["scale"], c_concat)
             latents = self.scheduler(noise_pred, ts, latents, self.num_inference_steps)
-        
+
         # latents: (b c f h w)
         frames = self.vae_decode(latents)
         return frames
-

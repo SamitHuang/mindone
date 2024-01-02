@@ -1,6 +1,11 @@
+import logging
 import os
+
 from packaging import version
+
 import mindspore as ms
+
+logger = logging.getLogger()
 
 
 def is_old_ms_version(last_old_version="1.10.1"):
@@ -11,14 +16,15 @@ def is_old_ms_version(last_old_version="1.10.1"):
 # For the following code, credits are to mindformers
 def is_version_ge(current_version, base_version):
     """
-        return current_version >= base_version.
-        Check whether the current version is higher than or equal to the base version.
-        for current_version: 1.8.1, base_version: 1.11.0, it return False.
+    return current_version >= base_version.
+    Check whether the current version is higher than or equal to the base version.
+    for current_version: 1.8.1, base_version: 1.11.0, it return False.
     """
-    version_split_char = '.'
+    version_split_char = "."
     if version_split_char not in base_version or version_split_char not in current_version:
-        raise ValueError("The version string will contain the `.`."
-                         "For example, current_version 1.8.1， base_version: 1.11.0.")
+        raise ValueError(
+            "The version string will contain the `.`." "For example, current_version 1.8.1， base_version: 1.11.0."
+        )
     for x, y in zip(current_version.split(version_split_char), base_version.split(version_split_char)):
         if not x.isdigit() or not y.isdigit():
             continue
@@ -31,27 +37,30 @@ def get_ascend_soc_version():
     """Get ascend soc version."""
     if is_version_ge(ms.__version__, "2.2.0"):
         from mindspore._c_expression import MSContext
+
         return MSContext.get_instance().get_ascend_soc_version()
     ascend_chip_type = os.getenv("ASCEND_CHIP_TYPE", "UNSET")
     if ascend_chip_type not in ["910a", "910b", "UNSET"]:
         raise EnvironmentError(f"ASCEND_CHIP_TYPE should be in ['910a', '910b'],but get {ascend_chip_type}")
     if ascend_chip_type == "UNSET":
-        logger.info("Environment variables need to be set manually to obtain the chip type,"
-                    "which can be set as follows: \n"
-                    "For 910A chip, run 'export ASCEND_CHIP_TYPE=910a' before the program runs.\n"
-                    "For 910B chip, run 'export ASCEND_CHIP_TYPE=910b' before the program runs.\n"
-                    "If you need to get chip information automatically, MindSpore 2.2 and above is recommended")
+        logger.info(
+            "Environment variables need to be set manually to obtain the chip type,"
+            "which can be set as follows: \n"
+            "For 910A chip, run 'export ASCEND_CHIP_TYPE=910a' before the program runs.\n"
+            "For 910B chip, run 'export ASCEND_CHIP_TYPE=910b' before the program runs.\n"
+            "If you need to get chip information automatically, MindSpore 2.2 and above is recommended"
+        )
     return ascend_chip_type
 
 
 def is_910a():
     device = get_ascend_soc_version()
-    return device in ['910a', 'ascend910']
+    return device in ["910a", "ascend910"]
 
 
 def is_910b():
     device = get_ascend_soc_version()
-    return device in ['910b', 'ascend910b']
+    return device in ["910b", "ascend910b"]
 
 
 def check_valid_flash_attention(import_fa_valid=True):

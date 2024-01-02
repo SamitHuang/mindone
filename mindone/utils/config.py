@@ -1,6 +1,7 @@
-from typing import Union
 import importlib
-from omegaconf import OmegaConf, DictConfig, ListConfig
+from typing import Union
+
+from omegaconf import DictConfig, ListConfig, OmegaConf
 
 
 def str2bool(b):
@@ -12,12 +13,12 @@ def str2bool(b):
 
 
 def instantiate_from_config(config: Union[DictConfig, ListConfig, str]) -> object:
-    '''
+    """
     Args:
-        config: a config dict or a string path to config dict for instantiating a class 
+        config: a config dict or a string path to config dict for instantiating a class
     Return:
-        instantiated object 
-    '''
+        instantiated object
+    """
     if isinstance(config, str):
         config = OmegaConf.load(config).model
     if "target" not in config:
@@ -29,15 +30,13 @@ def instantiate_from_config(config: Union[DictConfig, ListConfig, str]) -> objec
     return get_obj_from_str(config["target"])(**config.get("params", dict()))
 
 
-def get_obj_from_str(string: str, reload: bool=False) -> object:
-    ''' TODO: debug
+def get_obj_from_str(string: str, reload: bool = False) -> object:
+    """TODO: debug
     if string.startswith('mindone'):
         string = '../../' + string
-    '''
+    """
     module, cls = string.rsplit(".", 1)
     if reload:
         module_imp = importlib.import_module(module)
         importlib.reload(module_imp)
     return getattr(importlib.import_module(module, package=None), cls)
-
-

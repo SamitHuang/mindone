@@ -14,46 +14,37 @@
 # ============================================================================
 import logging
 
-from ..attention import SpatialTransformer
-from .util import (
-    Identity,
-    avg_pool_nd,
-    conv_nd,
-    linear,
-    normalization,
-    timestep_embedding,
-    zero_module,
-)
-from mindone.utils.version_control import is_old_ms_version
-
 import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
 
-from .openaimodel import Upsample, Downsample, ResBlock, QKVAttention, QKVAttentionLegacy, AttentionBlock, Timestep
-from .motion_module import get_motion_module, VanillaTemporalModule
+from ..attention import SpatialTransformer
+from .motion_module import VanillaTemporalModule, get_motion_module
+from .openaimodel import AttentionBlock, Downsample, ResBlock, Upsample
+from .util import conv_nd, linear, normalization, timestep_embedding, zero_module
 
 _logger = logging.getLogger(__name__)
 
 
 def rearrange_in(x):
-    '''
+    """
     reshape x from (b c f h w) -> (b*f c h w)
     temporal 5d to spatial 4d
-    '''
+    """
     # b c f h w -> b f c h w -> (b f) c h w
     x = ops.transpose(x, (0, 2, 1, 3, 4))
     x = ops.reshape(x, (-1, x.shape[2], x.shape[3], x.shape[4]))
     return x
 
+
 def rearrange_out(x, f):
-    '''
+    """
     reshape x from (b*f c h w) -> (b c f h w)
     spatial 4d to temporal 5d
     f: num frames
-    '''
+    """
     # (b f) c h w -> b f c h w -> b c f h w
-    x = ops.reshape(x, (x.shape[0]//f, f, x.shape[1], x.shape[2], x.shape[3]))
+    x = ops.reshape(x, (x.shape[0] // f, f, x.shape[1], x.shape[2], x.shape[3]))
     x = ops.transpose(x, (0, 2, 1, 3, 4))
     return x
 
@@ -122,25 +113,29 @@ class UNet3DModel(nn.Cell):
         unet_chunk_size=2,
         adm_in_channels=None,
         # Additional
-        use_inflated_groupnorm=True, # diff, default is to use inference_v2.yaml, more reasonal.
-        use_motion_module              = False,
-        motion_module_resolutions      = ( 1,2,4,8 ), # used to identify which level to be injected with Motion Module
-        motion_module_mid_block        = False,
-        motion_module_decoder_only     = False,
-        motion_module_type             = None, # default:
-        motion_module_kwargs           = {}, #
-        unet_use_cross_frame_attention = None,
-        unet_use_temporal_attention    = None,
+        use_inflated_groupnorm=True,  # diff, default is to use inference_v2.yaml, more reasonal.
+        use_motion_module=False,
+        motion_module_resolutions=(1, 2, 4, 8),  # used to identify which level to be injected with Motion Module
+        motion_module_mid_block=False,
+        motion_module_decoder_only=False,
+        motion_module_type=None,  # default:
+        motion_module_kwargs={},  #
+        unet_use_cross_frame_attention=None,
+        unet_use_temporal_attention=None,
     ):
         super().__init__()
 
-        assert use_inflated_groupnorm==True, "Only support use_inflated_groupnorm=True currently, please use configs/inference/inference_v2.yaml for --inference_config"
+        assert (
+            use_inflated_groupnorm is True
+        ), "Only support use_inflated_groupnorm=True currently, please use configs/inference/inference_v2.yaml for --inference_config"
         if use_motion_module:
-            assert unet_use_cross_frame_attention==False, "not support"
-            assert unet_use_temporal_attention==False, "not support"
-            assert motion_module_type=='Vanilla', 'not support'
+            assert unet_use_cross_frame_attention is False, "not support"
+            assert unet_use_temporal_attention is False, "not support"
+            assert motion_module_type == "Vanilla", "not support"
         else:
             print("D---: WARNING: not using motion module")
+
+        print("D--: flash attention: ", enable_flash_attention)
 
         if use_spatial_transformer:
             assert (
@@ -215,7 +210,7 @@ class UNet3DModel(nn.Cell):
                 )
             ]
         )
-        self._feature_size = model_channels #
+        self._feature_size = model_channels  #
         input_block_chans = [model_channels]
         ch = model_channels
         ds = 1
@@ -276,7 +271,7 @@ class UNet3DModel(nn.Cell):
                 # add MotionModule 1) after SpatialTransformer in DownBlockWithAttn, 3*2 times, or 2) after ResBlock in DownBlockWithoutAttn, 1*2 time.
                 if use_motion_module:
                     layers.append(
-                        get_motion_module( # return VanillaTemporalModule
+                        get_motion_module(  # return VanillaTemporalModule
                             in_channels=ch,
                             motion_module_type=motion_module_type,
                             motion_module_kwargs=motion_module_kwargs,
@@ -346,7 +341,8 @@ class UNet3DModel(nn.Cell):
                     num_heads=num_heads,
                     num_head_channels=dim_head,
                     use_new_attention_order=use_new_attention_order,
-                ) if not use_spatial_transformer
+                )
+                if not use_spatial_transformer
                 else SpatialTransformer(
                     ch,
                     num_heads,
@@ -367,28 +363,28 @@ class UNet3DModel(nn.Cell):
         if use_motion_module and motion_module_mid_block:
             self.middle_block.append(
                 get_motion_module(
-                            in_channels=ch,
-                            motion_module_type=motion_module_type,
-                            motion_module_kwargs=motion_module_kwargs,
-                 )
+                    in_channels=ch,
+                    motion_module_type=motion_module_type,
+                    motion_module_kwargs=motion_module_kwargs,
+                )
             )
         self.middle_block.append(
-                ResBlock(
-                    ch,
-                    time_embed_dim,
-                    self.dropout,
-                    dims=dims,
-                    use_checkpoint=use_checkpoint,
-                    use_scale_shift_norm=use_scale_shift_norm,
-                    dtype=self.dtype,
-                )
+            ResBlock(
+                ch,
+                time_embed_dim,
+                self.dropout,
+                dims=dims,
+                use_checkpoint=use_checkpoint,
+                use_scale_shift_norm=use_scale_shift_norm,
+                dtype=self.dtype,
+            )
         )
 
         self._feature_size += ch
 
         # up blocks
         self.output_blocks = nn.CellList([])
-        for level, mult in list(enumerate(channel_mult))[::-1]: # run 4 times
+        for level, mult in list(enumerate(channel_mult))[::-1]:  # run 4 times
             for i in range(num_res_blocks + 1):  # run 3 times
                 ich = input_block_chans.pop()
                 layers = nn.CellList(
@@ -500,7 +496,7 @@ class UNet3DModel(nn.Cell):
         :param y: an [N] Tensor of labels, if class-conditional.
         :return: (b c f h w), an [N x C x ...] Tensor of outputs.
         """
-        assert len(x.shape)==5, f"UNet3D expect x in shape (b c f h w). but got {x.shape}"
+        assert len(x.shape) == 5, f"UNet3D expect x in shape (b c f h w). but got {x.shape}"
         assert (y is not None) == (
             self.num_classes is not None
         ), "must specify y if and only if the model is class-conditional"
@@ -545,7 +541,7 @@ class UNet3DModel(nn.Cell):
 
         if features_adapter:
             assert len(features_adapter) == adapter_idx, "Wrong features_adapter"
-        
+
         # 2. middle block
         for module in self.middle_block:
             # h = module(h, emb, context)

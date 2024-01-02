@@ -1,14 +1,7 @@
 import logging
 import os
-import warnings
-from mindspore.train.serialization import _load_dismatch_prefix_params, _update_param
-
-import numpy as np
-import PIL
-from PIL import Image
 
 import mindspore as ms
-from mindspore import ops
 
 from mindone.utils.config import instantiate_from_config
 from mindone.utils.load_params import load_param_into_net_with_filter
@@ -17,7 +10,7 @@ logger = logging.getLogger()
 
 
 def merge_motion_lora_to_unet(unet, lora_ckpt_path, alpha=1.0):
-    '''
+    """
     Merge lora weights to motion modules of UNet cell. Make sure motion module checkpoint has been loaded before invoking this function.
 
     Args:
@@ -35,17 +28,19 @@ def merge_motion_lora_to_unet(unet, lora_ckpt_path, alpha=1.0):
         mm attn dense weight name:
             model.diffusion_model.input_blocks.1.2.temporal_transformer.transformer_blocks.0.attention_blocks.1.to_out.0.weight
             = {attn_layer}.{to_q/k/v/out.0}.weight
-    '''
+    """
     lora_pdict = ms.load_checkpoint(lora_ckpt_path)
     unet_pdict = unet.parameters_dict()
 
     for lora_pname in lora_pdict:
-        if "lora.down." in lora_pname: # skip lora.up
+        if "lora.down." in lora_pname:  # skip lora.up
             lora_down_pname = lora_pname
             lora_up_pname = lora_pname.replace("lora.down.", "lora.up.")
 
             # 1. locate the target attn dense layer weight (q/k/v/out) by param name
-            attn_pname = lora_pname.replace("processor.", "").replace("_lora", "").replace("down.", "").replace("up.", "")
+            attn_pname = (
+                lora_pname.replace("processor.", "").replace("_lora", "").replace("down.", "").replace("up.", "")
+            )
             attn_pname = attn_pname.replace("to_out.", "to_out.0.")
 
             # 2. merge lora up and down weight to target dense layer weight
@@ -63,7 +58,7 @@ def merge_motion_lora_to_unet(unet, lora_ckpt_path, alpha=1.0):
 
 
 def merge_motion_lora_to_mm_pdict(mm_param_dict, lora_ckpt_path, alpha=1.0):
-    '''
+    """
     Merge lora weights to montion module param dict. So that we don't need to load param dict to UNet twice.
     Args:
         mm_param_dict: motion module param dict
@@ -71,16 +66,18 @@ def merge_motion_lora_to_mm_pdict(mm_param_dict, lora_ckpt_path, alpha=1.0):
         alpha: the strength of LoRA, typically in range [0, 1]
     Returns:
         updated motion module param dict
-    '''
+    """
     lora_pdict = ms.load_checkpoint(lora_ckpt_path)
 
     for lora_pname in lora_pdict:
-        if "lora.down." in lora_pname: # skip lora.up
+        if "lora.down." in lora_pname:  # skip lora.up
             lora_down_pname = lora_pname
             lora_up_pname = lora_pname.replace("lora.down.", "lora.up.")
 
             # 1. locate the target attn dense layer weight (q/k/v/out) by param name
-            attn_pname = lora_pname.replace("processor.", "").replace("_lora", "").replace("down.", "").replace("up.", "")
+            attn_pname = (
+                lora_pname.replace("processor.", "").replace("_lora", "").replace("down.", "").replace("up.", "")
+            )
             attn_pname = attn_pname.replace("to_out.", "to_out.0.")
 
             # 2. merge lora up and down weight to target dense layer weight
@@ -101,11 +98,11 @@ def update_unet2d_params_for_unet3d(ckpt_param_dict):
 
     # map the name change from 2d to 3d, annotated from vimdiff compare,
     prefix_mapping = {
-            'model.diffusion_model.middle_block.2': 'model.diffusion_model.middle_block.3',
-            'model.diffusion_model.output_blocks.2.1': 'model.diffusion_model.output_blocks.2.2',
-            'model.diffusion_model.output_blocks.5.2': 'model.diffusion_model.output_blocks.5.3',
-            'model.diffusion_model.output_blocks.8.2': 'model.diffusion_model.output_blocks.8.3',
-            }
+        "model.diffusion_model.middle_block.2": "model.diffusion_model.middle_block.3",
+        "model.diffusion_model.output_blocks.2.1": "model.diffusion_model.output_blocks.2.2",
+        "model.diffusion_model.output_blocks.5.2": "model.diffusion_model.output_blocks.5.3",
+        "model.diffusion_model.output_blocks.8.2": "model.diffusion_model.output_blocks.8.3",
+    }
 
     pnames = list(ckpt_param_dict.keys())
     for pname in pnames:
@@ -134,10 +131,10 @@ def load_model_from_config(config, ckpt: str, is_training=False, use_motion_modu
                 filter = param_dict.keys()
             else:
                 filter = None
-            param_not_load, ckpt_not_load = load_param_into_net_with_filter(
-                _model, param_dict, filter=filter
-            )
-            assert len(ckpt_not_load)==0, f"All params in SD checkpoint must be loaded. but got these not loaded {ckpt_not_load}"
+            param_not_load, ckpt_not_load = load_param_into_net_with_filter(_model, param_dict, filter=filter)
+            assert (
+                len(ckpt_not_load) == 0
+            ), f"All params in SD checkpoint must be loaded. but got these not loaded {ckpt_not_load}"
             if verbose:
                 if len(param_not_load) > 0:
                     logger.info(

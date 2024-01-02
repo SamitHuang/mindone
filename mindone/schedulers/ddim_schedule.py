@@ -70,6 +70,7 @@ class DDIMScheduler(nn.Cell):
 
     This model is based on nn.Cell for accelearting diffusion step computation.
     """
+
     def __init__(
         self,
         num_train_timesteps=1000,
@@ -198,8 +199,9 @@ class DDIMScheduler(nn.Cell):
 
     # step function for denoising
     def construct(self, model_output, timestep, sample, num_inference_steps, mask=None):
-        '''
-        Predict the sample from the previous timestep. This function propagates the diffusion process from the learned model outputs (most often the predicted noise).
+        """
+        Predict the sample from the previous timestep. This function propagates the \
+        diffusion process from the learned model outputs (most often the predicted noise).
 
         Notes:
         See formulas (12) and (16) of DDIM paper https://arxiv.org/pdf/2010.02502.pdf
@@ -212,10 +214,10 @@ class DDIMScheduler(nn.Cell):
         - eta -> η
         - pred_sample_direction -> "direction pointing to x_t"
         - pred_prev_sample -> "x_t-1"
-        '''
+        """
 
         # 1. get previous step value (=t-1)
-        
+
         if num_inference_steps is None:
             num_inference_steps = self.num_inference_steps
 
@@ -272,10 +274,10 @@ class DDIMScheduler(nn.Cell):
         return latents + t * 0  # If t is not used, lite will eliminate the second input
 
     def add_noise(self, original_samples, noise, timesteps):
-        '''
+        """
         Diffusion forward
         Make sure alphas_cumprod and timestep have same device and dtype as original_samples
-        '''
+        """
         sqrt_alpha_prod = timesteps.sqrt()
         sqrt_one_minus_alpha_prod = (1 - timesteps).sqrt()
         noisy_samples = sqrt_alpha_prod * original_samples + sqrt_one_minus_alpha_prod * noise

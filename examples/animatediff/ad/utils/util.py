@@ -1,6 +1,7 @@
+import os
+
 import imageio
 import numpy as np
-import os
 
 
 def save_videos(videos: np.ndarray, path: str, fps=8, concat=False):
@@ -14,9 +15,9 @@ def save_videos(videos: np.ndarray, path: str, fps=8, concat=False):
         b, f, h, w, _ = videos.shape
         if b > 1:
             if concat:
-                canvas = np.array((f, h, w*b, 3), dtype=np.uint8)
+                canvas = np.array((f, h, w * b, 3), dtype=np.uint8)
                 for idx in range(b):
-                    canvas[:, :, (w*idx):(w*(idx+1)), :] = videos[idx]
+                    canvas[:, :, (w * idx) : (w * (idx + 1)), :] = videos[idx]
                 imageio.mimsave(path, canvas, fps=fps)
             else:
                 for idx in range(b):
@@ -37,5 +38,3 @@ def video_tensor_to_gif(images: np.ndarray, path: str, duration: int = 120, save
             os.makedirs(root)
         for i, x in enumerate(images):
             imageio.imwrite(os.path.join(root, f"{i:04d}.jpg"), x)
-
-

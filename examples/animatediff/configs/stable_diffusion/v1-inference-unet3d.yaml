@@ -35,6 +35,7 @@ model:
         use_checkpoint: True
         legacy: False
         use_fp16: True
+        enable_flash_attention: False # TODO: turn it on after adapting to future MS version
         # Additional. from animatediff v2.yaml. TODO: support v1.yaml
         use_inflated_groupnorm: true
         unet_use_cross_frame_attention: false

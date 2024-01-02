@@ -24,11 +24,12 @@ from ad.modules.diffusionmodules.util import (
     timestep_embedding,
     zero_module,
 )
-from mindone.utils.version_control import is_old_ms_version
 
 import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
+
+from mindone.utils.version_control import is_old_ms_version
 
 _logger = logging.getLogger(__name__)
 

@@ -15,11 +15,12 @@
 import logging
 
 import numpy as np
-from mindone.utils.version_control import is_old_ms_version
 
 import mindspore as ms
 import mindspore.nn as nn
 from mindspore import ops
+
+from mindone.utils.version_control import is_old_ms_version
 
 _logger = logging.getLogger(__name__)
 

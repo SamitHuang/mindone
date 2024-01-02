@@ -17,14 +17,15 @@ from functools import partial
 
 import numpy as np
 from ad.modules.diffusionmodules.util import make_beta_schedule
-from mindone.utils.misc import default, exists, extract_into_tensor
-from mindone.utils.config import instantiate_from_config
 
 from mindspore import Parameter, Tensor
 from mindspore import dtype as mstype
 from mindspore import nn
 from mindspore import numpy as msnp
 from mindspore import ops
+
+from mindone.utils.config import instantiate_from_config
+from mindone.utils.misc import default, exists, extract_into_tensor
 
 _logger = logging.getLogger(__name__)
 

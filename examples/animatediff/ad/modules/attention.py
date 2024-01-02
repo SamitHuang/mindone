@@ -14,11 +14,12 @@
 # ============================================================================
 
 import numpy as np
-from mindone.utils.version_control import is_old_ms_version
 
 import mindspore as ms
 from mindspore import Tensor, nn, ops
 from mindspore.common.initializer import initializer
+
+from mindone.utils.version_control import is_old_ms_version
 
 try:
     from mindspore.ops._op_impl._custom_op.flash_attention.flash_attention_impl import get_flash_attention
@@ -67,8 +68,7 @@ class FeedForward(nn.Cell):
         inner_dim = int(dim * mult)
         dim_out = default(dim_out, dim)
         project_in = (
-            nn.Sequential(nn.Dense(dim, inner_dim).to_float(dtype),
-                          nn.GELU().to_float(dtype))
+            nn.Sequential(nn.Dense(dim, inner_dim).to_float(dtype), nn.GELU().to_float(dtype))
             if not glu
             else GEGLU(dim, inner_dim, dtype=dtype)
         )
@@ -80,6 +80,7 @@ class FeedForward(nn.Cell):
 
     def construct(self, x):
         return self.net(x)
+
 
 def zero_module(module):
     """

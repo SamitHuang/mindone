@@ -1,6 +1,7 @@
 import copy
-from typing import Optional, List
-from typing import Union
+import os
+from typing import List, Optional, Union
+
 import mindspore as ms
 import mindspore.nn as nn
 from mindspore import Parameter
@@ -10,7 +11,9 @@ from mindspore import log as logger
 from mindspore.train.serialization import _load_dismatch_prefix_params, _update_param
 
 
-def load_param_into_net_with_filter(net: nn.Cell, parameter_dict: dict, strict_load: bool=False, filter: Optional[List]=None):
+def load_param_into_net_with_filter(
+    net: nn.Cell, parameter_dict: dict, strict_load: bool = False, filter: Optional[List] = None
+):
     """
     Load parameters into network, return parameter list that are not loaded in the network.
 
@@ -95,14 +98,16 @@ def load_param_into_net_with_filter(net: nn.Cell, parameter_dict: dict, strict_l
     return param_not_load, ckpt_not_load
 
 
-def load_checkpoint_to_net(net: nn.Cell, checkpoint: Union[str, dict],
-        ignore_net_params_not_loaded=False, 
-        ensure_all_ckpt_params_loaded=False,
-        ):
-    '''
+def load_checkpoint_to_net(
+    net: nn.Cell,
+    checkpoint: Union[str, dict],
+    ignore_net_params_not_loaded=False,
+    ensure_all_ckpt_params_loaded=False,
+):
+    """
     ignore_net_params_not_loaded: set True for inference if only a part of network needs to be loaded, the flushing net-not-loaded warnings will disappear.
-    ensure_all_ckpt_params_loaded : set True for inference if you want to ensure no checkpoint param is missed in loading 
-    '''
+    ensure_all_ckpt_params_loaded : set True for inference if you want to ensure no checkpoint param is missed in loading
+    """
     if isinstance(checkpoint, str):
         if os.path.exists(checkpoint):
             param_dict = ms.load_checkpoint(checkpoint)
@@ -114,23 +119,18 @@ def load_checkpoint_to_net(net: nn.Cell, checkpoint: Union[str, dict],
         raise TypeError(f"unknown checkpoint type: {checkpoint}")
 
     if param_dict:
-        if ignore_net_param_not_loaded:
+        if ignore_net_params_not_loaded:
             filter = param_dict.keys()
         else:
             filter = None
-        param_not_load, ckpt_not_load = model_utils.load_param_into_net_with_filter(
-            net, param_dict, filter=filter
-        )
+        param_not_load, ckpt_not_load = load_param_into_net_with_filter(net, param_dict, filter=filter)
 
         if ensure_all_ckpt_params_loaded:
-            assert len(ckpt_not_load)==0, f"All params in checkpoint must be loaded. but got these not loaded {ckpt_not_load}"
+            assert (
+                len(ckpt_not_load) == 0
+            ), f"All params in checkpoint must be loaded. but got these not loaded {ckpt_not_load}"
 
-        if not ignore_net_params_not_loaded: 
+        if not ignore_net_params_not_loaded:
             if len(param_not_load) > 0:
-                logger.info(
-                    "Net params not loaded: {}".format([p for p in param_not_load if not p.startswith("adam")])
-                )
-        logger.info(
-                    "Checkpoint params not loaded: {}".format([p for p in ckpt_not_load if not p.startswith("adam")])
-                )
-
+                logger.info("Net params not loaded: {}".format([p for p in param_not_load if not p.startswith("adam")]))
+        logger.info("Checkpoint params not loaded: {}".format([p for p in ckpt_not_load if not p.startswith("adam")]))

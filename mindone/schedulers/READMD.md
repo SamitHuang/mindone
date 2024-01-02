@@ -1,8 +1,8 @@
-# Developer Guide: How to add a new scheduler  
+# Developer Guide: How to add a new scheduler
 
 The scheduler class should inherit from mindspore.nn.Cell, and provide two key methods:
     1. `add_noise`: adding noise to previous (latent) sample for diffusion forward
-    2. `construct`: predict the previous sample based on model output (typically, predicted latent noise) and input sample, i.e. diffusion backward 
+    2. `construct`: predict the previous sample based on model output (typically, predicted latent noise) and input sample, i.e. diffusion backward
 
 
 Example Template:

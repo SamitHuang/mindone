@@ -1,15 +1,20 @@
+import os
 import sys
-import os 
+
 __dir__ = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
 
+
 def extract_torch_mm():
     import torch
-    pt_mm_path = '/home/AnimateDiff/models/Motion_Module/animatediff/mm_sd_v15_v2.ckpt'
+
+    pt_mm_path = "/home/AnimateDiff/models/Motion_Module/animatediff/mm_sd_v15_v2.ckpt"
     pt_mm_sd = torch.load(pt_mm_path)
 
     print(
-        pt_mm_sd['down_blocks.0.motion_modules.0.temporal_transformer.transformer_blocks.0.attention_blocks.0.to_q.weight'].sum()
+        pt_mm_sd[
+            "down_blocks.0.motion_modules.0.temporal_transformer.transformer_blocks.0.attention_blocks.0.to_q.weight"
+        ].sum()
     )
 
     num_attn_layers = 0
@@ -17,27 +22,26 @@ def extract_torch_mm():
     for pname in pt_mm_sd:
         print(f"{pname}#{tuple(pt_mm_sd[pname].size())}#{pt_mm_sd[pname].dtype}")
         tot_params += 1
-        if 'to_q.weight' in pname:
+        if "to_q.weight" in pname:
             num_attn_layers += 1
 
-def extract_ms_sd_mm():
-    from omegaconf import OmegaConf
-    from ldm.util import instantiate_from_config
 
-    from ldm.pipelines.load_models import load_model_from_config
-    
-    model_config_path = 'configs/stable_diffusion/v1-inference-unet3d.yaml'
+def extract_ms_sd_mm():
+    from ldm.util import instantiate_from_config
+    from omegaconf import OmegaConf
+
+    model_config_path = "configs/stable_diffusion/v1-inference-unet3d.yaml"
     sd_config = OmegaConf.load(model_config_path)
     model = instantiate_from_config(sd_config.model)
-    
+
     cnt = 0
     for param in model.get_parameters():
-        if 'temporal_transformer.' in param.name:
+        if "temporal_transformer." in param.name:
             print(f"{param.name}#{param.shape}#{param.dtype}")
             cnt += 1
 
-    print("Num temporla param: ", cnt)    
-    assert cnt // 28 == 21, 'expect 588 params for 21 mm'
+    print("Num temporla param: ", cnt)
+    assert cnt // 28 == 21, "expect 588 params for 21 mm"
 
 
 def extract_ms_unet_mm():
@@ -49,7 +53,7 @@ def extract_ms_unet_mm():
         model_channels=320,
         out_channels=320,
         num_res_blocks=2,
-        attention_resolutions=[ 4, 2, 1 ],
+        attention_resolutions=[4, 2, 1],
         dropout=0.0,
         channel_mult=(1, 2, 4, 4),
         conv_resample=True,
@@ -73,14 +77,14 @@ def extract_ms_unet_mm():
         motion_module_resolutions=(1, 2, 4, 8),
         motion_module_mid_block=True,
         motion_module_decoder_only=False,
-        motion_module_type='Vanilla',
+        motion_module_type="Vanilla",
         motion_module_kwargs={
-            'num_attention_heads': 8,
-            'num_transformer_block': 1,
-            'attention_block_types': ['Temporal_Self', 'Temporal_Self'],
-            'temporal_position_encoding': True,
-            'temporal_position_encoding_max_len': 32,
-            'temporal_attention_dim_div': 1,
+            "num_attention_heads": 8,
+            "num_transformer_block": 1,
+            "attention_block_types": ["Temporal_Self", "Temporal_Self"],
+            "temporal_position_encoding": True,
+            "temporal_position_encoding_max_len": 32,
+            "temporal_attention_dim_div": 1,
         },
         unet_use_cross_frame_attention=False,
         unet_use_temporal_attention=False,
@@ -88,11 +92,12 @@ def extract_ms_unet_mm():
 
     cnt = 0
     for param in unet3d.get_parameters():
-        if 'temporal_transformer.' in param.name:
+        if "temporal_transformer." in param.name:
             print(f"{param.name}#{param.shape}#{param.dtype}")
             cnt += 1
 
     print(cnt)
+
 
 if __name__ == "__main__":
     extract_ms_sd_mm()
