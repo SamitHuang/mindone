@@ -3,7 +3,6 @@ import os
 import imageio
 import numpy as np
 
-
 def save_videos(frames: np.ndarray, path: str, fps=8, loop=0, concat=False):
     """
     Save video frames to gif files

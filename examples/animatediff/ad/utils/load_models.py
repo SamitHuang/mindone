@@ -114,7 +114,38 @@ def update_unet2d_params_for_unet3d(ckpt_param_dict):
     return ckpt_param_dict
 
 
-def load_model_from_config(config, ckpt: str, is_training=False, use_motion_module=True):
+def load_motion_modules(unet, motion_module_path, motion_lora_config=None, add_ldm_prefix=True, ldm_prefix="model.diffusion_model."):
+    # load motion module weights if use mm
+    logger.info("Loading motion module from {}".format(motion_module_path))
+    mm_state_dict = ms.load_checkpoint(motion_module_path)
+
+    # add prefix (used in the whole sd model) to param if needed
+    mm_pnames = list(mm_state_dict.keys())
+    for pname in mm_pnames:
+        if add_ldm_prefix:
+            if not pname.startswith(ldm_prefix):
+                new_pname = ldm_prefix + pname
+                mm_state_dict[new_pname] = mm_state_dict.pop(pname)
+
+    params_not_load, ckpt_not_load = load_param_into_net_with_filter(
+        unet,
+        mm_state_dict,
+        filter=mm_state_dict.keys(),
+    )
+    if len(ckpt_not_load) > 0:
+        logger.warning("The following params in mm ckpt are not loaded into net: {}".format(ckpt_not_load))
+    assert len(ckpt_not_load) == 0, "All params in motion module must be loaded"
+
+    # motion lora
+    if motion_lora_config is not None:
+        _mlora_path, alpha = motion_lora_config["path"], motion_lora_config["alpha"]
+        logger.info("Loading motion lora from {}".format(_mlora_path))
+        unet = merge_motion_lora_to_unet(unet, _mlora_path, alpha)
+
+    return unet
+
+
+def build_model_from_config(config, ckpt: str, is_training=False, use_motion_module=True):
     def _load_model(_model, checkpoint, verbose=True, ignore_net_param_not_load_warning=False):
         if isinstance(checkpoint, str):
             if os.path.exists(checkpoint):

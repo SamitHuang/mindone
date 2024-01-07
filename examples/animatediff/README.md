@@ -64,7 +64,7 @@ Results:
 
 - Running on GPU:
 ```
-python text_to_video.py --config configs/prompts/v2/1-ToonYou.yaml --L 16 --H 256 --W 256 --target_device GPU
+python text_to_video.py --config configs/prompts/v2/1-ToonYou.yaml --L 16 --H 256 --W 256 --device_target GPU
 ```
 
 ### Motion LoRA
@@ -86,5 +86,5 @@ Results using Zoom-In motion lora:
 
 - Running on GPU:
 ```
-python text_to_video.py --config configs/prompts/v2/1-ToonYou-MotionLoRA.yaml --L 16 --H 256 --W 256 --target_device GPU
+python text_to_video.py --config configs/prompts/v2/1-ToonYou-MotionLoRA.yaml --L 16 --H 256 --W 256 --device_target GPU
 ```
