@@ -95,19 +95,21 @@ model:
 image_finetune: False
 mm_amp_level: "O2"
 
-pretrained_model_path: "models/stable_diffusion/sd_v1.5-d0ab7146.ckpt"
-pretrained_motion_module_path: "" # "models/motion_module/mm_sd_v15_v2.ckpt"
+# pretrained_model_path: "models/stable_diffusion/sd_v1.5-d0ab7146.ckpt"
+pretrained_model_path: "models/dreambooth_lora/toonyou_beta3.ckpt"
+pretrained_motion_module_path: ""  # "models/motion_module/mm_sd_v15_v2.ckpt"
 
 train_data:
-  csv_path:        "../videocomposer/datasets/webvid5/video_caption.csv"
-  video_folder:    "../videocomposer/datasets/webvid5"
+  csv_path:        "./datasets/zoom_in_dataset/video_caption.csv"
+  video_folder:    "./datasets/zoom_in_dataset"
   sample_size:     256 # debug. ori: 256
-  sample_stride:   4
+  sample_stride:   1 # debug, change it for other dataset
   sample_n_frames: 16 # debug. ori: 16
   shuffle: True
   batch_size: 4     # debug. ori: 4
-  num_parallel_workers: 12 # TODO: try increase to reduce time 
-  max_rowsize: 64 # TODO: tuning
+  num_parallel_workers: 16 # TODO: try increase to reduce time 
+  max_rowsize: 32 # TODO: tuning
+
 
 lr_schedule:
     name: 'constant'
@@ -126,9 +128,9 @@ loss_scaler:
 
 
 # training process
-train_steps: 100
+train_steps: 2000
 train_epochs: -1    # if -1, use train_steps. train_steps has higher priority
-ckpt_save_interval: 10     # in step 
+ckpt_save_interval: 200     # in step 
 ckpt_max_keep: 5
 
 dataset_sink_mode: False # TODO: set True after debugging
