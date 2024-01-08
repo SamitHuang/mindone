@@ -93,14 +93,13 @@ class FeedForward(nn.Cell):
         mult: int = 4,
         dropout: float = 0.0,
         activation_fn: str = "geglu",
-        dtype=ms.float32,
     ):
         super().__init__()
         inner_dim = int(dim * mult)
         dim_out = dim_out if dim_out is not None else dim
 
         if activation_fn == "geglu":
-            act_fn = GEGLU(dim, inner_dim, approximate=False, dtype=dtype)
+            act_fn = GEGLU(dim, inner_dim, approximate=False)
         else:
             raise NotImplementedError
 
@@ -110,7 +109,7 @@ class FeedForward(nn.Cell):
         # project dropout
         self.net.append(nn.Dropout(p=dropout))
         # project out
-        self.net.append(nn.Dense(inner_dim, dim_out).to_float(dtype))
+        self.net.append(nn.Dense(inner_dim, dim_out))
 
     def construct(self, hidden_states: ms.Tensor) -> ms.Tensor:
         # TODO: simple use self.net(x)?
@@ -123,9 +122,9 @@ class FeedForward(nn.Cell):
 
 # TODO: check
 class GEGLU(nn.Cell):
-    def __init__(self, dim_in, dim_out, approximate=False, dtype=ms.float32):
+    def __init__(self, dim_in, dim_out, approximate=False):
         super().__init__()
-        self.proj = nn.Dense(dim_in, dim_out * 2).to_float(dtype)
+        self.proj = nn.Dense(dim_in, dim_out * 2)
         self.split = ops.Split(-1, 2)
         # self.gelu = ops.GeLU()
         self.gelu = nn.GELU(approximate=approximate)  # better precision
@@ -165,7 +164,6 @@ class TemporalTransformer3DModel(ms.nn.Cell):
         cross_frame_attention_mode=None,
         temporal_position_encoding=False,
         temporal_position_encoding_max_len=24,
-        dtype=ms.float32,
     ):
         super().__init__()
 
@@ -174,7 +172,7 @@ class TemporalTransformer3DModel(ms.nn.Cell):
         self.norm = GroupNorm32(
             num_groups=norm_num_groups, num_channels=in_channels, eps=1e-6, affine=True
         )  # TODO: any diff in beta gamma init?
-        self.proj_in = nn.Dense(in_channels, inner_dim).to_float(dtype)
+        self.proj_in = nn.Dense(in_channels, inner_dim)
         # cur
         self.transformer_blocks = nn.CellList(
             [
@@ -192,12 +190,11 @@ class TemporalTransformer3DModel(ms.nn.Cell):
                     cross_frame_attention_mode=cross_frame_attention_mode,
                     temporal_position_encoding=temporal_position_encoding,
                     temporal_position_encoding_max_len=temporal_position_encoding_max_len,
-                    dtype=dtype,
                 )
                 for d in range(num_layers)
             ]
         )
-        self.proj_out = nn.Dense(inner_dim, in_channels).to_float(dtype)
+        self.proj_out = nn.Dense(inner_dim, in_channels)
 
     def construct(self, hidden_states, encoder_hidden_states=None, attention_mask=None, video_length=None):
         """
@@ -254,7 +251,6 @@ class TemporalTransformerBlock(nn.Cell):
         cross_frame_attention_mode=None,
         temporal_position_encoding=False,
         temporal_position_encoding_max_len=24,
-        dtype=ms.float32,
     ):
         super().__init__()
 
@@ -275,7 +271,6 @@ class TemporalTransformerBlock(nn.Cell):
                     cross_frame_attention_mode=cross_frame_attention_mode,
                     temporal_position_encoding=temporal_position_encoding,
                     temporal_position_encoding_max_len=temporal_position_encoding_max_len,
-                    dtype=dtype,
                 )
             )
             norms.append(LayerNorm32([dim], epsilon=1.0e-5))  # TODO: need fp32?
@@ -323,7 +318,7 @@ class PositionalEncoding(ms.nn.Cell):
     def construct(self, x):
         # x: (b*d f c)
         seq_len = x.shape[1]
-        x = x + self.pe[:, :seq_len]
+        x = x + self.pe[:, :seq_len]  # TODO: float type match
         return self.dropout(x)
 
 
@@ -344,7 +339,6 @@ class VersatileAttention(ms.nn.Cell):
         cross_frame_attention_mode=None,
         temporal_position_encoding=False,
         temporal_position_encoding_max_len=24,
-        dtype=ms.float32,
     ):
         super().__init__()
         assert attention_mode == "Temporal"
@@ -374,20 +368,19 @@ class VersatileAttention(ms.nn.Cell):
         else:
             self.group_norm = None
 
-        self.to_q = ms.nn.Dense(query_dim, inner_dim, has_bias=bias).to_float(dtype)
-        self.to_k = ms.nn.Dense(cross_attention_dim, inner_dim, has_bias=bias).to_float(dtype)
-        self.to_v = ms.nn.Dense(cross_attention_dim, inner_dim, has_bias=bias).to_float(dtype)
-
+        self.to_q = ms.nn.Dense(query_dim, inner_dim, has_bias=bias)
+        self.to_k = ms.nn.Dense(cross_attention_dim, inner_dim, has_bias=bias)
+        self.to_v = ms.nn.Dense(cross_attention_dim, inner_dim, has_bias=bias)
         if self.added_kv_proj_dim is not None:
-            self.add_k_proj = nn.Dense(added_kv_proj_dim, cross_attention_dim).to_float(dtype)
-            self.add_v_proj = nn.Dense(added_kv_proj_dim, cross_attention_dim).to_float(dtype)
+            self.add_k_proj = nn.Dense(added_kv_proj_dim, cross_attention_dim)
+            self.add_v_proj = nn.Dense(added_kv_proj_dim, cross_attention_dim)
 
         # self.to_out = ms.nn.CellList([])
         # self.to_out.append(nn.Dense(inner_dim, query_dim).to_float(dtype))
         # self.to_out.append(nn.Dropout(p=dropout))
 
         self.to_out = ms.nn.SequentialCell(
-            nn.Dense(inner_dim, query_dim).to_float(dtype),
+            nn.Dense(inner_dim, query_dim),
             nn.Dropout(p=dropout),
         )
         self.attention_mode = attention_mode
