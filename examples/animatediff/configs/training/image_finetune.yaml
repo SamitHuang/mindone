@@ -1,0 +1,127 @@
+model:
+  target: ad.models.diffusion.ddpm.LatentDiffusion2D
+  params:
+    linear_start: 0.00085
+    linear_end: 0.0120
+    # beta_scheduler: 'real_linear' # TODO: !!! Add real linear !!! 
+    num_timesteps_cond: 1
+    log_every_t: 200
+    timesteps: 1000
+    image_size: 64
+    channels: 4
+    cond_stage_trainable: false   # not train text encoder
+    conditioning_key: crossattn
+    monitor: val/loss_simple_ema
+    scale_factor: 0.18215
+    use_ema: False
+    use_fp16: True
+
+    unet_config:
+      target: ad.modules.diffusionmodules.openaimodel.UNetModel
+      params:
+        image_size: 32 # unused
+        in_channels: 4
+        out_channels: 4
+        model_channels: 320
+        attention_resolutions: [ 4, 2, 1 ]
+        num_res_blocks: 2
+        channel_mult: [ 1, 2, 4, 4 ]
+        num_heads: 8 # => attn head dim = 320/8 = 40
+        use_spatial_transformer: True
+        transformer_depth: 1
+        context_dim: 768
+        use_checkpoint: True
+        legacy: False
+        use_fp16: True
+        enable_flash_attention: False # TODO: turn it on after FA bug fixed (noisy result on attn_head_dim=40)
+
+    first_stage_config:
+      target: ad.models.autoencoder.AutoencoderKL
+      params:
+        embed_dim: 4
+        monitor: val/rec_loss
+        use_fp16: False # affect generated image quality on GPUs
+        ddconfig:
+          double_z: true
+          z_channels: 4
+          resolution: 256
+          in_channels: 3
+          out_ch: 3
+          ch: 128
+          ch_mult:
+          - 1
+          - 2
+          - 4
+          - 4
+          num_res_blocks: 2
+          attn_resolutions: []
+          dropout: 0.0
+
+    cond_stage_config:
+      target: ad.modules.encoders.modules.FrozenCLIPEmbedder
+      params:
+        use_fp16: True
+        tokenizer_name: "BpeTokenizer" # BpeTokenizer of CLIPTokenizer
+        context_length: 77
+        vocab_size: 49408
+        output_dim: 768
+        width: 768
+        layers: 12
+        heads: 12
+        epsilon: 1e-7
+        use_quick_gelu: True
+
+
+# training config
+image_finetune: True 
+pretrained_model_path: "models/stable_diffusion/sd_v1.5-d0ab7146.ckpt"
+pretrained_motion_module_path: "" # "models/motion_module/mm_sd_v15_v2.ckpt"
+
+train_data:
+  csv_path:        "../videocomposer/datasets/webvid5/video_caption.csv"
+  video_folder:    "../videocomposer/datasets/webvid5"
+  sample_size:     256 # debug. ori: 256
+  sample_stride:   4
+  sample_n_frames: 2 # debug. ori: 16
+  shuffle: True
+  batch_size: 1     # debug. ori: 4
+  num_parallel_workers: 12 # TODO: try increase to reduce time 
+  max_rowsize: 64 # TODO: tuning
+
+lr_schedule:
+    name: 'constant'
+    lr: 1.e-5
+
+optim:
+    name: 'momentum' # adamw or momentum, momentum for debug only 
+    betas: [0.9, 0.98]
+    weight_decay: 0.01
+
+loss_scaler:
+    type: 'dynamic' 
+    loss_scale: 65536 
+    scale_window: 1000 
+    scale_factor: 2
+
+# training process
+train_steps: 100
+train_epochs: -1    # if -1, use train_steps. train_steps has higher priority
+ckpt_save_interval: 10     # in step 
+ckpt_max_keep: 5
+
+dataset_sink_mode: False # TODO: set True after debugging
+sink_size: -1 # if -1, sink_size = datasize size (num batches) for current rank_id
+
+gradient_accumulation_steps: 1
+clip_grad: False
+max_grad_norm: 1.0
+
+use_ema: False
+ema_decay: 0.9999 
+
+drop_overflow_update: True
+
+# monintor
+log_interval: 1 # only effective when data_sink_mode is False
+profile: False
+save_whole_model: True # if True, save text encoder, vae, unet, mm into one model. Otherwise, save motion module only (tobe implmented)
