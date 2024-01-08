@@ -116,6 +116,7 @@ class FeedForward(nn.Cell):
         # TODO: simple use self.net(x)?
         for module in self.net:
             hidden_states = module(hidden_states)
+            print("D--: h dtype: ", hidden_states.dtype)
 
         return hidden_states
 
@@ -498,7 +499,8 @@ class VersatileAttention(ms.nn.Cell):
         if self.upcast_attention:
             query = query.to_float(ms.float32)
             key = key.to_float(ms.float32)
-
+        
+        print("D--: Q dtype: ", query.dtype)
         attention_scores = ms.ops.matmul(query, ms.ops.transpose(key, (0, 2, 1))) * self.scale
 
         if attention_mask is not None:
