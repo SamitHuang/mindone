@@ -240,6 +240,11 @@ def train(args):
             model_name=model_name,
         )
         callbacks.append(save_cb)
+        
+        # create folders and save config
+        # TODO: save checkpoints to {output_dirs}/checkpoints/
+        OmegaConf.save(cfg, os.path.join(args.output_dir, 'config.yaml'))
+        
 
     # 6. launch training
     # compute training epochs

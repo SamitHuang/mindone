@@ -485,7 +485,9 @@ class UNet3DModel(nn.Cell):
                 normalization(ch),
                 conv_nd(dims, model_channels, n_embed, 1, has_bias=True, pad_mode="pad").to_float(self.dtype),
             )
+
         self.cat = ops.Concat(axis=1)
+
 
     def set_mm_amp_level(self, amp_level):
         # set motion module precision

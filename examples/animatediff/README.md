@@ -16,7 +16,27 @@ This repository is the MindSpore implementation of [AnimateDiff](https://arxiv.o
 pip install -r requirements.txt
 ```
 
-In case `decord` package is not available in your environment, try `pip install eva-decord`
+In case `decord` package is not available in your environment, try `pip install eva-decord`. 
+Instruction on ffmpeg and decord install on EulerOS: 
+```
+1. install ffmpeg 4, referring to https://ffmpeg.org/releases
+    wget wget https://ffmpeg.org/releases/ffmpeg-4.0.1.tar.bz2 --no-check-certificate
+    tar -xvf ffmpeg-4.0.1.tar.bz2
+    mv ffmpeg-5.1.2 ffmpeg
+    cd ffmpeg
+    ./configure --enable-shared         # --enable-shared is needed for sharing libavcodec with decord
+    make -j 64
+    make install
+2. install decord, referring to https://github.com/dmlc/decord?tab=readme-ov-file#install-from-source
+    git clone --recursive https://github.com/dmlc/decord 
+    cd decord
+    rm build && mkdir build && cd build
+    cmake .. -DUSE_CUDA=0 -DCMAKE_BUILD_TYPE=Release
+    make -j 64
+    make install
+    cd ../python
+    python3 setup.py install --user
+```
 
 
 ## Prepare Model Weights

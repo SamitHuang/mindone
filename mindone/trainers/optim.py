@@ -11,7 +11,7 @@ _logger = logging.getLogger(__name__)
 
 
 def create_optimizer(
-        params: Union[list[Parameter], list[dict]],
+        params: Union[List[Parameter], List[dict]],
         name: str,
         lr: Union[float, List[float]],
         betas: List[float] = None,
