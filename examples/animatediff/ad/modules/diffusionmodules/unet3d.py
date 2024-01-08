@@ -23,6 +23,8 @@ from .motion_module import VanillaTemporalModule, get_motion_module
 from .openaimodel import AttentionBlock, Downsample, ResBlock, Upsample
 from .util import conv_nd, linear, normalization, timestep_embedding, zero_module
 
+from mindone.utils.amp import auto_mixed_precision
+
 _logger = logging.getLogger(__name__)
 
 
@@ -484,6 +486,25 @@ class UNet3DModel(nn.Cell):
                 conv_nd(dims, model_channels, n_embed, 1, has_bias=True, pad_mode="pad").to_float(self.dtype),
             )
         self.cat = ops.Concat(axis=1)
+
+    def set_mm_amp_level(self, amp_level):
+        # set motion module precision
+        print("D--: mm amp level: ", amp_level)
+        for i, celllist in enumerate(self.input_blocks, 1):
+            for cell in celllist:
+                if isinstance(cell, VanillaTemporalModule):
+                    cell = auto_mixed_precision(cell, amp_level)
+
+        for module in self.middle_block:
+            if isinstance(module, VanillaTemporalModule):
+                module = auto_mixed_precision(module, amp_level)
+
+        for celllist in self.output_blocks:
+            for cell in celllist:
+                if isinstance(cell, VanillaTemporalModule):
+                    cell = auto_mixed_precision(cell, amp_level)
+
+        return self
 
     def construct(
         self, x, timesteps=None, context=None, y=None, features_adapter: list = None, append_to_context=None, **kwargs

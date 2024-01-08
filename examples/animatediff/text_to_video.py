@@ -27,6 +27,8 @@ from mindone.utils.logger import set_logger
 from mindone.utils.seed import set_random_seed
 from mindone.visualize.videos import save_videos
 
+from mindone.utils.amp import auto_mixed_precision
+
 logger = logging.getLogger(__name__)
 
 
@@ -95,7 +97,7 @@ def main(args):
     init_env(args)
     set_random_seed(42)
 
-    # 2. build model components for ldm
+    # 2. build model and load weights 
     # 1)  create vae, text encoder, and unet and load weights
     sd_model = build_model_from_config(
         sd_config,
@@ -106,9 +108,15 @@ def main(args):
     text_encoder = sd_model.cond_stage_model
     unet = sd_model.model
     vae = sd_model.first_stage_model
-
+    
+    # 2) load motion module weights
     if use_motion_module:
         unet = load_motion_modules(unet, motion_module_path, motion_lora_config=motion_lora_config)
+
+        # set mixed precision for mm
+        mm_amp_level = args.mm_amp_level
+        unet.diffusion_model = unet.diffusion_model.set_mm_amp_level(mm_amp_level)
+
 
     # 2) ddim sampler
     # TODO: merge noise_scheduler_kwargs and ddim.yaml
@@ -200,6 +208,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ms_mode", type=int, default=0, help="Running in GRAPH_MODE(0) or PYNATIVE_MODE(1) (default=0)"
     )
+    parser.add_argument("--mm_amp_level", type=str, default="O0")
 
     args = parser.parse_args()
 
