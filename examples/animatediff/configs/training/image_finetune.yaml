@@ -78,15 +78,17 @@ pretrained_model_path: "models/stable_diffusion/sd_v1.5-d0ab7146.ckpt"
 pretrained_motion_module_path: "" # "models/motion_module/mm_sd_v15_v2.ckpt"
 
 train_data:
-  csv_path:        "../videocomposer/datasets/webvid5/video_caption.csv"
-  video_folder:    "../videocomposer/datasets/webvid5"
+  # csv_path:        "../videocomposer/datasets/webvid5/video_caption.csv"
+  # video_folder:    "../videocomposer/datasets/webvid5"
+  csv_path:        "./datasets/zoom_in_dataset/video_caption.csv"
+  video_folder:    "./datasets/zoom_in_dataset"
   sample_size:     256 # debug. ori: 256
   sample_stride:   4
-  sample_n_frames: 2 # debug. ori: 16
+  sample_n_frames: 1 # debug. ori: 16
   shuffle: True
-  batch_size: 1     # debug. ori: 4
+  batch_size: 4     # debug. ori: 4
   num_parallel_workers: 12 # TODO: try increase to reduce time 
-  max_rowsize: 64 # TODO: tuning
+  max_rowsize: 32 # TODO: tuning
 
 lr_schedule:
     name: 'constant'
@@ -104,9 +106,9 @@ loss_scaler:
     scale_factor: 2
 
 # training process
-train_steps: 100
+train_steps: 15000
 train_epochs: -1    # if -1, use train_steps. train_steps has higher priority
-ckpt_save_interval: 10     # in step 
+ckpt_save_interval: 2500     # in step 
 ckpt_max_keep: 5
 
 dataset_sink_mode: False # TODO: set True after debugging
