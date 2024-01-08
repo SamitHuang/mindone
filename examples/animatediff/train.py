@@ -70,7 +70,7 @@ def init_env(args):
     context.set_context(
             mode=args.ms_mode,
             device_target=args.device_target,
-            pynative_synchronize=True,  # True for debug
+            pynative_synchronize=False,  # True for debug
             )
     device_id = 0  # TODO:
     if args.device_target == "Ascend":
@@ -123,8 +123,11 @@ def train(args):
     # vae = ldm.first_stage_model
 
     # load motion module weights if provided
-    if not cfg.image_finetune and cfg.get("pretrained_motion_module_path", "") != "":
-        load_motion_modules(ldm.model, cfg.pretrained_motion_module_path)
+    if use_motion_module:
+        if cfg.get("pretrained_motion_module_path", "") != "":
+            load_motion_modules(ldm.model, cfg.pretrained_motion_module_path)
+        # set motion module precision. TODO: will it lead to param prefix change?
+        unet.diffusion_model = unet.diffusion_model.set_mm_amp_level(cfg.mm_amp_level)
 
     # 3. optional: inject motion lora for lora finetune
     
@@ -250,7 +253,7 @@ def train(args):
             epochs = math.ceil(cfg.train_steps / cfg.sink_size)
 
     logger.info(f"Training steps {cfg.train_steps} => epochs {epochs}") 
-    logger.info("Start training. Please wait for graph compilation...")
+    logger.info("Start training. Please wait for graph compilation... (~20 min)")
     model.train(
         epochs, dataloader, callbacks=callbacks, dataset_sink_mode=cfg.dataset_sink_mode, sink_size=cfg.sink_size, initial_epoch=start_epoch,
     )

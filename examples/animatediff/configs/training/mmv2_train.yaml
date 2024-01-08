@@ -1,5 +1,4 @@
 model:
-  base_learning_rate: 1.0e-04
   target: ad.models.diffusion.ddpm.LatentDiffusion
   params:
     linear_start: 0.00085
@@ -35,6 +34,7 @@ model:
         legacy: False
         use_fp16: True
         enable_flash_attention: False # TODO: turn it on after FA bug fixed (noisy result on attn_head_dim=40)
+        # use_recompute: False # debugging
         # Additional. from animatediff v2.yaml. TODO: support v1.yaml
         use_inflated_groupnorm: true
         unet_use_cross_frame_attention: false
@@ -59,7 +59,7 @@ model:
       params:
         embed_dim: 4
         monitor: val/rec_loss
-        use_fp16: False # affect generated image quality on GPUs
+        use_fp16: False # TODO: confirm. debugging, affect generated image quality on GPUs
         ddconfig:
           double_z: true
           z_channels: 4
@@ -93,6 +93,8 @@ model:
 
 # training config
 image_finetune: False
+mm_amp_level: "O2"
+
 pretrained_model_path: "models/stable_diffusion/sd_v1.5-d0ab7146.ckpt"
 pretrained_motion_module_path: "" # "models/motion_module/mm_sd_v15_v2.ckpt"
 
@@ -103,7 +105,7 @@ train_data:
   sample_stride:   4
   sample_n_frames: 16 # debug. ori: 16
   shuffle: True
-  batch_size: 4     # debug. ori: 4
+  batch_size: 3     # debug. ori: 4
   num_parallel_workers: 12 # TODO: try increase to reduce time 
   max_rowsize: 64 # TODO: tuning
 
@@ -121,6 +123,7 @@ loss_scaler:
     loss_scale: 65536 
     scale_window: 1000 
     scale_factor: 2
+
 
 # training process
 train_steps: 100
