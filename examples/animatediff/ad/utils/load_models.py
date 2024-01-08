@@ -119,13 +119,19 @@ def load_motion_modules(unet, motion_module_path, motion_lora_config=None, add_l
     logger.info("Loading motion module from {}".format(motion_module_path))
     mm_state_dict = ms.load_checkpoint(motion_module_path)
 
+    def _clear_insertion_from_training(param_name):
+        return param_name.replace("diffusion_model.diffusion_model.", "diffusion_model.").replace("._backbone.", ".")
+
     # add prefix (used in the whole sd model) to param if needed
     mm_pnames = list(mm_state_dict.keys())
     for pname in mm_pnames:
         if add_ldm_prefix:
             if not pname.startswith(ldm_prefix):
                 new_pname = ldm_prefix + pname
+                # remove duplicated "diffusion_model" caused by saving mm only during training 
+                new_pname = _clear_insertion_from_training(new_pname)
                 mm_state_dict[new_pname] = mm_state_dict.pop(pname)
+
 
     params_not_load, ckpt_not_load = load_param_into_net_with_filter(
         unet,
@@ -133,7 +139,7 @@ def load_motion_modules(unet, motion_module_path, motion_lora_config=None, add_l
         filter=mm_state_dict.keys(),
     )
     if len(ckpt_not_load) > 0:
-        logger.warning("The following params in mm ckpt are not loaded into net: {}".format(ckpt_not_load))
+        logger.warning("The following params in mm ckpt are not loaded into net: {}\nTotal: {}".format(ckpt_not_load, len(ckpt_not_load)))
     assert len(ckpt_not_load) == 0, "All params in motion module must be loaded"
 
     # motion lora

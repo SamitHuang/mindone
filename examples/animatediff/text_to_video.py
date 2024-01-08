@@ -208,7 +208,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ms_mode", type=int, default=0, help="Running in GRAPH_MODE(0) or PYNATIVE_MODE(1) (default=0)"
     )
-    parser.add_argument("--mm_amp_level", type=str, default="O0")
+    parser.add_argument("--mm_amp_level", type=str, default="O2")
 
     args = parser.parse_args()
 
