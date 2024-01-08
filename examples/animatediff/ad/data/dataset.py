@@ -122,8 +122,7 @@ class TextVideoDataset():
         video_fn, caption = video_dict[self.video_column], video_dict[self.caption_column]
         video_path = os.path.join(self.video_folder, video_fn)
         if video_path.endswith('.gif'):
-            with Image.open(video_path) as fp:
-                video_reader = read_gif(fp, mode='RGB')
+            video_reader = read_gif(video_path, mode='RGB')
         else:
             video_reader = VideoReader(video_path)
 
@@ -156,13 +155,13 @@ class TextVideoDataset():
                 - video: preprocessed video frames in shape (f, c, h, w)
                 - text_data: if tokenizer provided, tokens shape (context_max_len,), otherwise text string 
         '''
-        while True:
-            try:
-                pixel_values, caption = self.get_batch(idx)
-                break
-            except Exception as e:
-                idx = random.randint(0, self.length-1)
-                print("\tError mg: {}".format(e), flush=True)
+        # while True:
+        #    try:
+        pixel_values, caption = self.get_batch(idx)
+        #        break
+        #    except Exception as e:
+        #        idx = random.randint(0, self.length-1)
+        #        print("\tError mg: {}".format(e), flush=True)
 
         # pixel value: (f, h, w, 3) -> transforms -> (f 3 h' w')
         if self.transform_backend == 'pt':
@@ -218,6 +217,10 @@ def create_dataloader(config, tokenizer=None, is_image=False, device_num=1, rank
                 tokenizer=tokenizer,
     )
     print("Total number of samples: ", len(dataset))
+
+    # Larger value leads to more memory consumption. Default: 16
+    # prefetch_size = config.get("prefetch_size", 16)
+    # ms.dataset.config.set_prefetch_size(prefetch_size)
 
     dataloader = ms.dataset.GeneratorDataset(
         source=dataset,
