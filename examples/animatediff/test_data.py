@@ -14,8 +14,10 @@ from mindone.utils.config import instantiate_from_config
 
 from ad.data.dataset import TextVideoDataset, create_dataloader, check_sanity
 
-csv_path = '../videocomposer/datasets/webvid5/video_caption.csv'
-video_folder = '../videocomposer/datasets/webvid5'
+# csv_path = '../videocomposer/datasets/webvid5/video_caption.csv'
+# video_folder = '../videocomposer/datasets/webvid5'
+csv_path = "./datasets/zoom_in_dataset/video_caption.csv"
+video_folder = "./datasets/zoom_in_dataset"
 cfg_path = 'configs/training/mmv2_train.yaml'
 
 def test_src_dataset(backend = 'al', is_image=False, use_tokenizer=False):
@@ -40,7 +42,7 @@ def test_src_dataset(backend = 'al', is_image=False, use_tokenizer=False):
                 csv_path,
                 video_folder,
                 sample_size=256,
-                sample_stride=4,
+                sample_stride=1,
                 sample_n_frames=16,
                 is_image=is_image,
                 transform_backend=backend,  # pt, al
@@ -115,5 +117,5 @@ def test_loader(image_finetune=False):
 
 
 if __name__=='__main__':
-    test_src_dataset('al', False, True)
-    # test_loader(False)
+    # test_src_dataset('al', False, True)
+    test_loader(False)

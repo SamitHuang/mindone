@@ -59,7 +59,7 @@ model:
       params:
         embed_dim: 4
         monitor: val/rec_loss
-        use_fp16: False # TODO: confirm. debugging, affect generated image quality on GPUs
+        use_fp16: True # TODO: confirm. debugging, affect generated image quality on GPUs
         ddconfig:
           double_z: true
           z_channels: 4
@@ -97,7 +97,7 @@ mm_amp_level: "O2"
 
 # pretrained_model_path: "models/stable_diffusion/sd_v1.5-d0ab7146.ckpt"
 pretrained_model_path: "models/dreambooth_lora/toonyou_beta3.ckpt"
-pretrained_motion_module_path: "models/motion_module/mm_sd_v15_v2.ckpt"
+pretrained_motion_module_path: "" # "models/motion_module/mm_sd_v15_v2.ckpt"
 
 train_data:
   csv_path:        "./datasets/zoom_in_dataset/video_caption.csv"
@@ -113,8 +113,8 @@ train_data:
 
 lr_schedule:
     name: 'constant'
-    warmup_steps: 200
-    lr: 1.e-6
+    warmup_steps: 100
+    lr: 1.e-5
 
 optim:
     name: 'adamw' # adamw or momentum, momentum for debug only 
@@ -124,7 +124,7 @@ optim:
 loss_scaler:
     type: 'dynamic' 
     loss_scale: 65536 
-    scale_window: 1000 
+    scale_window: 2000 
     scale_factor: 2
 
 
@@ -138,7 +138,7 @@ dataset_sink_mode: False # TODO: set True after debugging
 sink_size: -1 # if -1, sink_size = datasize size (num batches) for current rank_id
 
 gradient_accumulation_steps: 1
-clip_grad: False
+clip_grad: True 
 max_grad_norm: 1.0
 
 use_ema: False
@@ -149,4 +149,4 @@ drop_overflow_update: True
 # monintor
 log_interval: 1 # only effective when data_sink_mode is False
 profile: False
-save_whole_model: True  # if True, save text encoder, vae, unet, mm into one model. Otherwise, save motion module only (tobe implmented)
+save_whole_model: True # if True, save text encoder, vae, unet, mm into one model. Otherwise, save motion module only (tobe implmented)

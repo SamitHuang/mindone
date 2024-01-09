@@ -208,11 +208,11 @@ class TextVideoDataset():
 # TODO: parse in config dict
 def create_dataloader(config, tokenizer=None, is_image=False, device_num=1, rank_id=0):
     dataset = TextVideoDataset(                
-                config.csv_path,
-                config.video_folder,
-                sample_size=config.sample_size,
-                sample_stride=config.sample_stride,
-                sample_n_frames=config.sample_n_frames,
+                config["csv_path"],
+                config["video_folder"],
+                sample_size=config["sample_size"],
+                sample_stride=config["sample_stride"],
+                sample_n_frames=config["sample_n_frames"],
                 is_image=is_image,
                 tokenizer=tokenizer,
     )
@@ -231,13 +231,13 @@ def create_dataloader(config, tokenizer=None, is_image=False, device_num=1, rank
         num_shards=device_num,
         shard_id=rank_id,
         python_multiprocessing=True,
-        shuffle=config.shuffle,
-        num_parallel_workers=config.num_parallel_workers,
-        max_rowsize=config.max_rowsize,  # video data require larger rowsize
+        shuffle=config["shuffle"],
+        num_parallel_workers=config["num_parallel_workers"],
+        max_rowsize=config["max_rowsize"],  # video data require larger rowsize
     )
 
     dl = dataloader.batch(
-        config.batch_size,
+        config["batch_size"],
         drop_remainder=True,
     )
 

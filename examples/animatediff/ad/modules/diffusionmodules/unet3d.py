@@ -273,10 +273,12 @@ class UNet3DModel(nn.Cell):
                 # add MotionModule 1) after SpatialTransformer in DownBlockWithAttn, 3*2 times, or 2) after ResBlock in DownBlockWithoutAttn, 1*2 time.
                 if use_motion_module:
                     layers.append(
+                        # TODO: set mm fp32/fp16 independently?
                         get_motion_module(  # return VanillaTemporalModule
                             in_channels=ch,
                             motion_module_type=motion_module_type,
                             motion_module_kwargs=motion_module_kwargs,
+                            dtype=self.dtype,
                         )
                     )
 
@@ -368,6 +370,7 @@ class UNet3DModel(nn.Cell):
                     in_channels=ch,
                     motion_module_type=motion_module_type,
                     motion_module_kwargs=motion_module_kwargs,
+                    dtype=self.dtype,
                 )
             )
         self.middle_block.append(
@@ -445,6 +448,7 @@ class UNet3DModel(nn.Cell):
                             in_channels=ch,
                             motion_module_type=motion_module_type,
                             motion_module_kwargs=motion_module_kwargs,
+                            dtype=self.dtype,
                         )
                     )
 
@@ -488,7 +492,7 @@ class UNet3DModel(nn.Cell):
 
         self.cat = ops.Concat(axis=1)
 
-
+    '''
     def set_mm_amp_level(self, amp_level):
         # set motion module precision
         print("D--: mm amp level: ", amp_level)
@@ -507,6 +511,7 @@ class UNet3DModel(nn.Cell):
                     cell = auto_mixed_precision(cell, amp_level)
 
         return self
+    '''
 
     def construct(
         self, x, timesteps=None, context=None, y=None, features_adapter: list = None, append_to_context=None, **kwargs

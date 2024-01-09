@@ -187,5 +187,5 @@ if __name__ == "__main__":
     # from fire import Fire
     # Fire(run_task)
     test_vanilla_lora(False, "1.5")
-    test_vanilla_lora(True, "1.5")
-    test_db("1.5")
+    # test_vanilla_lora(True, "1.5")
+    # test_db("1.5")

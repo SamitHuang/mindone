@@ -110,15 +110,22 @@ def main(args):
     vae = sd_model.first_stage_model
     
     # 2) load motion module weights
-    if use_motion_module:
+    if args.all_in_one_ckpt != "":
+        # allow loading the whole single file
+        logger.info("Loading all in one ckpt from {}".format(args.all_in_one_ckpt))
+        param_dict = ms.load_checkpoint(args.all_in_one_ckpt)
+        param_not_load, ckpt_not_load = ms.load_param_into_net(sd_model, param_dict)
+        assert len(param_not_load)==len(ckpt_not_load)==0, "Exist ckpt params not loaded: {} (total: {})\nor net params not loaded: {} (total: {})".format(ckpt_not_load, len(ckpt_not_load), param_not_load, len(param_not_load))
+    elif use_motion_module:
         unet = load_motion_modules(unet, motion_module_path, motion_lora_config=motion_lora_config)
 
         # set mixed precision for mm
-        mm_amp_level = args.mm_amp_level
-        unet.diffusion_model = unet.diffusion_model.set_mm_amp_level(mm_amp_level)
+        # mm_amp_level = args.mm_amp_level
+        # unet.diffusion_model = unet.diffusion_model.set_mm_amp_level(mm_amp_level)
 
 
-    # 2) ddim sampler
+
+    # ddim sampler
     # TODO: merge noise_scheduler_kwargs and ddim.yaml
     sampler_config = OmegaConf.load("configs/inference/scheduler/ddim.yaml")  # base template
     sampler_config.params.beta_start = noise_scheduler_kwargs.beta_start  # overwrite
@@ -195,6 +202,7 @@ if __name__ == "__main__":
         type=str,
         default="models/stable_diffusion/sd_v1.5-d0ab7146.ckpt",
     )
+    parser.add_argument("--all_in_one_ckpt", type=str, default="", help="if not empty, load SD+mm from this file")
     parser.add_argument("--inference_config", type=str, default="configs/inference/inference-v2.yaml")
     # Use ldm config method instead of diffusers and transformers
     parser.add_argument("--sd_config", type=str, default="configs/stable_diffusion/v1-inference-unet3d.yaml")
@@ -208,7 +216,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ms_mode", type=int, default=0, help="Running in GRAPH_MODE(0) or PYNATIVE_MODE(1) (default=0)"
     )
-    parser.add_argument("--mm_amp_level", type=str, default="O2")
 
     args = parser.parse_args()
 

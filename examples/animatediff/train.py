@@ -52,7 +52,7 @@ def parse_args():
     parser.add_argument("--is_parallel", type=ast.literal_eval, default=False, help="Set True for parallel training")
     parser.add_argument("--device_target", type=str, default="Ascend", help="Ascend or GPU")
     parser.add_argument("--seed", default=42, type=int, help="random seed")
-    parser.add_argument("--max_device_memory", type=str, default=None)
+    parser.add_argument("--max_device_memory", type=str, default=None, help="e.g. `30GB` for 910a, `59GB` for 910b")
     parser.add_argument("--ms_enable_graph_kernel", type=ast.literal_eval, default=False, help="Enable graph op fusion for acceleration (on GPU)")
     # paths
     parser.add_argument("--output_dir", type=str, default="outputs/train", help="folder for saving checkpoints and logs")
@@ -159,7 +159,7 @@ def train(args):
             rank_id=rank_id)
     num_dataset_batches = dataloader.get_dataset_size()
 
-    check_data = False # debug
+    check_data = True # debug
     if check_data:
         iterator = dataloader.create_dict_iterator()
         for i, batch in enumerate(iterator):

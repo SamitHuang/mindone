@@ -179,14 +179,18 @@ def build_model_from_config(config, ckpt: str, is_training=False, use_motion_mod
                     )
 
     model = instantiate_from_config(config.model)
-    param_dict = ms.load_checkpoint(ckpt)
+    if ckpt != "":
+        param_dict = ms.load_checkpoint(ckpt)
 
-    # update param dict loading unet2d checkpoint to unet3d
-    if use_motion_module:
-        param_dict = update_unet2d_params_for_unet3d(param_dict)
+        # update param dict loading unet2d checkpoint to unet3d
+        if use_motion_module:
+            param_dict = update_unet2d_params_for_unet3d(param_dict)
 
-    logger.info(f"Loading main model from {ckpt}")
-    _load_model(model, param_dict, ignore_net_param_not_load_warning=True)
+        logger.info(f"Loading main model from {ckpt}")
+        _load_model(model, param_dict, ignore_net_param_not_load_warning=True)
+    else:
+        logger.warning(f"No pretarined weights loaded. Input checkpoint path is empty.")
+        
 
     if not is_training:
         model.set_train(False)

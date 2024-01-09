@@ -51,7 +51,7 @@ def init_env(
             mode=mode,
             device_target="Ascend",
             device_id=device_id,
-            ascend_config={"precision_mode": "allow_fp32_to_fp16"},  # Only effective on Ascend 901B
+            # ascend_config={"precision_mode": "allow_fp32_to_fp16"},  # Only effective on Ascend 901B
         )
         init()
         device_num = get_group_size()

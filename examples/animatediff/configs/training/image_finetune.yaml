@@ -40,11 +40,11 @@ model:
       params:
         embed_dim: 4
         monitor: val/rec_loss
-        use_fp16: False # affect generated image quality on GPUs
+        use_fp16: True # affect generated image quality on GPUs
         ddconfig:
           double_z: true
           z_channels: 4
-          resolution: 256
+          resolution: 512 # TODO: 256 or 512?
           in_channels: 3
           out_ch: 3
           ch: 128
@@ -74,28 +74,29 @@ model:
 
 # training config
 image_finetune: True 
-pretrained_model_path: "models/stable_diffusion/sd_v1.5-d0ab7146.ckpt"
+pretrained_model_path: ""  #  "models/stable_diffusion/sd_v1.5-d0ab7146.ckpt"
 pretrained_motion_module_path: "" # "models/motion_module/mm_sd_v15_v2.ckpt"
 
 train_data:
   # csv_path:        "../videocomposer/datasets/webvid5/video_caption.csv"
   # video_folder:    "../videocomposer/datasets/webvid5"
-  csv_path:        "./datasets/zoom_in_dataset/video_caption.csv"
-  video_folder:    "./datasets/zoom_in_dataset"
+  csv_path:        "./datasets/cnart_image_overfit/video_caption.csv"
+  video_folder:    "./datasets/cnart_image_overfit"
   sample_size:     256 # debug. ori: 256
   sample_stride:   4
   sample_n_frames: 1 # debug. ori: 16
   shuffle: True
-  batch_size: 4     # debug. ori: 4
+  batch_size: 1     # 1 for overfitting debug. ori: 4
   num_parallel_workers: 12 # TODO: try increase to reduce time 
   max_rowsize: 32 # TODO: tuning
 
 lr_schedule:
-    name: 'constant'
+    name: 'cosine_decay'
     lr: 1.e-5
+    warmup_steps: 10
 
 optim:
-    name: 'momentum' # adamw or momentum, momentum for debug only 
+    name: 'adamw' # adamw or momentum, momentum for debug only 
     betas: [0.9, 0.98]
     weight_decay: 0.01
 
@@ -106,16 +107,16 @@ loss_scaler:
     scale_factor: 2
 
 # training process
-train_steps: 15000
+train_steps: 1000   # 1000 for overfit. 15000 for normal finetune
 train_epochs: -1    # if -1, use train_steps. train_steps has higher priority
-ckpt_save_interval: 2500     # in step 
+ckpt_save_interval: 1000     # in step 
 ckpt_max_keep: 5
 
-dataset_sink_mode: False # TODO: set True after debugging
+dataset_sink_mode: True
 sink_size: -1 # if -1, sink_size = datasize size (num batches) for current rank_id
 
 gradient_accumulation_steps: 1
-clip_grad: False
+clip_grad: True 
 max_grad_norm: 1.0
 
 use_ema: False

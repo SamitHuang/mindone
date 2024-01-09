@@ -32,6 +32,7 @@ from mindspore.train.callback import TimeMonitor
 
 
 from ad.data.dataset import create_dataloader, check_sanity
+from ad.utils.load_models import update_unet2d_params_for_unet3d
 
 os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
 
@@ -62,10 +63,13 @@ def get_obj_from_str(string, reload=False):
     return getattr(importlib.import_module(module, package=None), cls)
 
 
-def load_pretrained_model(pretrained_ckpt, net, unet_initialize_random=False):
+def load_pretrained_model(pretrained_ckpt, net, unet_initialize_random=False, load_unet3d_from_2d=False):
     logger.info(f"Loading pretrained model from {pretrained_ckpt}")
     if os.path.exists(pretrained_ckpt):
         param_dict = load_checkpoint(pretrained_ckpt)
+
+        if load_unet3d_from_2d:
+            param_dict = update_unet2d_params_for_unet3d(param_dict)
 
         if unet_initialize_random:
             pnames = list(param_dict.keys())
@@ -79,7 +83,8 @@ def load_pretrained_model(pretrained_ckpt, net, unet_initialize_random=False):
             param_not_load = load_param_into_net(net, param_dict)
         else:
             param_not_load, ckpt_not_load = load_param_into_net(net, param_dict)
-        logger.info("Params not load: {}".format(param_not_load))
+        logger.info("Net params not load: {}, Total net params not loaded: {}".format(param_not_load, len(param_not_load)))
+        logger.info("Ckpt params not load: {}, Total ckpt params not loaded: {}".format(ckpt_not_load, len(ckpt_not_load)))
     else:
         logger.warning(f"Checkpoint file {pretrained_ckpt} dose not exist!!!")
 
@@ -225,7 +230,10 @@ def parse_args():
     )
     # video
     parser.add_argument("--image_finetune", default=True, type=str2bool, help="True for image finetune. False for animation training.")
-    parser.add_argument("--image_size", default=512, type=int, help="images size")
+    parser.add_argument("--image_size", default=256, type=int, help="image size")
+    parser.add_argument("--num_frames", default=16, type=int, help="num frames")
+    parser.add_argument("--frame_stride", default=4, type=int, help="frame sampling stride")
+    parser.add_argument("--num_parallel_workers", default=12, type=int, help="num workers for data loading")
 
     abs_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ""))
     default_args = parser.parse_args()
@@ -268,8 +276,26 @@ def main(args):
         )
     else:
         load_pretrained_model(
-            args.pretrained_model_path, latent_diffusion_with_loss, unet_initialize_random=args.unet_initialize_random
+            args.pretrained_model_path, latent_diffusion_with_loss, unet_initialize_random=args.unet_initialize_random, load_unet3d_from_2d=(not args.image_finetune),
         )
+
+    # set only motion module trainable if not image finetune
+    if not args.image_finetune:
+        # only motion moduel trainable
+        num_mm_params = 0
+        for param in latent_diffusion_with_loss.model.get_parameters():
+            if '.temporal_transformer.' in param.name:
+                param.requires_grad = True
+                num_mm_params += 1
+            else:
+                param.requires_grad = False
+        logger.info("Num MM params {}".format(num_mm_params))
+    
+    # count total params and trainable params
+    tot_params, trainable_params = count_params(latent_diffusion_with_loss.model)
+    logger.info("UNet3D: total param size {:,}, trainable {:,}".format(tot_params, trainable_params)) 
+    assert trainable_params > 0, "No trainable parameters. Please check model config."
+
 
     # build dataset
     '''
@@ -291,7 +317,7 @@ def main(args):
     if args.image_finetune:
         data_config = dict(video_folder=args.data_path, csv_path=args.data_path+'/video_caption.csv', sample_size=args.image_size, sample_stride=1, sample_n_frames=1, batch_size=args.train_batch_size, shuffle=True, num_parallel_workers=12, max_rowsize=32)
     else:
-        data_config = dict(video_folder=args.data_path, csv_path=args.data_path+'/video_caption.csv', sample_size=args.image_size, sample_stride=4, sample_n_frames=16, batch_size=args.train_batch_size, shuffle=True, num_parallel_workers=12, max_rowsize=32)
+        data_config = dict(video_folder=args.data_path, csv_path=args.data_path+'/video_caption.csv', sample_size=args.image_size, sample_stride=args.frame_stride, sample_n_frames=args.num_frames, batch_size=args.train_batch_size, shuffle=True, num_parallel_workers=args.num_parallel_workers, max_rowsize=64)
 
     tokenizer = latent_diffusion_with_loss.cond_stage_model.tokenize
     dataset = create_dataloader(
@@ -454,6 +480,8 @@ def main(args):
                 f"LoRA rank: {args.lora_rank}",
                 f"Learning rate: {args.start_learning_rate}",
                 f"Batch size: {args.train_batch_size}",
+                f"Image size: {args.image_size}",
+                f"Frames: {args.num_frames}",
                 f"Weight decay: {args.weight_decay}",
                 f"Grad accumulation steps: {args.gradient_accumulation_steps}",
                 f"Num epochs: {args.epochs}",
@@ -471,6 +499,9 @@ def main(args):
         logger.info("Start training...")
         # backup config files
         shutil.copyfile(args.model_config, os.path.join(args.output_path, "model_config.yaml"))
+
+        with open(os.path.join(args.output_path, "args.yaml"), "w") as f:
+            yaml.safe_dump(vars(args), stream=f, default_flow_style=False, sort_keys=False)
 
     # train
     model.train(

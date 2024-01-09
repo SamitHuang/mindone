@@ -116,7 +116,7 @@ class DDPM(nn.Cell):
         self.logvar = Tensor(np.full(shape=(self.num_timesteps,), fill_value=logvar_init).astype(np.float32))
         if self.learn_logvar:
             self.logvar = Parameter(self.logvar, requires_grad=True)
-        # self.mse_mean = nn.MSELoss(reduction="mean")
+        self.mse_mean = nn.MSELoss(reduction="mean")
         self.mse_none = nn.MSELoss(reduction="none")
 
     def register_schedule(
@@ -174,6 +174,8 @@ class LatentDiffusion(DDPM):
         first_stage_config,
         cond_stage_config,
         unet_config,
+        first_stage_key="image",
+        cond_stage_key="caption",
         num_timesteps_cond=None,
         cond_stage_trainable=False,
         concat_mode=True,
@@ -291,7 +293,9 @@ class LatentDiffusion(DDPM):
     def get_latents_2d(self, x):
         B, C, H, W = x.shape
         if C != 3:
-            raise ValueError("Expect input shape (b 3 h w), but get {}".format(x.shape))
+            # b h w c -> b c h w
+            x = ops.transpose(x, (0, 3, 1, 2))
+            # raise ValueError("Expect input shape (b 3 h w), but get {}".format(x.shape))
 
         z = ops.stop_gradient(self.scale_factor * self.first_stage_model.encode(x))
 
@@ -368,6 +372,9 @@ class LatentDiffusion(DDPM):
         else:
             raise NotImplementedError()
 
+        loss = self.mse_mean(target, model_output)
+
+        '''
         loss_simple = self.compute_loss(model_output, target)
         loss_simple = self.reduce_loss(loss_simple)
 
@@ -375,6 +382,7 @@ class LatentDiffusion(DDPM):
         logvar_t = self.logvar[t]
         loss = loss_simple / ops.exp(logvar_t) + logvar_t
         loss = self.l_simple_weight * loss.mean()
+        '''
 
         return loss
 
