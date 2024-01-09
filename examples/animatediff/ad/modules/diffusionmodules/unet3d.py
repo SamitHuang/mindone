@@ -492,7 +492,6 @@ class UNet3DModel(nn.Cell):
 
         self.cat = ops.Concat(axis=1)
 
-    '''
     def set_mm_amp_level(self, amp_level):
         # set motion module precision
         print("D--: mm amp level: ", amp_level)
@@ -509,9 +508,6 @@ class UNet3DModel(nn.Cell):
             for cell in celllist:
                 if isinstance(cell, VanillaTemporalModule):
                     cell = auto_mixed_precision(cell, amp_level)
-
-        return self
-    '''
 
     def construct(
         self, x, timesteps=None, context=None, y=None, features_adapter: list = None, append_to_context=None, **kwargs

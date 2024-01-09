@@ -230,6 +230,7 @@ def parse_args():
     )
     # video
     parser.add_argument("--image_finetune", default=True, type=str2bool, help="True for image finetune. False for animation training.")
+    parser.add_argument("--force_motion_module_amp_O2", default=False, type=str2bool, help="if True, set mixed precision O2 for MM. Otherwise, use manually defined precision according to use_fp16 flag")
     parser.add_argument("--image_size", default=256, type=int, help="image size")
     parser.add_argument("--num_frames", default=16, type=int, help="num frames")
     parser.add_argument("--frame_stride", default=4, type=int, help="frame sampling stride")
@@ -278,6 +279,11 @@ def main(args):
         load_pretrained_model(
             args.pretrained_model_path, latent_diffusion_with_loss, unet_initialize_random=args.unet_initialize_random, load_unet3d_from_2d=(not args.image_finetune),
         )
+
+    # force to set motion module amp O2
+    if (not args.image_finetune) and (args.force_motion_module_amp_O2):
+        logger.warning("Force to set motion module in amp level O2")
+        latent_diffusion_with_loss.model.diffusion_model.set_mm_amp_level("O2")
 
     # set only motion module trainable if not image finetune
     if not args.image_finetune:
