@@ -16,9 +16,9 @@ from args_train import parse_args
 __dir__ = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "../stable_diffusion_v2/")))
 
+# TODO: use API in mindone
 from common import init_env
 from ldm.modules.logger import set_logger
-from ldm.modules.lora import inject_trainable_lora, inject_trainable_lora_to_textencoder
 from ldm.modules.train.callback import EvalSaveCallback, OverflowMonitor
 from ldm.modules.train.checkpoint import resume_train_network
 from ldm.modules.train.ema import EMA
@@ -27,6 +27,9 @@ from ldm.modules.train.optim import build_optimizer
 from ldm.modules.train.trainer import TrainOneStepWrapper
 from ldm.util import count_params, is_old_ms_version, str2bool
 from omegaconf import OmegaConf
+
+# from mindone.trainers.optim import create_optimizer
+# from mindone.trainers.train_step import TrainOneStepWrapper
 
 from mindspore import Model, Profiler, load_checkpoint, load_param_into_net, nn
 from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
@@ -141,14 +144,16 @@ def main(args):
     # set only motion module trainable if not image finetune
     if not args.image_finetune:
         # only motion moduel trainable
-        num_mm_params = 0
+        num_mm_trainable = 0
         for param in latent_diffusion_with_loss.model.get_parameters():
-            if '.temporal_transformer.' in param.name:
+            # exclude positional embedding params from training
+            if ('.temporal_transformer.' in param.name) and ('.pe' not in param.name):
                 param.requires_grad = True
-                num_mm_params += 1
+                num_mm_trainable += 1
             else:
                 param.requires_grad = False
-        logger.info("Num MM params {}".format(num_mm_params))
+        logger.info("Num MM trainable params {}".format(num_mm_trainable))
+        # assert num_mm_trainable in [546, 520], "Expect 546 trainable params for MM-v2 or 520 for MM-v1."
     
     # count total params and trainable params
     tot_params, trainable_params = count_params(latent_diffusion_with_loss.model)
@@ -200,9 +205,22 @@ def main(args):
         model=latent_diffusion_with_loss,
         name=args.optim,
         betas=args.betas,
+        eps=args.optim_eps,
+        group_strategy=args.group_strategy,
+        weight_decay=args.weight_decay,
+        lr=lr,    
+    )
+    '''
+    optimizer = create_optimizer(
+        latent_diffusion_with_loss.trainable_params(),
+        name=args.optim,
+        betas=args.betas,
+        eps=args.optim_eps,
+        group_strategy=args.group_strategy,
         weight_decay=args.weight_decay,
         lr=lr,
     )
+    '''
 
     if args.loss_scaler_type == "dynamic":
         loss_scaler = DynamicLossScaleUpdateCell(
@@ -267,7 +285,7 @@ def main(args):
             log_interval=args.callback_size,
             start_epoch=start_epoch,
             model_name="sd" if args.image_finetune else "ad",
-            save_trainable_only=args.save_trainable_only,
+            param_save_filter='.temporal_transformer.' if args.save_mm_only else None,
             record_lr=False,  # TODO: check LR retrival for new MS on 910b 
         )
         callback.append(save_cb)
@@ -317,7 +335,7 @@ def main(args):
 
     # 6. train
     model.train(
-        args.epochs, dataset, callbacks=callback, dataset_sink_mode=args.dataset_sink_mode, initial_epoch=start_epoch
+        args.epochs, dataset, callbacks=callback, dataset_sink_mode=args.dataset_sink_mode, sink_size=args.sink_size, initial_epoch=start_epoch
     )
 
     if args.profile:

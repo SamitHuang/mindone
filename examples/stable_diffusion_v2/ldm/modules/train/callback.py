@@ -1,3 +1,4 @@
+from typing import List
 import logging
 import os
 import time
@@ -40,8 +41,12 @@ class EvalSaveCallback(Callback):
         start_epoch=0,
         record_lr=True,
         model_name="sd",
-        save_trainable_only=False,
+        save_trainable_only: bool=False,
+        param_save_filter: List[str]=None,
     ):
+        '''
+        param_save_filter indicates what parameters to save if not None.
+        '''
         self.rank_id = rank_id
         self.is_main_device = rank_id in [0, None]
         self.ema = ema
@@ -81,11 +86,17 @@ class EvalSaveCallback(Callback):
                 self.rec = PerfRecorder(self.output_dir, resume=True)
         
         self.save_trainable_only = save_trainable_only or use_lora
-        if save_trainable_only:
+        if self.save_trainable_only:
             # save lora trainable params only
             self.net_to_save = [{"name": p.name, "data": p} for p in network.trainable_params()]
-            if use_lora:
-                self.lora_rank = lora_rank
+            self.lora_rank = lora_rank
+        elif param_save_filter is not None:
+            self.net_to_save = []
+            for p in network.get_parameters():
+                for keyword in param_save_filter:
+                    if keyword in p.name:
+                        self.net_to_save.append({"name": p.name, "data": p})
+                        break
         else:
             self.net_to_save = network
         self.use_lora = use_lora
