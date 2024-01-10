@@ -1,14 +1,17 @@
 """
-Stable diffusion model training/finetuning
+AnimateDiff training pipeline 
+- Image finetuning
+- Motion module training 
 """
 import sys
-import argparse
 import importlib
 import logging
 import os
 import shutil
 import datetime
 import yaml
+
+from args_train import parse_args
 
 __dir__ = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "../stable_diffusion_v2/")))
@@ -104,154 +107,6 @@ def load_pretrained_model_vae_unet_cnclip(pretrained_ckpt, cnclip_ckpt, net):
         logger.warning(f"Checkpoint file {pretrained_ckpt}, {cnclip_ckpt} dose not exist!!!")
 
 
-def _check_cfgs_in_parser(cfgs: dict, parser: argparse.ArgumentParser):
-    actions_dest = [action.dest for action in parser._actions]
-    defaults_key = parser._defaults.keys()
-    for k in cfgs.keys():
-        if k not in actions_dest and k not in defaults_key:
-            raise KeyError(f"{k} does not exist in ArgumentParser!")
-
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--train_config",
-        default="",
-        type=str,
-        help="train config path to load a yaml file that override the default arguments",
-    )
-    parser.add_argument("--mode", default=0, type=int, help="Specify the mode: 0 for graph mode, 1 for pynative mode")
-    parser.add_argument("--use_parallel", default=False, type=str2bool, help="use parallel")
-    parser.add_argument("--data_path", default="dataset", type=str, help="data path")
-    parser.add_argument("--output_path", default="output/", type=str, help="output directory to save training results")
-    parser.add_argument(
-        "--replace_small_images",
-        default=True,
-        type=str2bool,
-        help="replace the small-size images with other training samples",
-    )
-    parser.add_argument("--model_config", default="configs/v1-train-chinese.yaml", type=str, help="model config path")
-
-    # modelarts
-    parser.add_argument("--enable_modelarts", default=False, type=str2bool, help="run codes in ModelArts platform")
-    parser.add_argument("--num_workers", default=1, type=int, help="the number of modelarts workers")
-    parser.add_argument(
-        "--json_data_path",
-        default="mindone/examples/stable_diffusion_v2/ldm/data/num_samples_64_part.json",
-        type=str,
-        help="the path of num_samples.json containing a dictionary with 64 parts. "
-        "Each part is a large dictionary containing counts of samples of 533 tar packages.",
-    )
-    parser.add_argument(
-        "--resume",
-        default=False,
-        type=str,
-        help="resume training, can set True or path to resume checkpoint.(default=False)",
-    )
-    parser.add_argument("--custom_text_encoder", default="", type=str, help="use this to plug in custom clip model")
-    parser.add_argument(
-        "--pretrained_model_path", default="", type=str, help="Specify the pretrained model from this checkpoint"
-    )
-    # lora
-    parser.add_argument("--use_lora", default=False, type=str2bool, help="use lora finetuning")
-    parser.add_argument("--lora_ft_unet", default=True, type=str2bool, help="whether to apply lora finetune to unet")
-    parser.add_argument(
-        "--lora_ft_text_encoder", default=False, type=str2bool, help="whether to apply lora finetune to text encoder"
-    )
-    parser.add_argument(
-        "--lora_rank",
-        default=4,
-        type=int,
-        help="lora rank. The bigger, the larger the LoRA model will be, but usually gives better generation quality.",
-    )
-    parser.add_argument("--lora_fp16", default=True, type=str2bool, help="Whether use fp16 for LoRA params.")
-    parser.add_argument(
-        "--lora_scale",
-        default=1.0,
-        type=float,
-        help="scale, the higher, the more LoRA weights will affect orignal SD. If 0, LoRA has no effect.",
-    )
-
-    parser.add_argument("--unet_initialize_random", default=False, type=str2bool, help="initialize unet randomly")
-    parser.add_argument("--dataset_sink_mode", default=False, type=str2bool, help="sink mode")
-    parser.add_argument("--optim", default="adamw", type=str, help="optimizer")
-    parser.add_argument(
-        "--betas", type=float, default=[0.9, 0.999], help="Specify the [beta1, beta2] parameter for the Adam optimizer."
-    )
-    parser.add_argument("--weight_decay", default=1e-6, type=float, help="Weight decay.")
-    parser.add_argument("--seed", default=3407, type=int, help="data path")
-    parser.add_argument("--warmup_steps", default=1000, type=int, help="warmup steps")
-    parser.add_argument("--train_batch_size", default=10, type=int, help="batch size")
-    parser.add_argument("--callback_size", default=1, type=int, help="callback size.")
-    parser.add_argument("--start_learning_rate", default=1e-5, type=float, help="The initial learning rate for Adam.")
-    parser.add_argument("--end_learning_rate", default=1e-7, type=float, help="The end learning rate for Adam.")
-    parser.add_argument("--decay_steps", default=0, type=int, help="lr decay steps.")
-    parser.add_argument("--scheduler", default="cosine_decay", type=str, help="scheduler.")
-    parser.add_argument("--epochs", default=10, type=int, help="epochs")
-    parser.add_argument("--init_loss_scale", default=65536, type=float, help="loss scale")
-    parser.add_argument("--loss_scale_factor", default=2, type=float, help="loss scale factor")
-    parser.add_argument("--scale_window", default=1000, type=float, help="scale window")
-    parser.add_argument("--gradient_accumulation_steps", default=1, type=int, help="gradient accumulation steps")
-    # parser.add_argument("--cond_stage_trainable", default=False, type=str2bool, help="whether text encoder is trainable")
-    parser.add_argument("--use_ema", default=False, type=str2bool, help="whether use EMA")
-    parser.add_argument("--clip_grad", default=False, type=str2bool, help="whether apply gradient clipping")
-    # parser.add_argument("--use_recompute", default=None, type=str2bool, help="whether use recompute")
-    parser.add_argument(
-        "--enable_flash_attention",
-        default=None,
-        type=str2bool,
-        help="whether enable flash attention. If not None, it will overwrite the value in model config yaml.",
-    )
-    parser.add_argument("--drop_overflow_update", default=True, type=str2bool, help="drop overflow update")
-    parser.add_argument("--loss_scaler_type", default="dynamic", type=str, help="dynamic or static")
-    parser.add_argument(
-        "--max_grad_norm",
-        default=1.0,
-        type=float,
-        help="max gradient norm for clipping, effective when `clip_grad` enabled.",
-    )
-
-    parser.add_argument("--ckpt_save_interval", default=1, type=int, help="save checkpoint every this epochs or steps")
-    parser.add_argument(
-        "--step_mode",
-        default=False,
-        type=str2bool,
-        help="whether save ckpt by steps. If False, save ckpt by epochs.",
-    )
-    parser.add_argument("--random_crop", default=False, type=str2bool, help="random crop")
-    parser.add_argument("--filter_small_size", default=True, type=str2bool, help="filter small images")
-    parser.add_argument("--image_filter_size", default=256, type=int, help="image filter size")
-
-    parser.add_argument("--profile", default=False, type=str2bool, help="Profile or not")
-    parser.add_argument(
-        "--log_level",
-        type=str,
-        default="logging.INFO",
-        help="log level, options: logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR",
-    )
-    # video
-    parser.add_argument("--image_finetune", default=True, type=str2bool, help="True for image finetune. False for animation training.")
-    parser.add_argument("--force_motion_module_amp_O2", default=False, type=str2bool, help="if True, set mixed precision O2 for MM. Otherwise, use manually defined precision according to use_fp16 flag")
-    parser.add_argument("--image_size", default=256, type=int, help="image size")
-    parser.add_argument("--num_frames", default=16, type=int, help="num frames")
-    parser.add_argument("--frame_stride", default=4, type=int, help="frame sampling stride")
-    parser.add_argument("--num_parallel_workers", default=12, type=int, help="num workers for data loading")
-
-    abs_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ""))
-    default_args = parser.parse_args()
-    if default_args.train_config:
-        default_args.train_config = os.path.join(abs_path, default_args.train_config)
-        with open(default_args.train_config, "r") as f:
-            cfg = yaml.safe_load(f)
-            _check_cfgs_in_parser(cfg, parser)
-            parser.set_defaults(**cfg)
-    args = parser.parse_args()
-    args.model_config = os.path.join(abs_path, args.model_config)
-
-    logger.info(args)
-    return args
-
-
 def main(args):
     if args.profile:
         # TODO: use profiler callback
@@ -260,7 +115,7 @@ def main(args):
     time_str = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     args.output_path = os.path.join(args.output_path, time_str) 
 
-    # init
+    # 1. init
     device_id, rank_id, device_num = init_env(
         args.mode,
         seed=args.seed,
@@ -271,18 +126,14 @@ def main(args):
     )
     set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
 
-    # build model
+    # 2. build model
     latent_diffusion_with_loss = build_model_from_config(args.model_config, args.enable_flash_attention)
-    if args.custom_text_encoder is not None and os.path.exists(args.custom_text_encoder):
-        load_pretrained_model_vae_unet_cnclip(
-            args.pretrained_model_path, args.custom_text_encoder, latent_diffusion_with_loss
-        )
-    else:
-        load_pretrained_model(
-            args.pretrained_model_path, latent_diffusion_with_loss, unet_initialize_random=args.unet_initialize_random, load_unet3d_from_2d=(not args.image_finetune),
-        )
+    # load sd pretrained weight
+    load_pretrained_model(
+        args.pretrained_model_path, latent_diffusion_with_loss, unet_initialize_random=args.unet_initialize_random, load_unet3d_from_2d=(not args.image_finetune),
+    )
 
-    # force to set motion module amp O2
+    # set motion module amp O2 if required for memory reduction
     if (not args.image_finetune) and (args.force_motion_module_amp_O2):
         logger.warning("Force to set motion module in amp level O2")
         latent_diffusion_with_loss.model.diffusion_model.set_mm_amp_level("O2")
@@ -304,10 +155,12 @@ def main(args):
     logger.info("UNet3D: total param size {:,}, trainable {:,}".format(tot_params, trainable_params)) 
     assert trainable_params > 0, "No trainable parameters. Please check model config."
 
-
-    # build dataset
+    # 3. build dataset
     if args.image_finetune:
-        data_config = dict(video_folder=args.data_path, csv_path=args.data_path+'/video_caption.csv', sample_size=args.image_size, sample_stride=1, sample_n_frames=1, batch_size=args.train_batch_size, shuffle=True, num_parallel_workers=12, max_rowsize=32)
+        logger.info("Task is image finetune, num_frames and frame_stride is forced to 1")
+        args.num_frames = 1
+        args.frame_stride = 1
+        data_config = dict(video_folder=args.data_path, csv_path=args.data_path+'/video_caption.csv', sample_size=args.image_size, sample_stride=args.frame_stride, sample_n_frames=args.num_frames, batch_size=args.train_batch_size, shuffle=True, num_parallel_workers=args.num_parallel_workers, max_rowsize=32)
     else:
         data_config = dict(video_folder=args.data_path, csv_path=args.data_path+'/video_caption.csv', sample_size=args.image_size, sample_stride=args.frame_stride, sample_n_frames=args.num_frames, batch_size=args.train_batch_size, shuffle=True, num_parallel_workers=args.num_parallel_workers, max_rowsize=64)
 
@@ -318,39 +171,11 @@ def main(args):
             is_image=args.image_finetune,
             device_num=device_num,
             rank_id=rank_id)
-
-    # lora injection
-    if args.use_lora:
-        # freeze network
-        for param in latent_diffusion_with_loss.get_parameters():
-            param.requires_grad = False
-
-        # inject lora params
-        num_injected_params = 0
-        if args.lora_ft_unet:
-            unet_lora_layers, unet_lora_params = inject_trainable_lora(
-                latent_diffusion_with_loss,
-                rank=args.lora_rank,
-                use_fp16=args.lora_fp16,
-                scale=args.lora_scale,
-            )
-            num_injected_params += len(unet_lora_params)
-        if args.lora_ft_text_encoder:
-            text_encoder_lora_layers, text_encoder_lora_params = inject_trainable_lora_to_textencoder(
-                latent_diffusion_with_loss,
-                rank=args.lora_rank,
-                use_fp16=args.lora_fp16,
-                scale=args.lora_scale,
-            )
-            num_injected_params += len(text_encoder_lora_params)
-
-        assert (
-            len(latent_diffusion_with_loss.trainable_params()) == num_injected_params
-        ), "Only lora params {} should be trainable. but got {} trainable params".format(
-            num_injected_params, len(latent_diffusion_with_loss.trainable_params())
-        )
-        # print('Trainable params: ', latent_diffusion_with_loss.model.trainable_params())
     dataset_size = dataset.get_dataset_size()
+
+
+    # 4. build training utils: lr, optim, callbacks, trainer
+    # build learning rate scheduler
     if not args.decay_steps:
         args.decay_steps = args.epochs * dataset_size - args.warmup_steps  # fix lr scheduling
         if args.decay_steps <= 0:
@@ -360,7 +185,6 @@ def main(args):
             )
             args.decay_steps = 1
 
-    # build learning rate scheduler
     lr = create_scheduler(
         steps_per_epoch=dataset_size,
         scheduler=args.scheduler,
@@ -390,10 +214,7 @@ def main(args):
         raise ValueError
 
     # resume ckpt
-    if rank_id == 0:
-        ckpt_dir = os.path.join(args.output_path, "ckpt")
-        os.makedirs(ckpt_dir, exist_ok=True)
-
+    ckpt_dir = os.path.join(args.output_path, "ckpt")
     start_epoch = 0
     if args.resume:
         resume_ckpt = os.path.join(ckpt_dir, "train_resume.ckpt") if isinstance(args.resume, bool) else args.resume
@@ -408,7 +229,7 @@ def main(args):
     # trainer (standalone and distributed)
     ema = (
         EMA(
-            latent_diffusion_with_loss,  # .model, #TODO: remove .model if not only train UNet
+            latent_diffusion_with_loss,
             ema_decay=0.9999,
         )
         if args.use_ema
@@ -419,7 +240,7 @@ def main(args):
         latent_diffusion_with_loss,
         optimizer=optimizer,
         scale_sense=loss_scaler,
-        drop_overflow_update=args.drop_overflow_update,  # TODO: allow config
+        drop_overflow_update=args.drop_overflow_update,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         clip_grad=args.clip_grad,
         clip_norm=args.max_grad_norm,
@@ -435,8 +256,7 @@ def main(args):
 
     if rank_id == 0:
         save_cb = EvalSaveCallback(
-            network=latent_diffusion_with_loss,  # TODO: save unet/vae seperately
-            use_lora=args.use_lora,
+            network=latent_diffusion_with_loss,
             rank_id=rank_id,
             ckpt_save_dir=ckpt_dir,
             ema=ema,
@@ -444,15 +264,17 @@ def main(args):
             ckpt_max_keep=10,
             step_mode=args.step_mode,
             ckpt_save_interval=args.ckpt_save_interval,
-            lora_rank=args.lora_rank,
             log_interval=args.callback_size,
             start_epoch=start_epoch,
-            record_lr=False,  # LR retrival is not supportted on 910b currently
+            model_name="sd" if args.image_finetune else "ad",
+            save_trainable_only=args.save_trainable_only,
+            record_lr=False,  # TODO: check LR retrival for new MS on 910b 
         )
-
         callback.append(save_cb)
+        # if args.profile:
+        #     callbacks.append(ProfilerCallback())
 
-    # log
+    # 5. log and save config
     if rank_id == 0:
         num_params_unet, _ = count_params(latent_diffusion_with_loss.model.diffusion_model)
         num_params_text_encoder, _ = count_params(latent_diffusion_with_loss.cond_stage_model)
@@ -468,8 +290,6 @@ def main(args):
                 f"Num params: {num_params:,} (unet: {num_params_unet:,}, text encoder: {num_params_text_encoder:,}, vae: {num_params_vae:,})",
                 f"Num trainable params: {num_trainable_params:,}",
                 f"Precision: {latent_diffusion_with_loss.model.diffusion_model.dtype}",
-                f"Use LoRA: {args.use_lora}",
-                f"LoRA rank: {args.lora_rank}",
                 f"Learning rate: {args.start_learning_rate}",
                 f"Batch size: {args.train_batch_size}",
                 f"Image size: {args.image_size}",
@@ -490,12 +310,12 @@ def main(args):
 
         logger.info("Start training...")
         # backup config files
-        shutil.copyfile(args.model_config, os.path.join(args.output_path, "model_config.yaml"))
+        shutil.copyfile(args.model_config, os.path.join(args.output_path, os.path.basename(args.model_config)))
 
         with open(os.path.join(args.output_path, "args.yaml"), "w") as f:
             yaml.safe_dump(vars(args), stream=f, default_flow_style=False, sort_keys=False)
 
-    # train
+    # 6. train
     model.train(
         args.epochs, dataset, callbacks=callback, dataset_sink_mode=args.dataset_sink_mode, initial_epoch=start_epoch
     )

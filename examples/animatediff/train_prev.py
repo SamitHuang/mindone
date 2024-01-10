@@ -216,8 +216,6 @@ def train(args):
 
     # callbacks
     callbacks = [TimeMonitor(cfg.log_interval), LossMonitor(cfg.log_interval), OverflowMonitor()]
-    if cfg.profile:
-        callbacks.append(ProfilerCallback())
     # TODO: support resume training from previous step
     # TODO: for step mode + data sink, ckpt_save_interval needs conversion according to sink_size.
     start_epoch = 0
@@ -241,6 +239,8 @@ def train(args):
         )
         callbacks.append(save_cb)
         
+        if cfg.profile:
+            callbacks.append(ProfilerCallback())
         # create folders and save config
         # TODO: save checkpoints to {output_dirs}/checkpoints/
         OmegaConf.save(cfg, os.path.join(args.output_dir, 'config.yaml'))
