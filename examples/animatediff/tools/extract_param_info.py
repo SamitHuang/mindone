@@ -59,9 +59,9 @@ def extract_ms_sd_mm(v='v2', print_mm=True, print_sd=False):
                 print(f"{param.name}#{param.shape}#{param.dtype}")
 
     print("Num temporla param: ", cnt)
-    if version == 'v2':
+    if v == 'v2':
         assert cnt // 28 == 21, "expect 588 params for 21 mm"
-    elif version == 'v1':
+    elif v == 'v1':
         assert cnt // 28 == 20, "expect 560 params for 20 mm"
 
 
@@ -139,5 +139,5 @@ def extract_ms_unet_mm():
 
 
 if __name__ == "__main__":
-    extract_ms_sd_mm(v='v1', print_mm=True, print_sd=False)
+    extract_ms_sd_mm(v='v1', print_mm=False, print_sd=True)
     # extract_ms_sd_params()

@@ -103,12 +103,16 @@ def update_unet2d_params_for_unet3d(ckpt_param_dict, unet3d_type='adv2'):
             "model.diffusion_model.output_blocks.2.1": "model.diffusion_model.output_blocks.2.2",
             "model.diffusion_model.output_blocks.5.2": "model.diffusion_model.output_blocks.5.3",
             "model.diffusion_model.output_blocks.8.2": "model.diffusion_model.output_blocks.8.3",
+            "model.diffusion_model.out.0": "model.diffusion_model.conv_norm_out",
+            "model.diffusion_model.out.2.conv": "model.diffusion_model.out.1.conv",
         }
     elif unet3d_type == 'adv1': 
         prefix_mapping = {
             "model.diffusion_model.output_blocks.2.1": "model.diffusion_model.output_blocks.2.2",
             "model.diffusion_model.output_blocks.5.2": "model.diffusion_model.output_blocks.5.3",
             "model.diffusion_model.output_blocks.8.2": "model.diffusion_model.output_blocks.8.3",
+            "model.diffusion_model.out.0": "model.diffusion_model.conv_norm_out",
+            "model.diffusion_model.out.2.conv": "model.diffusion_model.out.1.conv",
         }
 
     pnames = list(ckpt_param_dict.keys())
