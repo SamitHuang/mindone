@@ -45,7 +45,9 @@ class EvalSaveCallback(Callback):
         param_save_filter: List[str]=None,
     ):
         '''
-        param_save_filter indicates what parameters to save if not None.
+        Args:
+            param_save_filter: indicates what parameters to save in checkpoint. If None, save all parameters in network. \
+                Otherwise, only params that contain one of the keyword in param_save_filter list will be saved.
         '''
         self.rank_id = rank_id
         self.is_main_device = rank_id in [0, None]
@@ -91,6 +93,8 @@ class EvalSaveCallback(Callback):
             self.net_to_save = [{"name": p.name, "data": p} for p in network.trainable_params()]
             self.lora_rank = lora_rank
         elif param_save_filter is not None:
+            if isinstance(param_save_filter, str):
+                param_save_fitler = [param_save_fitler]
             self.net_to_save = []
             for p in network.get_parameters():
                 for keyword in param_save_filter:

@@ -285,7 +285,7 @@ def main(args):
             log_interval=args.callback_size,
             start_epoch=start_epoch,
             model_name="sd" if args.image_finetune else "ad",
-            param_save_filter='.temporal_transformer.' if args.save_mm_only else None,
+            param_save_filter=['.temporal_transformer.'] if args.save_mm_only else None,
             record_lr=False,  # TODO: check LR retrival for new MS on 910b 
         )
         callback.append(save_cb)
