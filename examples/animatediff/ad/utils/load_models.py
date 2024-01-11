@@ -92,21 +92,20 @@ def merge_motion_lora_to_mm_pdict(mm_param_dict, lora_ckpt_path, alpha=1.0):
     return mm_param_dict
 
 
-def update_unet2d_params_for_unet3d(ckpt_param_dict, unet3d_type='ad-v2'):
+def update_unet2d_params_for_unet3d(ckpt_param_dict, unet3d_type='adv2'):
     # after injecting temporal moduels to unet2d cell, param name of some layers are changed.
     # apply the change to ckpt param names as well to load all unet ckpt params to unet3d cell
 
     # map the name change from 2d to 3d, annotated from vimdiff compare,
-    if unet3d_type == 'ad-v2':
+    if unet3d_type == 'adv2':
         prefix_mapping = {
             "model.diffusion_model.middle_block.2": "model.diffusion_model.middle_block.3",
             "model.diffusion_model.output_blocks.2.1": "model.diffusion_model.output_blocks.2.2",
             "model.diffusion_model.output_blocks.5.2": "model.diffusion_model.output_blocks.5.3",
             "model.diffusion_model.output_blocks.8.2": "model.diffusion_model.output_blocks.8.3",
         }
-    elif unet3d_type == 'ad-v1': 
+    elif unet3d_type == 'adv1': 
         prefix_mapping = {
-            "model.diffusion_model.middle_block.2": "model.diffusion_model.middle_block.3",
             "model.diffusion_model.output_blocks.2.1": "model.diffusion_model.output_blocks.2.2",
             "model.diffusion_model.output_blocks.5.2": "model.diffusion_model.output_blocks.5.3",
             "model.diffusion_model.output_blocks.8.2": "model.diffusion_model.output_blocks.8.3",
@@ -192,7 +191,11 @@ def build_model_from_config(config, ckpt: str, is_training=False, use_motion_mod
 
         # update param dict loading unet2d checkpoint to unet3d
         if use_motion_module:
-            param_dict = update_unet2d_params_for_unet3d(param_dict)
+            if config.model.params.unet_config.params.motion_module_mid_block:
+                unet3d_type = 'adv2'
+            else:
+                unet3d_type = 'adv1'
+            param_dict = update_unet2d_params_for_unet3d(param_dict, unet3d_type=unet3d_type)
 
         logger.info(f"Loading main model from {ckpt}")
         _load_model(model, param_dict, ignore_net_param_not_load_warning=True)

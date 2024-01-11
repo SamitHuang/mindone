@@ -124,7 +124,6 @@ def main(args):
         # unet.diffusion_model = unet.diffusion_model.set_mm_amp_level(mm_amp_level)
 
 
-
     # ddim sampler
     # TODO: merge noise_scheduler_kwargs and ddim.yaml
     sampler_config = OmegaConf.load("configs/inference/scheduler/ddim.yaml")  # base template
@@ -205,7 +204,7 @@ if __name__ == "__main__":
     parser.add_argument("--all_in_one_ckpt", type=str, default="", help="if not empty, load SD+mm from this file")
     parser.add_argument("--inference_config", type=str, default="configs/inference/inference-v2.yaml")
     # Use ldm config method instead of diffusers and transformers
-    parser.add_argument("--sd_config", type=str, default="configs/stable_diffusion/v1-inference-unet3d.yaml")
+    parser.add_argument("--sd_config", type=str, default="configs/stable_diffusion/v1-inference-mmv2.yaml")
 
     parser.add_argument("--L", type=int, default=16)
     parser.add_argument("--W", type=int, default=512)

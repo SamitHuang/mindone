@@ -1,5 +1,10 @@
+'''
+python tools/extract_param_info.py
+'''
 import os
 import sys
+import mindspore as ms
+from omegaconf import OmegaConf
 
 __dir__ = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
@@ -26,22 +31,54 @@ def extract_torch_mm():
             num_attn_layers += 1
 
 
-def extract_ms_sd_mm():
-    from ldm.util import instantiate_from_config
-    from omegaconf import OmegaConf
+def extract_ms_sd_mm(v='v1', print_mm=True, print_sd=False):
+    mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../../"))
+    sys.path.insert(0, mindone_lib_path)
+    from mindone.utils.config import instantiate_from_config
 
-    model_config_path = "configs/stable_diffusion/v1-inference-unet3d.yaml"
+    if v=='v1':
+        model_config_path = "configs/stable_diffusion/v1-inference-mmv1.yaml"
+    elif v=='v2':
+        model_config_path = "configs/stable_diffusion/v1-inference-mmv2.yaml"
+    else:
+        raise ValueError
+
     sd_config = OmegaConf.load(model_config_path)
     model = instantiate_from_config(sd_config.model)
 
     cnt = 0
     for param in model.get_parameters():
         if "temporal_transformer." in param.name:
-            print(f"{param.name}#{param.shape}#{param.dtype}")
+            if print_mm:
+                print(f"{param.name}#{param.shape}#{param.dtype}")
             cnt += 1
+        else:
+            if print_sd:
+                print(f"{param.name}#{param.shape}#{param.dtype}")
 
     print("Num temporla param: ", cnt)
-    assert cnt // 28 == 21, "expect 588 params for 21 mm"
+    if version == 'v2':
+        assert cnt // 28 == 21, "expect 588 params for 21 mm"
+    elif version == 'v1':
+        assert cnt // 28 == 20, "expect 560 params for 20 mm"
+
+
+def extract_ms_sd_params(v='1.5'):
+    model_config_path = "configs/stable_diffusion/v1-inference.yaml"
+    ldm_lib_path = os.path.abspath(os.path.join(__dir__, "../../stable_diffusion_v2"))
+    sys.path.insert(0, ldm_lib_path)
+    from ldm.util import instantiate_from_config
+
+    if v=='1.5':
+        model_config_path = "configs/stable_diffusion/v1-inference.yaml"
+    else:
+        raise ValueError
+
+    sd_config = OmegaConf.load(model_config_path)
+    model = instantiate_from_config(sd_config.model)
+
+    for param in model.get_parameters():
+        print(f"{param.name}#{param.shape}#{param.dtype}")
 
 
 def extract_ms_unet_mm():
@@ -100,4 +137,5 @@ def extract_ms_unet_mm():
 
 
 if __name__ == "__main__":
-    extract_ms_sd_mm()
+    # extract_ms_sd_mm(print_mm=False, print_sd=True)
+    extract_ms_sd_params()

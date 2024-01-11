@@ -67,13 +67,13 @@ def get_obj_from_str(string, reload=False):
     return getattr(importlib.import_module(module, package=None), cls)
 
 
-def load_pretrained_model(pretrained_ckpt, net, unet_initialize_random=False, load_unet3d_from_2d=False):
+def load_pretrained_model(pretrained_ckpt, net, unet_initialize_random=False, load_unet3d_from_2d=False, unet3d_type='adv2'):
     logger.info(f"Loading pretrained model from {pretrained_ckpt}")
     if os.path.exists(pretrained_ckpt):
         param_dict = load_checkpoint(pretrained_ckpt)
 
         if load_unet3d_from_2d:
-            param_dict = update_unet2d_params_for_unet3d(param_dict)
+            param_dict = update_unet2d_params_for_unet3d(param_dict, unet3d_type=unet3d_type)
 
         if unet_initialize_random:
             pnames = list(param_dict.keys())
@@ -89,6 +89,9 @@ def load_pretrained_model(pretrained_ckpt, net, unet_initialize_random=False, lo
             param_not_load, ckpt_not_load = load_param_into_net(net, param_dict)
         logger.info("Net params not load: {}, Total net params not loaded: {}".format(param_not_load, len(param_not_load)))
         logger.info("Ckpt params not load: {}, Total ckpt params not loaded: {}".format(ckpt_not_load, len(ckpt_not_load)))
+
+        if not unet_initialize_random:
+            assert len(ckpt_not_load) == 0, 'All params in ckpt should be loaded to the network. See log for detailed missing params.'
     else:
         logger.warning(f"Checkpoint file {pretrained_ckpt} dose not exist!!!")
 
@@ -133,7 +136,11 @@ def main(args):
     latent_diffusion_with_loss = build_model_from_config(args.model_config, args.enable_flash_attention)
     # load sd pretrained weight
     load_pretrained_model(
-        args.pretrained_model_path, latent_diffusion_with_loss, unet_initialize_random=args.unet_initialize_random, load_unet3d_from_2d=(not args.image_finetune),
+        args.pretrained_model_path, 
+        latent_diffusion_with_loss, 
+        unet_initialize_random=args.unet_initialize_random,
+        load_unet3d_from_2d=(not args.image_finetune), 
+        unet3d_type='adv1' if 'mmv1' in args.model_config else 'adv2',  # TODO: better not use filename to judge version
     )
 
     # set motion module amp O2 if required for memory reduction
