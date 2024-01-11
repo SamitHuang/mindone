@@ -22,8 +22,7 @@ from mindspore import nn, ops
 from mindspore.common.initializer import initializer
 
 try:
-    from mindspore.nn.layer.flash_attention import FlashAttention
-
+    from mindspore.ops._op_impl._custom_op.flash_attention.flash_attention_impl import get_flash_attention
     FLASH_IS_AVAILABLE = True
     print("flash attention is available.")
 except ImportError:
@@ -31,6 +30,38 @@ except ImportError:
     print("flash attention is unavailable.")
 
 logger = logging.getLogger()
+
+def use_old_FA_api(): 
+    return version.parse(ms.__version__) < version.parse(2.2):
+
+
+if use_old_FA_api():
+    # reference to https://arxiv.org/abs/2205.14135
+    class FlashAttention(nn.Cell):
+	def __init__(self, head_num, head_dim):
+	    super(FlashAttention, self).__init__()
+	    self.head_num = head_num
+	    self.scale = head_dim**-0.25
+	    self.flash_attention = get_flash_attention(tiling_stgy_name="sparse")
+	    self.reshape = ops.Reshape()
+	    self.scale_mul = ops.Mul()
+
+	def construct(self, q, k, v, attention_mask=None, dropout_mask=None, alibi_mask=None):
+	    # ALiBi, reference to https://arxiv.org/abs/2108.12409
+	    B, Nq, d = q.shape
+	    Nkv = k.shape[1]
+	    dim_mask = Tensor([1 for _ in range(d)], dtype=ms.int8)
+	    q = self.reshape(q, (-1, self.head_num, Nq, d))
+	    k = self.reshape(k, (-1, self.head_num, Nkv, d))
+	    v = self.reshape(v, (-1, self.head_num, Nkv, d))
+	    q = self.scale_mul(q, self.scale)
+	    k = self.scale_mul(k, self.scale)
+	    o, l, m = self.flash_attention(q, k, v, dim_mask, attention_mask, dropout_mask, alibi_mask)
+	    o = self.reshape(o, (-1, Nq, d))
+	    return o
+else:
+    from mindspore.nn.layer.flash_attention import FlashAttention
+
 
 
 def exists(val):
