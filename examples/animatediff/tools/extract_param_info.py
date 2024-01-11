@@ -10,10 +10,12 @@ __dir__ = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
 
 
-def extract_torch_mm():
+def extract_torch_mm(v='v2'):
     import torch
-
-    pt_mm_path = "/home/AnimateDiff/models/Motion_Module/animatediff/mm_sd_v15_v2.ckpt"
+    if v=='v2':
+        pt_mm_path = "/home/AnimateDiff/models/Motion_Module/animatediff/mm_sd_v15_v2.ckpt"
+    else:
+        pt_mm_path = "/home/AnimateDiff/models/Motion_Module/animatediff/mm_sd_v15.ckpt"
     pt_mm_sd = torch.load(pt_mm_path)
 
     print(
@@ -31,7 +33,7 @@ def extract_torch_mm():
             num_attn_layers += 1
 
 
-def extract_ms_sd_mm(v='v1', print_mm=True, print_sd=False):
+def extract_ms_sd_mm(v='v2', print_mm=True, print_sd=False):
     mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../../"))
     sys.path.insert(0, mindone_lib_path)
     from mindone.utils.config import instantiate_from_config
@@ -137,5 +139,5 @@ def extract_ms_unet_mm():
 
 
 if __name__ == "__main__":
-    # extract_ms_sd_mm(print_mm=False, print_sd=True)
-    extract_ms_sd_params()
+    extract_ms_sd_mm(v='v1', print_mm=True, print_sd=False)
+    # extract_ms_sd_params()
