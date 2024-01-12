@@ -1,6 +1,6 @@
 # task
 image_finetune: False
-output_path: outputs/mmv2_train_sdgen
+output_path: outputs/mmv2_train_webvid5_512
 
 # model
 model_config: configs/stable_diffusion/v1-train-mmv2.yaml
@@ -9,10 +9,10 @@ unet_initialize_random: False
 force_motion_module_amp_O2: True
 
 # data
-data_path: datasets/sdgen_gif_overfit
-image_size: 256 
+data_path: ../videocomposer/datasets/webvid5
+image_size: 256     # 256 used in paper
 num_frames: 16 
-frame_stride: 1
+frame_stride: 4
 
 num_parallel_workers: 12
 dataset_sink_mode: False 
@@ -21,8 +21,8 @@ dataset_sink_mode: False
 start_learning_rate: 1.e-4
 scheduler: constant
 warmup_steps: 10 
-train_batch_size: 4 
-epochs: 8000
+train_batch_size: 4  # original: 4
+epochs: 16000
 weight_decay: 0.01
 
 init_loss_scale: 65536 
@@ -31,5 +31,5 @@ use_ema: False
 clip_grad: True
 
 # training process
-ckpt_save_interval: 1000 
-save_mm_only: False
+ckpt_save_interval: 2000 
+save_mm_only: True
