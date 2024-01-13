@@ -21,6 +21,7 @@ def init_env(
     enable_modelarts: bool = False,
     num_workers: int = 1,
     json_data_path: Optional[str] = None,
+    max_device_memory: str=None,
 ) -> Tuple[int, int, int]:
     """
     Initialize MindSpore environment.
@@ -82,5 +83,8 @@ def init_env(
             ascend_config={"precision_mode": "allow_fp32_to_fp16"},  # Only effective on Ascend 901B
             pynative_synchronize=debug,
         )
+    
+    if max_device_memory is not None: 
+        ms.set_context(max_device_memory=max_device_memory)
 
     return device_id, rank_id, device_num

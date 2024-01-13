@@ -114,6 +114,7 @@ class UNet3DModel(nn.Cell):
         cross_frame_attention=False,
         unet_chunk_size=2,
         adm_in_channels=None,
+        use_recompute=False,
         # Additional
         use_inflated_groupnorm=True,  # diff, default is to use in mm-v2, which is more reasonable.
         use_motion_module=False,
@@ -496,6 +497,25 @@ class UNet3DModel(nn.Cell):
         )
 
         self.cat = ops.Concat(axis=1)
+        
+        # TODO: optimize where to recompute & fix bug on cell list.
+        if use_recompute:
+            print("D--: recompute: ", use_recompute)
+            for iblock in self.input_blocks:
+                self.recompute(iblock)
+                # mblock.recompute()
+            for oblock in self.output_blocks:
+                self.recompute(oblock)
+                # oblock.recompute()
+
+    def recompute(self, b):
+        if not b._has_config_recompute:
+            b.recompute()
+        if isinstance(b, nn.CellList):
+            self.recompute(b[-1])
+        else:
+            b.add_flags(output_no_recompute=True)
+
 
     def set_mm_amp_level(self, amp_level):
         # set motion module precision
