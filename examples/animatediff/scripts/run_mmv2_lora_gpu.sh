@@ -1,1 +1,1 @@
-python train.py --config configs/training/mmv2_lora.yaml --data_path ../videocomposer/datasets/webvid5 --image_size 256 --num_frames=4 --output_path oututs/mmv2_train_tmp --device_target GPU --train_batch_size=1 --ckpt_save_interval=20
+python train.py --config configs/training/mmv2_lora.yaml --data_path ../videocomposer/datasets/webvid5 --image_size 256 --num_frames=16 --output_path outputs/mmv2_lora_finetune --device_target GPU --train_batch_size=1 --ckpt_save_interval=500

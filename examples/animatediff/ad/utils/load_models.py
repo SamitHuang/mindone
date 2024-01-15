@@ -37,17 +37,24 @@ def merge_motion_lora_to_unet(unet, lora_ckpt_path, alpha=1.0):
     """
     lora_pdict = ms.load_checkpoint(lora_ckpt_path)
     unet_pdict = unet.parameters_dict()
-
+    
     for lora_pname in lora_pdict:
-        if "lora.down." in lora_pname:  # skip lora.up
+        is_from_torch = '_lora.' in lora_pname
+        if ("lora.down." in lora_pname) or ("lora_down." in lora_pname):  # skip lora.up
             lora_down_pname = lora_pname
-            lora_up_pname = lora_pname.replace("lora.down.", "lora.up.")
+            if is_from_torch:
+                lora_up_pname = lora_pname.replace("lora.down.", "lora.up.")
+            else:
+                lora_up_pname = lora_pname.replace("lora_down.", "lora_up.")
 
             # 1. locate the target attn dense layer weight (q/k/v/out) by param name
-            attn_pname = (
-                lora_pname.replace("processor.", "").replace("_lora", "").replace("down.", "").replace("up.", "")
-            )
-            attn_pname = attn_pname.replace("to_out.", "to_out.0.")
+            if is_from_torch:
+                attn_pname = (
+                    lora_pname.replace("processor.", "").replace("_lora", "").replace("down.", "").replace("up.", "")
+                )
+                attn_pname = attn_pname.replace("to_out.", "to_out.0.")
+            else:
+                attn_pname = lora_pname.replace("lora_down.", "").replace("lora_up.", "")
 
             # 2. merge lora up and down weight to target dense layer weight
             down_weight = lora_pdict[lora_down_pname]
