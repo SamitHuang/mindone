@@ -299,7 +299,7 @@ def main(args):
             ckpt_save_dir=ckpt_dir,
             ema=ema,
             ckpt_save_policy="latest_k",
-            ckpt_max_keep=10,
+            ckpt_max_keep=args.ckpt_max_keep,
             step_mode=args.step_mode,
             ckpt_save_interval=args.ckpt_save_interval,
             log_interval=args.callback_size,

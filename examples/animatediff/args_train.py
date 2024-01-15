@@ -32,7 +32,7 @@ def parse_args():
         "--pretrained_model_path", default="", type=str, help="Specify the pretrained model from this checkpoint"
     )
     # ms
-    parser.add_argument("--device_target", type=str, default=None, help="Ascend or GPU")
+    parser.add_argument("--device_target", type=str, default="Ascend", help="Ascend or GPU")
     parser.add_argument("--max_device_memory", type=str, default=None, help="e.g. `30GB` for 910a, `59GB` for 910b")
     parser.add_argument("--mode", default=0, type=int, help="Specify the mode: 0 for graph mode, 1 for pynative mode")
     parser.add_argument("--use_parallel", default=False, type=str2bool, help="use parallel")
@@ -108,6 +108,7 @@ def parse_args():
     )
 
     parser.add_argument("--ckpt_save_interval", default=1, type=int, help="save checkpoint every this epochs or steps")
+    parser.add_argument("--ckpt_max_keep", default=10, type=int, help="Maximum number of checkpoints to keep")
     parser.add_argument(
         "--step_mode",
         default=False,
