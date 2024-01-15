@@ -25,7 +25,8 @@ from ldm.modules.train.ema import EMA
 from ldm.modules.train.lr_schedule import create_scheduler
 from ldm.modules.train.optim import build_optimizer
 from ldm.modules.train.trainer import TrainOneStepWrapper
-from ldm.util import count_params, is_old_ms_version, str2bool
+from ldm.util import count_params, is_old_ms_version, str2bool, get_obj_from_str
+from ldm.modules.lora import inject_trainable_lora, make_only_lora_params_trainable
 from omegaconf import OmegaConf
 
 # from mindone.trainers.optim import create_optimizer
@@ -37,6 +38,7 @@ from mindspore.train.callback import TimeMonitor
 
 from ad.data.dataset import create_dataloader, check_sanity
 from ad.utils.load_models import update_unet2d_params_for_unet3d
+from ad.utils.load_models import load_motion_modules
 
 os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
 
@@ -57,14 +59,6 @@ def build_model_from_config(config, enable_flash_attention=None):
     config_params = config.get("params", dict())
     # config_params['cond_stage_trainable'] = cond_stage_trainable # TODO: easy config
     return get_obj_from_str(config["target"])(**config_params)
-
-
-def get_obj_from_str(string, reload=False):
-    module, cls = string.rsplit(".", 1)
-    if reload:
-        module_imp = importlib.import_module(module)
-        importlib.reload(module_imp)
-    return getattr(importlib.import_module(module, package=None), cls)
 
 
 def load_pretrained_model(pretrained_ckpt, net, unet_initialize_random=False, load_unet3d_from_2d=False, unet3d_type='adv2'):
@@ -129,13 +123,14 @@ def main(args):
         enable_modelarts=args.enable_modelarts,
         num_workers=args.num_workers,
         json_data_path=args.json_data_path,
+        device_target=args.device_target,
         max_device_memory=args.max_device_memory,
     )
     set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
 
     # 2. build model
     latent_diffusion_with_loss = build_model_from_config(args.model_config, args.enable_flash_attention)
-    # load sd pretrained weight
+    # 1) load sd pretrained weight
     load_pretrained_model(
         args.pretrained_model_path, 
         latent_diffusion_with_loss, 
@@ -144,24 +139,41 @@ def main(args):
         unet3d_type='adv1' if 'mmv1' in args.model_config else 'adv2',  # TODO: better not use filename to judge version
     )
 
-    # set motion module amp O2 if required for memory reduction
-    if (not args.image_finetune) and (args.force_motion_module_amp_O2):
-        logger.warning("Force to set motion module in amp level O2")
-        latent_diffusion_with_loss.model.diffusion_model.set_mm_amp_level("O2")
-
-    # set only motion module trainable if not image finetune
     if not args.image_finetune:
-        # only motion moduel trainable
-        num_mm_trainable = 0
-        for param in latent_diffusion_with_loss.model.get_parameters():
-            # exclude positional embedding params from training
-            if ('.temporal_transformer.' in param.name) and ('.pe' not in param.name):
-                param.requires_grad = True
-                num_mm_trainable += 1
-            else:
-                param.requires_grad = False
-        logger.info("Num MM trainable params {}".format(num_mm_trainable))
-        # assert num_mm_trainable in [546, 520], "Expect 546 trainable params for MM-v2 or 520 for MM-v1."
+        # load mm pretrained weight
+        if args.motion_module_path != "":
+            load_motion_modules(latent_diffusion_with_loss, args.motion_module_path)
+
+        # set motion module amp O2 if required for memory reduction
+        if args.force_motion_module_amp_O2:
+            logger.warning("Force to set motion module in amp level O2")
+            latent_diffusion_with_loss.model.diffusion_model.set_mm_amp_level("O2")
+
+        # inject lora dense layers to motion modules if set
+        if args.motion_lora_finetune:
+            # for param in latent_diffusion_with_loss.get_parameters():
+            #     param.requires_grad = False
+            motion_lora_layers, _ = inject_trainable_lora(
+                latent_diffusion_with_loss,
+                rank=args.motion_lora_rank,
+                use_fp16=True,
+                scale=args.motion_lora_alpha,
+                target_modules=["ad.modules.diffusionmodules.motion_module.VersatileAttention"],
+            )
+            trainable_params = make_only_lora_params_trainable(latent_diffusion_with_loss)
+            logging.info("Motion lora layers injected. Num lora layers: {}, Num lora params: {}".format(len(motion_lora_layers), len(trainable_params)))
+        else:
+            # set only motion module trainable for mm finetuning
+            num_mm_trainable = 0
+            for param in latent_diffusion_with_loss.model.get_parameters():
+                # exclude positional embedding params from training
+                if ('.temporal_transformer.' in param.name) and ('.pe' not in param.name):
+                    param.requires_grad = True
+                    num_mm_trainable += 1
+                else:
+                    param.requires_grad = False
+            logger.info("Num MM trainable params {}".format(num_mm_trainable))
+            # assert num_mm_trainable in [546, 520], "Expect 546 trainable params for MM-v2 or 520 for MM-v1."
     
     # count total params and trainable params
     tot_params, trainable_params = count_params(latent_diffusion_with_loss.model)
@@ -293,6 +305,8 @@ def main(args):
             log_interval=args.callback_size,
             start_epoch=start_epoch,
             model_name="sd" if args.image_finetune else "ad",
+            use_lora=args.motion_lora_finetune,
+            lora_rank=args.motion_lora_rank,
             param_save_filter=['.temporal_transformer.'] if args.save_mm_only else None,
             record_lr=False,  # TODO: check LR retrival for new MS on 910b 
         )

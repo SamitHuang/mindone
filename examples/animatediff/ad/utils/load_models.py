@@ -21,6 +21,7 @@ def merge_motion_lora_to_unet(unet, lora_ckpt_path, alpha=1.0):
         unet with updated weights
 
     Note: expect format
+        Case 1: source from torch checkpoint
         lora pname:
             model.diffusion_model.input_blocks.1.2.temporal_transformer.transformer_blocks.0.attention_blocks.0.processor.to_out_lora.down.weight
             = {attn_layer}{lora_postfix}
@@ -28,6 +29,11 @@ def merge_motion_lora_to_unet(unet, lora_ckpt_path, alpha=1.0):
         mm attn dense weight name:
             model.diffusion_model.input_blocks.1.2.temporal_transformer.transformer_blocks.0.attention_blocks.1.to_out.0.weight
             = {attn_layer}.{to_q/k/v/out.0}.weight
+        Case 2: source from ms finetuned 
+        lora pname:
+            model.diffusion_model.output_blocks.1.2.temporal_transformer.transformer_blocks.0.attention_blocks.0.to_out.0.lora_down.weight
+            = {attn_layer}.{to_q/k/v/out.0}.lora_{down/up}.weight
+            remove .lora_{down/up} 
     """
     lora_pdict = ms.load_checkpoint(lora_ckpt_path)
     unet_pdict = unet.parameters_dict()

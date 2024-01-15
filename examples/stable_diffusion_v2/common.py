@@ -22,6 +22,7 @@ def init_env(
     num_workers: int = 1,
     json_data_path: Optional[str] = None,
     max_device_memory: str=None,
+    device_target: str='Ascend',
 ) -> Tuple[int, int, int]:
     """
     Initialize MindSpore environment.
@@ -50,7 +51,7 @@ def init_env(
         device_id = int(os.getenv("DEVICE_ID"))
         ms.set_context(
             mode=mode,
-            device_target="Ascend",
+            device_target=device_target,
             device_id=device_id,
             # ascend_config={"precision_mode": "allow_fp32_to_fp16"},  # Only effective on Ascend 901B
         )
@@ -78,9 +79,9 @@ def init_env(
         rank_id = 0
         ms.set_context(
             mode=mode,
-            device_target="Ascend",
+            device_target=device_target,
             device_id=device_id,
-            ascend_config={"precision_mode": "allow_fp32_to_fp16"},  # Only effective on Ascend 901B
+            ascend_config={"precision_mode": "allow_fp32_to_fp16"},  # Only effective on Ascend 901B # TODO: try to remove it
             pynative_synchronize=debug,
         )
     

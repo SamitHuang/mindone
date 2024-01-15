@@ -1,7 +1,7 @@
 import logging
 
 import ldm
-from ldm.util import is_old_ms_version
+from ldm.util import is_old_ms_version, get_obj_from_str
 
 import mindspore as ms
 import mindspore.common.initializer as init
@@ -222,7 +222,7 @@ def inject_trainable_lora_to_textencoder(
 
 def inject_trainable_lora(
     net: nn.Cell,
-    target_modules=["CrossAttention"],
+    target_modules=["ldm.modules.attention.CrossAttention"],
     rank=4,
     dropout_p=0.0,
     scale=1.0,
@@ -238,7 +238,7 @@ def inject_trainable_lora(
         to_v and to_out[0], each of which correpsonds to a dense layer. to_out correspnds to a SquentialCell consisting
         of a dense layer and a dropout layer.
     """
-    target_modules = [getattr(ldm.modules.attention, m) for m in target_modules]
+    target_modules = [get_obj_from_str(m) for m in target_modules]
 
     dtype = ms.float16 if use_fp16 else ms.float32
     ori_net_stat = {}
@@ -411,7 +411,7 @@ class LowRankDense(nn.Cell):
         return self.dropout(h_lora) * self.scale
 
 
-def freeze_non_lora_params(net, filter=None):
+def make_only_lora_params_trainable(net, filter=None):
     injected_trainable_params = {}
     for param in net.get_parameters():
         if "lora_down." in param.name or "lora_up." in param.name:

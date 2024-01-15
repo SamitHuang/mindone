@@ -32,6 +32,7 @@ def parse_args():
         "--pretrained_model_path", default="", type=str, help="Specify the pretrained model from this checkpoint"
     )
     # ms
+    parser.add_argument("--device_target", type=str, default=None, help="Ascend or GPU")
     parser.add_argument("--max_device_memory", type=str, default=None, help="e.g. `30GB` for 910a, `59GB` for 910b")
     parser.add_argument("--mode", default=0, type=int, help="Specify the mode: 0 for graph mode, 1 for pynative mode")
     parser.add_argument("--use_parallel", default=False, type=str2bool, help="use parallel")
@@ -132,6 +133,13 @@ def parse_args():
     parser.add_argument("--num_frames", default=16, type=int, help="num frames")
     parser.add_argument("--frame_stride", default=4, type=int, help="frame sampling stride")
     parser.add_argument("--num_parallel_workers", default=12, type=int, help="num workers for data loading")
+    parser.add_argument(
+        "--motion_module_path", default="", type=str, help="path to pretrained motion mdule. Load it if not empty"
+    )
+    parser.add_argument("--motion_lora_finetune", default=False, type=str2bool, help="True if finetune motion lora.")
+    parser.add_argument("--motion_lora_rank", default=64, type=int, help="motion lora rank.")
+    parser.add_argument("--motion_lora_alpha", default=1.0, type=int, help="alpha: the strength of LoRA, typically in range [0, 1]")
+    
 
     abs_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ""))
     default_args = parser.parse_args()
