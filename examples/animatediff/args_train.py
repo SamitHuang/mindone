@@ -91,7 +91,7 @@ def parse_args():
     # parser.add_argument("--cond_stage_trainable", default=False, type=str2bool, help="whether text encoder is trainable")
     parser.add_argument("--use_ema", default=False, type=str2bool, help="whether use EMA")
     parser.add_argument("--clip_grad", default=False, type=str2bool, help="whether apply gradient clipping")
-    # parser.add_argument("--use_recompute", default=None, type=str2bool, help="whether use recompute")
+    parser.add_argument("--use_recompute", default=None, type=str2bool, help="whether use recompute. If None, controlled by unet config.")
     parser.add_argument(
         "--enable_flash_attention",
         default=None,

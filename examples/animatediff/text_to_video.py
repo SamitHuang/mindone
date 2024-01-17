@@ -69,6 +69,11 @@ def main(args):
     motion_module_paths = ad_config.get("motion_module", "")
     motion_module_path = motion_module_paths[0]  # TODO: support testing multiple ckpts
     motion_lora_config = ad_config.get("motion_module_lora_configs", [None])[0]
+    if args.motion_module_path != "":
+        motion_module_path = args.motion_module_path
+    if args.motion_lora_path != "":
+        motion_lora_config.path = args.motion_lora_path 
+    motion_lora_config.alpha = args.motion_lora_alpha if args.motion_lora_alpha is not None else motion_lora_config.alpha
 
     seeds, steps, guidance_scale = ad_config.get("seed", 0), ad_config.steps, ad_config.guidance_scale
     prompts = ad_config.prompt
@@ -203,6 +208,9 @@ if __name__ == "__main__":
     )
     parser.add_argument("--all_in_one_ckpt", type=str, default="", help="if not empty, load SD+mm from this file")
     parser.add_argument("--inference_config", type=str, default="configs/inference/inference-v2.yaml")
+    parser.add_argument("--motion_module_path", type=str, default="", help="if not empty, overwrite the path in configs/prompts/{version}/{task}.yaml")
+    parser.add_argument("--motion_lora_path", type=str, default="", help="if not empty, overwrite the path in configs/prompts/{version}/{task}.yaml")
+    parser.add_argument("--motion_lora_alpha", type=int, default=None, help="if not empty, overwrite the path in configs/prompts/{version}/{task}.yaml")
     # Use ldm config method instead of diffusers and transformers
     parser.add_argument("--sd_config", type=str, default="configs/stable_diffusion/v1-inference-mmv2.yaml")
 

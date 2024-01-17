@@ -45,11 +45,15 @@ os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
 logger = logging.getLogger(__name__)
 
 
-def build_model_from_config(config, enable_flash_attention=None):
+def build_model_from_config(config, unet_config_update=None):
     config = OmegaConf.load(config).model
-    if args is not None:
-        if enable_flash_attention is not None:
-            config["params"]["unet_config"]["params"]["enable_flash_attention"] = enable_flash_attention
+    if unet_config_update is not None:
+        #config["params"]["unet_config"]["params"]["enable_flash_attention"] = enable_flash_attention
+        unet_args = config["params"]["unet_config"]["params"]
+        for name, value in unet_config_update.items():
+            if value is not None:
+                logger.info("Arg `{}` updated: {} -> {}".format(name, unet_args[name] , value))
+                unet_args[name] = value 
     if "target" not in config:
         if config == "__is_first_stage__":
             return None
@@ -129,7 +133,8 @@ def main(args):
     set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
 
     # 2. build model
-    latent_diffusion_with_loss = build_model_from_config(args.model_config, args.enable_flash_attention)
+    unet_config_update = dict(enable_flash_attention=args.enable_flash_attention, use_recompute=args.use_recompute)
+    latent_diffusion_with_loss = build_model_from_config(args.model_config, unet_config_update)
     # 1) load sd pretrained weight
     load_pretrained_model(
         args.pretrained_model_path, 
