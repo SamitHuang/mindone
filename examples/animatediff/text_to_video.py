@@ -68,12 +68,14 @@ def main(args):
 
     motion_module_paths = ad_config.get("motion_module", "")
     motion_module_path = motion_module_paths[0]  # TODO: support testing multiple ckpts
-    motion_lora_config = ad_config.get("motion_module_lora_configs", [None])[0]
-    if args.motion_module_path != "":
-        motion_module_path = args.motion_module_path
+
+    if not hasattr(ad_config, 'motion_module_lora_configs'):
+        ad_config.motion_module_lora_configs = [dict(path="", alpha=1.0)]
     if args.motion_lora_path != "":
-        motion_lora_config.path = args.motion_lora_path 
-    motion_lora_config.alpha = args.motion_lora_alpha if args.motion_lora_alpha is not None else motion_lora_config.alpha
+        ad_config.motion_module_lora_configs[0].path = args.motion_lora_path
+    if args.motion_lora_alpha is not None:
+        ad_config.motion_module_lora_configs[0].alpha = args.motion_lora_alpha
+    motion_lora_config = ad_config.motion_module_lora_configs[0]
 
     seeds, steps, guidance_scale = ad_config.get("seed", 0), ad_config.steps, ad_config.guidance_scale
     prompts = ad_config.prompt

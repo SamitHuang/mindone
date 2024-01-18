@@ -168,9 +168,10 @@ def load_motion_modules(unet, motion_module_path, motion_lora_config=None, add_l
 
     # motion lora
     if motion_lora_config is not None:
-        _mlora_path, alpha = motion_lora_config["path"], motion_lora_config["alpha"]
-        logger.info("Loading motion lora from {}".format(_mlora_path))
-        unet = merge_motion_lora_to_unet(unet, _mlora_path, alpha)
+        if motion_lora_config["path"] not in ["", None]: 
+            _mlora_path, alpha = motion_lora_config["path"], motion_lora_config["alpha"]
+            logger.info("Loading motion lora from {}".format(_mlora_path))
+            unet = merge_motion_lora_to_unet(unet, _mlora_path, alpha)
 
     return unet
 
