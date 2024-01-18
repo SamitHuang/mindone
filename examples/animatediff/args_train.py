@@ -4,9 +4,7 @@ import yaml
 import argparse
 import logging
 
-__dir__ = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "../stable_diffusion_v2/")))
-from ldm.util import str2bool
+from mindone.utils.config import str2bool
 
 logger = logging.getLogger()
 

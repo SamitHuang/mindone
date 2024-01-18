@@ -10,35 +10,41 @@ import os
 import shutil
 import datetime
 import yaml
-
-from args_train import parse_args
-
-__dir__ = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "../stable_diffusion_v2/")))
-
-# TODO: use API in mindone
-from common import init_env
-from ldm.modules.logger import set_logger
-from ldm.modules.train.callback import EvalSaveCallback, OverflowMonitor
-from ldm.modules.train.checkpoint import resume_train_network
-from ldm.modules.train.ema import EMA
-from ldm.modules.train.lr_schedule import create_scheduler
-from ldm.modules.train.optim import build_optimizer
-from ldm.modules.train.trainer import TrainOneStepWrapper
-from ldm.util import count_params, is_old_ms_version, str2bool, get_obj_from_str
-from ldm.modules.lora import inject_trainable_lora, make_only_lora_params_trainable
 from omegaconf import OmegaConf
 
-# from mindone.trainers.optim import create_optimizer
-# from mindone.trainers.train_step import TrainOneStepWrapper
 
 from mindspore import Model, Profiler, load_checkpoint, load_param_into_net, nn
 from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
 from mindspore.train.callback import TimeMonitor
 
+__dir__ = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "../stable_diffusion_v2/")))
+# TODO: use API in mindone
+from common import init_env
+from ldm.modules.train.optim import build_optimizer
+from ldm.modules.train.trainer import TrainOneStepWrapper
+from ldm.modules.lora import inject_trainable_lora, make_only_lora_params_trainable
+
+__dir__ = os.path.dirname(os.path.abspath(__file__))
+mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../"))
+sys.path.insert(0, mindone_lib_path)
+
+from mindone.utils.logger import set_logger
+from mindone.utils.params import count_params
+from mindone.utils.version_control import is_old_ms_version 
+from mindone.utils.config import get_obj_from_str
+from mindone.trainers.callback import EvalSaveCallback, OverflowMonitor, ProfilerCallback
+from mindone.trainers.ema import EMA
+from mindone.trainers.lr_schedule import create_scheduler
+from mindone.trainers.checkpoint import resume_train_network
+# from mindone.trainers.optim import create_optimizer
+# from mindone.trainers.train_step import TrainOneStepWrapper
+
+from args_train import parse_args
 from ad.data.dataset import create_dataloader, check_sanity
 from ad.utils.load_models import update_unet2d_params_for_unet3d
 from ad.utils.load_models import load_motion_modules
+
 
 os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
 
@@ -217,9 +223,9 @@ def main(args):
 
     lr = create_scheduler(
         steps_per_epoch=dataset_size,
-        scheduler=args.scheduler,
+        name=args.scheduler,
         lr=args.start_learning_rate,
-        min_lr=args.end_learning_rate,
+        end_lr=args.end_learning_rate,
         warmup_steps=args.warmup_steps,
         decay_steps=args.decay_steps,
         num_epochs=args.epochs,

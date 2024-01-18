@@ -1,6 +1,7 @@
 ToonYou:
   motion_module:
-    - "outputs/mmv2_train_webvid5/2024-01-11T22-38-19/ckpt/ad-16000.ckpt" 
+    - "models/motion_module/mm_sd_v15_v2.ckpt"
+    # - "outputs/mmv2_train_webvid5/2024-01-11T22-38-19/ckpt/ad-16000.ckpt" 
 
   dreambooth_path: ""
   lora_model_path: ""

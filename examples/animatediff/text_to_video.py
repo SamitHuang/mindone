@@ -40,12 +40,7 @@ def init_env(args):
         mode=args.ms_mode,
         device_target=args.device_target,
         device_id=device_id,
-        # max_device_memory="30GB", # adapt for 910b
     )
-    if args.device_target == "Ascend":
-        # TODO: test needed? on 910b ms2.2-1028
-        # ms.set_context(ascend_config={"precision_mode": "allow_fp32_to_fp16"})  # Only effective on Ascend 901B
-        pass
 
     return device_id
 
