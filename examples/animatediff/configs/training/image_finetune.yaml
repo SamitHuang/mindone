@@ -8,7 +8,7 @@ pretrained_model_path: models/stable_diffusion/sd_v1.5-d0ab7146.ckpt
 unet_initialize_random: False
 
 # data setting
-data_path: datasets/sdgen_gif_overfit
+data_path: ../videocomposer/datasets/webvid5
 image_size: 256
 
 dataset_sink_mode: False
