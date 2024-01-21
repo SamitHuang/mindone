@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
+import os
 import numpy as np
 from ldm.modules.diffusionmodules.util import make_ddim_sampling_parameters, make_ddim_timesteps, noise_like
 from ldm.util import extract_into_tensor
@@ -287,6 +288,10 @@ class DDIMSampler(object):
                     c_in = ops.cat([new_unconditional_conditioning, new_c])
                 else:
                     c_in = ops.concat([unconditional_conditioning, c], axis=0)
+            print(x_in.shape, x_in.dtype)
+            print(t_in, t_in.shape, t_in.dtype)
+            print(c_in.shape, c_in.dtype)
+            # exit(1)
             model_uncond, model_t = self.split(
                 self.model.apply_model(x_in, t_in, c_in, features_adapter=features_adapter)
             )
@@ -344,6 +349,7 @@ class DDIMSampler(object):
         unconditional_guidance_scale=1.0,
         unconditional_conditioning=None,
         callback=None,
+        store_attn_maps=False,
     ):
         num_reference_steps = self.ddpm_num_timesteps if use_original_steps else self.ddim_timesteps.shape[0]
 
@@ -364,10 +370,34 @@ class DDIMSampler(object):
         x_next = x0
         intermediates = []
         inter_steps = []
+        
+        # TODO: add timestamp
+        attn_save_dir = 'cache_attn_maps'
+        os.makedirs(attn_save_dir, exist_ok=True)
         for i, step in enumerate(iterator):
             t = ms.numpy.full((x0.shape[0],), step, dtype=ms.int64)
             if unconditional_guidance_scale == 1.0:
-                noise_pred = self.model.apply_model(x_next, t, c)
+                # noise_pred = self.model.apply_model(x_next, t, c)
+                if store_attn_maps:
+                    # unet(x, t, c)
+                    noise_pred, downblock_attn_maps, midblock_attn_maps, upblock_attn_maps = self.model.model.diffusion_model(x_next, timesteps=t, context=c)
+                    # save attn maps
+                    step_attn_maps_fn = f'{attn_save_dir}/step{step}.npz'
+                    save_dict = {}
+                    for i, (selfattn, crossattn) in enumerate(downblock_attn_maps):
+                        save_dict[f"down_{i}_selfattn"] = selfattn.asnumpy()
+                        save_dict[f"down_{i}_crossattn"] = crossattn.asnumpy()
+                    for i, (selfattn, crossattn) in enumerate(midblock_attn_maps):
+                        save_dict[f"mid_{i}_selfattn"] = selfattn.asnumpy()
+                        save_dict[f"mid_{i}_crossattn"] = crossattn.asnumpy()
+                    for i, (selfattn, crossattn) in enumerate(upblock_attn_maps):
+                        save_dict[f"up_{i}_selfattn"] = selfattn.asnumpy()
+                        save_dict[f"up_{i}_crossattn"] = crossattn.asnumpy()
+                    np.savez(step_attn_maps_fn,
+                            **save_dict,
+                            ) 
+                else:
+                    noise_pred = self.model.model.diffusion_model(x_next, timesteps=t, context=c)
             else:
                 assert unconditional_conditioning is not None
                 e_t_uncond = self.model.apply_model(x_next, t, unconditional_conditioning)

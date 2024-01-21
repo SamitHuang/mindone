@@ -46,7 +46,7 @@ def load_model_from_config(config, ckpt, **kwargs):
     model = instantiate_from_config(config.model)
 
     def _load_model(_model, ckpt_fp, verbose=True, filter=None):
-        if os.path.exists(ckpt_fp):
+        if ckpt_fp is not None and os.path.exists(ckpt_fp):
             param_dict = ms.load_checkpoint(ckpt_fp)
             if param_dict:
                 param_not_load, ckpt_not_load = model_utils.load_param_into_net_with_filter(
@@ -58,8 +58,8 @@ def load_model_from_config(config, ckpt, **kwargs):
                             "Net params not loaded: {}".format([p for p in param_not_load if not p.startswith("adam")])
                         )
         else:
-            logger.error(f"!!!Error!!!: {ckpt_fp} doesn't exist")
-            raise FileNotFoundError(f"{ckpt_fp} doesn't exist")
+            print(f"!!!Warning!!!: {ckpt_fp} doesn't exist. Init random")
+            # raise FileNotFoundError(f"{ckpt_fp} doesn't exist")
 
     logger.info(f"Loading model from {ckpt}")
     _load_model(model, ckpt)
@@ -77,13 +77,15 @@ def parse_args():
         "--ms_mode", type=int, default=0, help="Running in GRAPH_MODE(0) or PYNATIVE_MODE(1) (default=0)"
     )
     parser.add_argument(
+        "--device_target", type=str, default="Ascend", help="GPU or Ascend")
+    parser.add_argument(
         "--video_path",
         type=str,
         nargs="?",
-        default="",
+        default="videos/man-skiing.mp4",
         help="the source (reference) video path.",
     )
-    parser.add_argument("--num_frames", default=8, type=int, help="the number of sampled frames from the input video")
+    parser.add_argument("--num_frames", default=2, type=int, help="the number of sampled frames from the input video")
     parser.add_argument("--sample_start_idx", default=0, type=int, help="the sample start index of the frames")
     parser.add_argument(
         "--sample_interval",
@@ -96,7 +98,7 @@ def parse_args():
         "--version",
         type=str,
         nargs="?",
-        default="2.1",
+        default="2.0",
         help="Stable diffusion version. Options: '2.1', '2.1-v', '2.0', '2.0-v', '1.5', '1.5-wukong'",
     )
     parser.add_argument(
@@ -117,7 +119,7 @@ def parse_args():
         help="number of ddim sampling steps. The recommended value is 50 for PLMS, DDIM and 20 for UniPC,DPM-Solver, DPM-Solver++",
     )
     parser.add_argument(
-        "--inv_sampling_steps", type=int, default=50, help="The sampling steps to get the DDIM inversion latents."
+        "--inv_sampling_steps", type=int, default=20, help="The sampling steps to get the DDIM inversion latents."
     )
     parser.add_argument(
         "--ddim_eta",
@@ -172,6 +174,11 @@ def parse_args():
         help="use dpm_solver sampling",
     )
     parser.add_argument(
+        "--dpm_solver_pp",
+        action="store_true",
+        help="use dpm_solver_pp sampling",
+    )
+    parser.add_argument(
         "--plms",
         action="store_true",
         help="use plms sampling",
@@ -191,10 +198,9 @@ def parse_args():
     parser.add_argument(
         "--config",
         type=str,
-        default="",
+        default="configs/v2-train-tuneavideo.yaml",
         help="path to config which constructs model. If None, select by version",
     )
-
     parser.add_argument(
         "--ckpt_path",
         type=str,
@@ -213,13 +219,16 @@ def parse_args():
         default="logging.INFO",
         help="log level, options: logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR",
     )
+    parser.add_argument(
+        "--fz_stage", type=int, default=1, help="1 or 2. 1 for infering invert latentsand store attention maps. 2 for editing stage"
+    )
     args = parser.parse_args()
 
     # check args
     if args.version:
         if args.version not in _version_cfg:
             raise ValueError(f"Unknown version: {args.version}. Supported SD versions are: {list(_version_cfg.keys())}")
-    assert args.ckpt_path is not None, "ckpt_path must be specified!"
+    # assert args.ckpt_path is not None, "ckpt_path must be specified!"
 
     assert args.config is not None, "config must be specified!"
     assert os.path.exists(args.video_path), f"the reference video {args.video_path} does not exsit!"
@@ -250,7 +259,10 @@ def main(args):
 
     # set ms context
     device_id = int(os.getenv("DEVICE_ID", 0))
-    ms.context.set_context(mode=args.ms_mode, device_target="Ascend", device_id=device_id, max_device_memory="30GB")
+    if args.device_target == "Ascend":
+        ms.context.set_context(mode=args.ms_mode, device_target=args.device_target, device_id=device_id, max_device_memory="30GB")
+    else:
+        ms.context.set_context(mode=args.ms_mode, device_target=args.device_target, device_id=device_id)
 
     set_random_seed(args.seed)
 
@@ -258,6 +270,13 @@ def main(args):
     if not os.path.isabs(args.config):
         args.config = os.path.join(work_dir, args.config)
     config = OmegaConf.load(f"{args.config}")
+
+    if args.fz_stage == 1:
+        # debug
+        store_attn_maps = True 
+
+    config.model.params.unet_config.params['store_attn_maps'] = store_attn_maps 
+
     model = load_model_from_config(
         config,
         ckpt=args.ckpt_path,
@@ -266,9 +285,9 @@ def main(args):
     prediction_type = getattr(config.model, "prediction_type", "noise")
     logger.info(f"Prediction type: {prediction_type}")
     # create sampler
-    if args.ddim:
-        sampler = DDIMSampler(model)
-        sname = "ddim"
+    if args.dpm_solver_pp:
+        sampler = DPMSolverSampler(model, "dpmsolver++", prediction_type=prediction_type)
+        sname = "dpm_solver_pp"
     elif args.dpm_solver:
         sampler = DPMSolverSampler(model, "dpmsolver", prediction_type=prediction_type)
         sname = "dpm_solver"
@@ -279,8 +298,9 @@ def main(args):
         sampler = UniPCSampler(model)
         sname = "uni_pc"
     else:
-        sampler = DPMSolverSampler(model, "dpmsolver++", prediction_type=prediction_type)
-        sname = "dpm_solver_pp"
+        sampler = DDIMSampler(model)
+        sname = "ddim"
+
     if prediction_type == "v":
         assert sname in [
             "dpm_solver",
@@ -361,25 +381,35 @@ def main(args):
             tokenized_prompts = model.tokenize(prompts)
             c = model.get_learned_conditioning(tokenized_prompts)
             shape = [4, args.num_frames, args.H // 8, args.W // 8]
-
-            if args.use_inv_latent:
+            
+            # stage 1: get inv latent
+            if args.fz_stage==1:
                 # get vae encode
+                # TODO: use target prompt as condition instead
                 empty_c = model.get_learned_conditioning(model.tokenize([""] * batch_size))
                 latents, _ = model.get_input(frames, empty_c)
-                ddim_inv, _ = inv_sampler.encode(latents, empty_c, args.inv_sampling_steps)
+                ddim_inv, _ = inv_sampler.encode(latents, empty_c, args.inv_sampling_steps, store_attn_maps=store_attn_maps)
                 start_code = ddim_inv
 
-            samples_ddim, _ = sampler.sample(
-                S=args.sampling_steps,
-                conditioning=c,
-                batch_size=args.n_samples,
-                shape=shape,
-                verbose=False,
-                unconditional_guidance_scale=args.scale,
-                unconditional_conditioning=uc,
-                eta=args.ddim_eta,
-                x_T=start_code,
-            )
+                # TODO: save start code as npz, and attention maps as npz  
+
+            run_two_stages = False
+            if run_two_stages:
+                args.fz_stage = 2
+            
+            # stage 2: edit
+            if args.fz_stage == 2: 
+                samples_ddim, _ = sampler.sample(
+                    S=args.sampling_steps,
+                    conditioning=c,
+                    batch_size=args.n_samples,
+                    shape=shape,
+                    verbose=False,
+                    unconditional_guidance_scale=args.scale,
+                    unconditional_conditioning=uc,
+                    eta=args.ddim_eta,
+                    x_T=start_code,
+                )
 
             b, c, f, h, w = samples_ddim.shape
             samples_ddim = samples_ddim.transpose((0, 2, 1, 3, 4)).reshape((b * f, c, h, w))

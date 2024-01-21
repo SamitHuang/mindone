@@ -127,12 +127,14 @@ class CrossAttention(nn.Cell):
         enable_flash_attention=False,
         upcast=False,
         fa_max_head_dim=256,
+        store_attn_maps=False,
     ):
         super().__init__()
         inner_dim = dim_head * heads
         context_dim = default(context_dim, query_dim)
 
         self.heads = heads
+        self.store_attn_maps = store_attn_maps
 
         self.transpose = ops.Transpose()
         self.to_q = nn.Dense(query_dim, inner_dim, has_bias=False).to_float(dtype)
@@ -143,12 +145,14 @@ class CrossAttention(nn.Cell):
             nn.Dropout(dropout) if is_old_ms_version() else nn.Dropout(p=1 - dropout),
         )
 
-        self.attention = Attention(dim_head, upcast=upcast)
+        self.attention = Attention(dim_head, upcast=upcast, store_attn_maps=store_attn_maps)
         self.fa_max_head_dim = fa_max_head_dim
-
+        
+        # TODO: store attn maps in Flash Attention
         self.enable_flash_attention = (
             enable_flash_attention and FLASH_IS_AVAILABLE and (ms.context.get_context("device_target") == "Ascend")
         )
+        assert  self.enable_flash_attention==False, "Need to store attention maps in FA before using FA."
         if self.enable_flash_attention:
             # TODO: how high_precision affect the training or inference quality
             if version.parse(ms.__version__) <= version.parse("2.2.0"):
@@ -160,6 +164,9 @@ class CrossAttention(nn.Cell):
             # logger.info("Flash attention is enabled.")
         else:
             self.flash_attention = None
+
+        # TODO: how can we know the shape of attention map? can we get it from num heads, head dim only. No. 
+        # self. = ms.Parameter(ms.Tensor(pe, dtype=ms.float32), name="pe", requires_grad=False)
 
     @staticmethod
     def _rearange_in(x, h):
@@ -208,6 +215,7 @@ class CrossAttention(nn.Cell):
             if mask is None:
                 mask = ops.zeros((q_b, q_n, q_n), self.fa_mask_dtype)
 
+            # TODO: store attn maps in Flash Attention
             out = self.flash_attention(
                 q.to(ms.float16), k.to(ms.float16), v.to(ms.float16), mask.to(self.fa_mask_dtype)
             )
@@ -220,12 +228,21 @@ class CrossAttention(nn.Cell):
             q = self._rearange_in(q, h)
             k = self._rearange_in(k, h)
             v = self._rearange_in(v, h)
+            
+            if self.store_attn_maps:
+                out, attn_maps = self.attention(q, k, v, mask)
+            else:
+                out = self.attention(q, k, v, mask)
 
-            out = self.attention(q, k, v, mask)
             # (b*h, n, d) -> (b, n, h*d)
             out = self._rearange_out(out, h)
+    
+        out = self.to_out(out).to(x_dtype)
 
-        return self.to_out(out).to(x_dtype)
+        if self.store_attn_maps:
+            return out, attn_maps
+        else:
+            return out
 
 
 class CrossFrameAttention(CrossAttention):
@@ -312,12 +329,15 @@ class CrossFrameAttention(CrossAttention):
 
 
 class Attention(nn.Cell):
-    def __init__(self, dim_head, upcast=False):
+    def __init__(self, dim_head, upcast=False, store_attn_maps=False):
         super().__init__()
         self.softmax = ops.Softmax(axis=-1)
         self.transpose = ops.Transpose()
         self.scale = dim_head**-0.5
         self.upcast = upcast
+        self.store_attn_maps = store_attn_maps
+        
+        self.tmp_cnt = ms.Parameter(ms.Tensor(0, dtype=ms.int32), name="attn_layer_cnt", requires_grad=False)
 
     def construct(self, q, k, v, mask):
         sim = ops.matmul(q, self.transpose(k, (0, 2, 1))) * self.scale
@@ -339,9 +359,16 @@ class Attention(nn.Cell):
         else:
             attn = self.softmax(sim)
 
+        print(self.tmp_cnt, "D--: attn map shape: ", attn.shape)
+        self.tmp_cnt += 1
+
         out = ops.matmul(attn, v)
 
-        return out
+        if self.store_attn_maps:
+            return out, attn
+        else:
+            return out
+
 
 
 class BasicTransformerBlock(nn.Cell):

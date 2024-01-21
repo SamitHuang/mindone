@@ -62,9 +62,9 @@ class SparseCausalAttention(CrossAttention):
             b, n, d = x.shape
             d = d // h
 
-            x = self.reshape(x, (b, n, h, d))
-            x = self.transpose(x, (0, 2, 1, 3))
-            x = self.reshape(x, (b * h, n, d))
+            x = ops.reshape(x, (b, n, h, d))
+            x = ops.transpose(x, (0, 2, 1, 3))
+            x = ops.reshape(x, (b * h, n, d))
             return x
 
         former_frame_index = ops.arange(video_length) - 1
@@ -85,10 +85,14 @@ class SparseCausalAttention(CrossAttention):
                 mask = nn.Pad(paddings)(mask)
                 mask = mask.repeat_interleave(self.heads, axis=0)
 
-        if self.use_flash_attention and q.shape[1] % 16 == 0 and k.shape[1] % 16 == 0:
+        if self.enable_flash_attention and q.shape[1] % 16 == 0 and k.shape[1] % 16 == 0:
+            # TODO: store attn maps in Flash Attention
             out = self.flash_attention(q, k, v)
         else:
-            out = self.attention(q, k, v, mask)
+            if self.store_attn_maps:
+                out, attn_maps = self.attention(q, k, v, mask)
+            else:
+                out = self.attention(q, k, v, mask)
 
         def rearange_out(x):
             # (b*h, n, d) -> (b, n, h*d)
@@ -96,13 +100,18 @@ class SparseCausalAttention(CrossAttention):
             b, n, d = x.shape
             b = b // h
 
-            x = self.reshape(x, (b, h, n, d))
-            x = self.transpose(x, (0, 2, 1, 3))
-            x = self.reshape(x, (b, n, h * d))
+            x = ops.reshape(x, (b, h, n, d))
+            x = ops.transpose(x, (0, 2, 1, 3))
+            x = ops.reshape(x, (b, n, h * d))
             return x
 
         out = rearange_out(out)
-        return self.to_out(out)
+        out = self.to_out(out)
+
+        if self.store_attn_maps:
+            return out, attn_maps
+        else:
+            return out
 
 
 class BasicTransformerBlock_ST(nn.Cell):
@@ -119,10 +128,13 @@ class BasicTransformerBlock_ST(nn.Cell):
         enable_flash_attention=False,
         cross_frame_attention=False,
         unet_chunk_size=2,
+        store_attn_maps=False,
     ):
         super().__init__()
         assert not cross_frame_attention, "expect to have cross_frame_attention to be False"
-
+        self.store_attn_maps = store_attn_maps
+        
+        # 1. Spatial-Attn (self-attention)
         self.attn1 = SparseCausalAttention(
             query_dim=dim,
             heads=n_heads,
@@ -130,9 +142,11 @@ class BasicTransformerBlock_ST(nn.Cell):
             dropout=dropout,
             dtype=dtype,
             enable_flash_attention=enable_flash_attention,
+            store_attn_maps=store_attn_maps,
         )  # is a self-attention
         self.ff = FeedForward(dim, dropout=dropout, glu=gated_ff, dtype=dtype)
-
+        
+        # 2. Cross-Attn
         self.attn2 = CrossAttention(
             query_dim=dim,
             context_dim=context_dim,
@@ -141,13 +155,14 @@ class BasicTransformerBlock_ST(nn.Cell):
             dropout=dropout,
             dtype=dtype,
             enable_flash_attention=enable_flash_attention,
-        )  # is self-attn if context is none
+            store_attn_maps=store_attn_maps,
+        )
         self.norm1 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
         self.norm2 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
         self.norm3 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
         self.checkpoint = checkpoint
-
-        # Temp-Attn
+            
+         # 3. Temporal-Attn. (no store or edit)
         self.attn_temp = CrossAttention(
             query_dim=dim,
             heads=n_heads,
@@ -155,13 +170,30 @@ class BasicTransformerBlock_ST(nn.Cell):
             dropout=dropout,
             dtype=dtype,
             enable_flash_attention=enable_flash_attention,
+            store_attn_maps=False,
         )
         self.attn_temp.to_out[0].weight = Parameter(ms.Tensor(np.zeros(self.attn_temp.to_out[0].weight.shape), dtype))
         self.norm_temp = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
 
     def construct(self, x, context=None, video_length=None):
-        x = self.attn1(self.norm1(x), video_length=video_length) + x
-        x = self.attn2(self.norm2(x), context=context) + x
+        '''
+        Returns:
+            x: output
+            self_attn_maps: (bs*num_heads, h*w, h*w*2)
+            cross_attn_maps: (bs*num_heads, h*w, text_seq_len)
+        '''
+        if self.store_attn_maps:
+            attn1_out, self_attn_maps = self.attn1(self.norm1(x), video_length=video_length) 
+        else:
+            attn1_out = self.attn1(self.norm1(x), video_length=video_length) 
+        x = attn1_out + x
+
+        if self.store_attn_maps:
+            attn2_out, cross_attn_maps = self.attn2(self.norm2(x), context=context) 
+        else:
+            attn2_out = self.attn2(self.norm2(x), context=context) 
+        x = attn2_out + x
+
         x = self.ff(self.norm3(x)) + x
 
         # temporal attention
@@ -169,11 +201,17 @@ class BasicTransformerBlock_ST(nn.Cell):
         bf, hw, c = x.shape
         x = x.reshape((bf // video_length, video_length, hw, c))
         x = x.transpose((0, 2, 1, 3)).reshape(((bf // video_length) * hw, video_length, c))
+
         x = self.attn_temp(self.norm_temp(x)) + x
+
         # (b h w) f c -> (b f) (hw) c
         x = x.reshape((bf // video_length, hw, video_length, c))
         x = x.transpose((0, 2, 1, 3)).reshape((bf, hw, c))
-        return x
+
+        if self.store_attn_maps:
+            return x, self_attn_maps, cross_attn_maps
+        else:
+            return x
 
 
 class SpatialTransformer3D(nn.Cell):
@@ -195,12 +233,14 @@ class SpatialTransformer3D(nn.Cell):
         enable_flash_attention=False,
         cross_frame_attention=False,
         unet_chunk_size=2,
+        store_attn_maps=False,
     ):
         super().__init__()
         self.in_channels = in_channels
         self.dtype = dtype
         inner_dim = n_heads * d_head
         self.norm = normalization(in_channels, eps=1e-6)
+        self.store_attn_maps = store_attn_maps
 
         if not use_linear:
             self.proj_in = nn.Conv2d(
@@ -210,7 +250,8 @@ class SpatialTransformer3D(nn.Cell):
             )  # should be conv2d
         else:
             self.proj_in = nn.Dense(in_channels, inner_dim).to_float(dtype)
-
+        
+        assert depth==1, "Currently only support one BasicTransformerBlock in SpatialTransformer"
         self.transformer_blocks = nn.CellList(
             [
                 BasicTransformerBlock_ST(
@@ -224,10 +265,12 @@ class SpatialTransformer3D(nn.Cell):
                     enable_flash_attention=enable_flash_attention,
                     cross_frame_attention=cross_frame_attention,
                     unet_chunk_size=unet_chunk_size,
+                    store_attn_maps=store_attn_maps,
                 )
                 for d in range(depth)
             ]
         )
+        self.num_transformer_blocks = depth
 
         if not use_linear:
             self.proj_out = nn.Conv2d(
@@ -262,8 +305,14 @@ class SpatialTransformer3D(nn.Cell):
                 (b * f, h * w, ch)
             )  # (b*f, ch, h, w) -> (b*f, h, w, ch) -> (b*f, h*w, ch)
             x = self.proj_in(x)
-        for block in self.transformer_blocks:
+        
+        block = self.transformer_blocks[0]
+        if self.store_attn_maps:
+            print("D--: go to get self attn")
+            x, self_attn_maps, cross_attn_maps = block(x, context=context, video_length=f)
+        else:
             x = block(x, context=context, video_length=f)
+
         if self.use_linear:
             x = self.proj_out(x)
             ch = x.shape[-1]
@@ -281,7 +330,11 @@ class SpatialTransformer3D(nn.Cell):
         out = out.reshape((b, f, ch, h, w)).transpose(
             (0, 2, 1, 3, 4)
         )  # (b*f, ch, h, w) -> (b, f, ch, h, w) -> (b, ch, f, h, w)
-        return out
+        
+        if self.store_attn_maps:
+            return out, self_attn_maps, cross_attn_maps
+        else:
+            return out
 
 
 # Replace 2D Blocks by 3D Blocks (Conv2d -> InflatedConv3d; Upsample -> Upsample3D, etc.)
@@ -640,6 +693,7 @@ class UNetModel3D(nn.Cell):
         enable_flash_attention=False,
         adm_in_channels=None,
         use_recompute=False,
+        store_attn_maps=False,
     ):
         super().__init__()
 
@@ -682,6 +736,7 @@ class UNetModel3D(nn.Cell):
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
         self.predict_codebook_ids = n_embed is not None
+        self.store_attn_maps = store_attn_maps
 
         time_embed_dim = model_channels * 4
         self.time_embed = nn.SequentialCell(
@@ -766,7 +821,8 @@ class UNetModel3D(nn.Cell):
                             dropout=self.dropout,
                             use_linear=use_linear_in_transformer,
                             enable_flash_attention=enable_flash_attention,
-                        )
+                            store_attn_maps=False if level==0 else store_attn_maps,
+                            )  # don't store attn_map with shape[-2]=h*w>1024, for image size 512, level 0 h*w=4096. TODO: judge by input image shape and level
                     )
                 self.input_blocks.append(layers)
                 self._feature_size += ch
@@ -842,6 +898,7 @@ class UNetModel3D(nn.Cell):
                     dropout=self.dropout,
                     use_linear=use_linear_in_transformer,
                     enable_flash_attention=enable_flash_attention,
+                    store_attn_maps=store_attn_maps,
                 ),
                 ResnetBlock3D(
                     ch,
@@ -904,7 +961,8 @@ class UNetModel3D(nn.Cell):
                             dropout=self.dropout,
                             use_linear=use_linear_in_transformer,
                             enable_flash_attention=enable_flash_attention,
-                        )
+                            store_attn_maps=False if level==0 else store_attn_maps,
+                        )  # don't store attn maps with shape[-2] > 1024 
                     )
                 if level and i == num_res_blocks:
                     out_ch = ch
@@ -935,11 +993,6 @@ class UNetModel3D(nn.Cell):
             ),
         )
 
-        if self.predict_codebook_ids:
-            self.id_predictor = nn.SequentialCell(
-                normalization(ch),
-                conv_nd(dims, model_channels, n_embed, 1, has_bias=True, pad_mode="pad").to_float(self.dtype),
-            )
         self.cat = ops.Concat(axis=1)
 
         # recompute to save NPU mem
@@ -977,9 +1030,14 @@ class UNetModel3D(nn.Cell):
             context = ops.cat([context, append_to_context], axis=1)
 
         adapter_idx = 0
+        downblock_attn_maps = []
         for i, celllist in enumerate(self.input_blocks, 1):
             for cell in celllist:
-                h = cell(h, emb, context)
+                if isinstance(cell, SpatialTransformer3D) and getattr(cell, "store_attn_maps", False):
+                    h, self_attn_maps, cross_attn_maps = cell(h, emb, context)
+                    downblock_attn_maps.append((self_attn_maps, cross_attn_maps))
+                else:
+                    h = cell(h, emb, context)
 
             if features_adapter and i % 3 == 0:
                 h = h + features_adapter[adapter_idx]
@@ -990,20 +1048,31 @@ class UNetModel3D(nn.Cell):
         if features_adapter:
             assert len(features_adapter) == adapter_idx, "Wrong features_adapter"
 
+        midblock_attn_maps = []
         for module in self.middle_block:
-            h = module(h, emb, context)
+            if isinstance(module, SpatialTransformer3D) and getattr(module, "store_attn_maps", False):
+                h, self_attn_maps, cross_attn_maps = module(h, emb, context)
+                midblock_attn_maps.append((self_attn_maps, cross_attn_maps))
+            else:
+                h = module(h, emb, context)
 
         hs_index = -1
+        upblock_attn_maps = []
         for celllist in self.output_blocks:
             h = self.cat((h, hs[hs_index]))
             for cell in celllist:
-                h = cell(h, emb, context)
+                if isinstance(cell, SpatialTransformer3D) and getattr(cell, "store_attn_maps", False):
+                    h, self_attn_maps, cross_attn_maps = cell(h, emb, context)
+                    upblock_attn_maps.append((self_attn_maps, cross_attn_maps))
+                else:
+                    h = cell(h, emb, context)
             hs_index -= 1
-
-        if self.predict_codebook_ids:
-            return self.id_predictor(h)
+        
+        out = self.out(h)
+        if self.store_attn_maps:
+            return out, downblock_attn_maps, midblock_attn_maps, upblock_attn_maps
         else:
-            return self.out(h)
+            return out
 
 
 if __name__ == "__main__":

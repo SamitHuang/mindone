@@ -75,8 +75,8 @@ def load_model_from_config(
                             "Net params not loaded: {}".format([p for p in param_not_load if not p.startswith("adam")])
                         )
         else:
-            logger.error(f"!!!Error!!!: {ckpt_fp} doesn't exist")
-            raise FileNotFoundError(f"{ckpt_fp} doesn't exist")
+            print(f"!!!WARNING!!!: {ckpt_fp} doesn't exist. model is init random")
+            # raise FileNotFoundError(f"{ckpt_fp} doesn't exist")
 
     if use_lora:
         load_lora_only = True if lora_only_ckpt is not None else False
