@@ -63,6 +63,8 @@ def main(args):
 
     motion_module_paths = ad_config.get("motion_module", "")
     motion_module_path = motion_module_paths[0]  # TODO: support testing multiple ckpts
+    if args.motion_module_path != "":
+        motion_module_path = args.motion_module_path
 
     if not hasattr(ad_config, 'motion_module_lora_configs'):
         ad_config.motion_module_lora_configs = [dict(path="", alpha=1.0)]

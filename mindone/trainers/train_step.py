@@ -145,6 +145,7 @@ class TrainOneStepWrapper(nn.TrainOneStepWithLossScaleCell):
                 else:
                     # update LR in each gradient step but not optimize net parameter
                     # to ensure the LR curve is consistent
+                    # FIXME: for ms>=2.2, get_lr() will not increase global step by 1. we need to do it manually.
                     loss = F.depend(loss, self.optimizer.get_lr())
             else:
                 # 5. gradient reduction on distributed GPUs/NPUs

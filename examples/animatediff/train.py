@@ -3,6 +3,7 @@ AnimateDiff training pipeline
 - Image finetuning
 - Motion module training 
 """
+from typing import Tuple
 import sys
 import importlib
 import logging
@@ -12,18 +13,10 @@ import datetime
 import yaml
 from omegaconf import OmegaConf
 
-
+import mindspore as ms
 from mindspore import Model, Profiler, load_checkpoint, load_param_into_net, nn
 from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
 from mindspore.train.callback import TimeMonitor
-
-__dir__ = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "../stable_diffusion_v2/")))
-# TODO: use API in mindone
-from common import init_env
-from ldm.modules.train.optim import build_optimizer
-from ldm.modules.train.trainer import TrainOneStepWrapper
-from ldm.modules.lora import inject_trainable_lora, make_only_lora_params_trainable
 
 __dir__ = os.path.dirname(os.path.abspath(__file__))
 mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../"))
@@ -33,12 +26,14 @@ from mindone.utils.logger import set_logger
 from mindone.utils.params import count_params
 from mindone.utils.version_control import is_old_ms_version 
 from mindone.utils.config import get_obj_from_str
+from mindone.utils.seed import set_random_seed
 from mindone.trainers.callback import EvalSaveCallback, OverflowMonitor, ProfilerCallback
 from mindone.trainers.ema import EMA
 from mindone.trainers.lr_schedule import create_scheduler
 from mindone.trainers.checkpoint import resume_train_network
-# from mindone.trainers.optim import create_optimizer
-# from mindone.trainers.train_step import TrainOneStepWrapper
+from mindone.trainers.optim import create_optimizer
+from mindone.trainers.train_step import TrainOneStepWrapper
+from mindone.models.lora import inject_trainable_lora, make_only_lora_params_trainable
 
 from args_train import parse_args
 from ad.data.dataset import create_dataloader, check_sanity
@@ -100,21 +95,66 @@ def load_pretrained_model(pretrained_ckpt, net, unet_initialize_random=False, lo
         logger.warning(f"Checkpoint file {pretrained_ckpt} dose not exist!!!")
 
 
-def load_pretrained_model_vae_unet_cnclip(pretrained_ckpt, cnclip_ckpt, net):
-    new_param_dict = {}
-    logger.info(f"Loading pretrained model from {pretrained_ckpt}, {cnclip_ckpt}")
-    if os.path.exists(pretrained_ckpt) and os.path.exists(cnclip_ckpt):
-        param_dict = load_checkpoint(pretrained_ckpt)
-        cnclip_param_dict = load_checkpoint(pretrained_ckpt)
-        for key in param_dict:
-            if key.startswith("first") or key.startswith("model"):
-                new_param_dict[key] = param_dict[key]
-        for key in cnclip_param_dict:
-            new_param_dict[key] = cnclip_param_dict[key]
-        param_not_load = load_param_into_net(net, new_param_dict)
-        logger.info("Params not load: {}".format(param_not_load))
+def init_env(
+    mode: int = ms.GRAPH_MODE,
+    seed: int = 42,
+    distributed: bool = False,
+    max_device_memory: str=None,
+    device_target: str='Ascend',
+) -> Tuple[int, int, int]:
+    """
+    Initialize MindSpore environment.
+
+    Args:
+        mode: MindSpore execution mode. Default is 0 (ms.GRAPH_MODE).
+        seed: The seed value for reproducibility. Default is 42.
+        distributed: Whether to enable distributed training. Default is False.
+    Returns:
+        A tuple containing the device ID, rank ID and number of devices.
+    """
+    set_random_seed(seed)
+
+    if distributed:
+        device_id = int(os.getenv("DEVICE_ID"))
+        ms.set_context(
+            mode=mode,
+            device_target=device_target,
+            device_id=device_id,
+            # ascend_config={"precision_mode": "allow_fp32_to_fp16"},  # Only effective on Ascend 901B # TODO: remove it after evaluating the precision and speed change
+        )
+        init()
+        device_num = get_group_size()
+        ParallelConfig.dp = device_num
+        rank_id = get_rank()
+        _logger.debug(f"Device_id: {device_id}, rank_id: {rank_id}, device_num: {device_num}")
+        ms.reset_auto_parallel_context()
+        ms.set_auto_parallel_context(
+            parallel_mode=ms.ParallelMode.DATA_PARALLEL,
+            gradients_mean=True,
+            device_num=device_num,
+        )
+        var_info = ["device_num", "rank_id", "device_num / 8", "rank_id / 8"]
+        var_value = [device_num, rank_id, int(device_num / 8), int(rank_id / 8)]
+        _logger.info(dict(zip(var_info, var_value)))
+
+        if enable_modelarts:
+            args = Namespace(num_workers=num_workers, json_data_path=json_data_path)
+            split_and_sync_data(args, device_num, rank_id)
     else:
-        logger.warning(f"Checkpoint file {pretrained_ckpt}, {cnclip_ckpt} dose not exist!!!")
+        device_num = 1
+        device_id = int(os.getenv("DEVICE_ID", 0))
+        rank_id = 0
+        ms.set_context(
+            mode=mode,
+            device_target=device_target,
+            device_id=device_id,
+            # ascend_config={"precision_mode": "allow_fp32_to_fp16"},  # Only effective on Ascend 901B # TODO: remove it after evaluating the precision and speed change
+        )
+    
+    if max_device_memory is not None: 
+        ms.set_context(max_device_memory=max_device_memory)
+
+    return device_id, rank_id, device_num
 
 
 def main(args):
@@ -130,9 +170,6 @@ def main(args):
         args.mode,
         seed=args.seed,
         distributed=args.use_parallel,
-        enable_modelarts=args.enable_modelarts,
-        num_workers=args.num_workers,
-        json_data_path=args.json_data_path,
         device_target=args.device_target,
         max_device_memory=args.max_device_memory,
     )
@@ -232,16 +269,6 @@ def main(args):
     )
 
     # build optimizer
-    optimizer = build_optimizer(
-        model=latent_diffusion_with_loss,
-        name=args.optim,
-        betas=args.betas,
-        eps=args.optim_eps,
-        group_strategy=args.group_strategy,
-        weight_decay=args.weight_decay,
-        lr=lr,    
-    )
-    '''
     optimizer = create_optimizer(
         latent_diffusion_with_loss.trainable_params(),
         name=args.optim,
@@ -251,7 +278,6 @@ def main(args):
         weight_decay=args.weight_decay,
         lr=lr,
     )
-    '''
 
     if args.loss_scaler_type == "dynamic":
         loss_scaler = DynamicLossScaleUpdateCell(
