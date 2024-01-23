@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import time
+import numpy as np
 
 import imageio
 import numpy as np
@@ -106,6 +107,7 @@ def parse_args():
     )
     parser.add_argument("--negative_prompt", type=str, nargs="?", default="", help="the negative prompt not to render")
     parser.add_argument("--output_path", type=str, nargs="?", default="output", help="dir to write results to")
+    parser.add_argument("--attn_map_dir", type=str, nargs="?", default="cache_attn_maps", help="dir to store attn maps")
     parser.add_argument(
         "--skip_save",
         action="store_true",
@@ -385,13 +387,13 @@ def main(args):
             # stage 1: get inv latent
             if args.fz_stage==1:
                 # get vae encode
-                # TODO: use target prompt as condition instead
-                empty_c = model.get_learned_conditioning(model.tokenize([""] * batch_size))
-                latents, _ = model.get_input(frames, empty_c)
-                ddim_inv, _ = inv_sampler.encode(latents, empty_c, args.inv_sampling_steps, store_attn_maps=store_attn_maps)
+                # note: for fz, we use target prompt as condition instead
+                # empty_c = model.get_learned_conditioning(model.tokenize([""] * batch_size))
+                latents, _ = model.get_input(frames, c)
+                ddim_inv, _ = inv_sampler.encode(latents, c, args.inv_sampling_steps, store_attn_maps=store_attn_maps)
                 start_code = ddim_inv
 
-                # TODO: save start code as npz, and attention maps as npz  
+                np.savez(os.path.join(args.attn_map_dir, 'ddim_inv.npz'), ddim_inv=ddim_inv.asnumpy())
 
             run_two_stages = False
             if run_two_stages:
@@ -399,6 +401,12 @@ def main(args):
             
             # stage 2: edit
             if args.fz_stage == 2: 
+                
+                # 1. load start code
+                start_code = np.load(os.path.join(args.attn_map_dir, 'ddim_inv.npz'))['ddim_inv']
+                start_code = ms.Tensor(start_code)
+                
+                # 2. sampling with stored attn maps and start code
                 samples_ddim, _ = sampler.sample(
                     S=args.sampling_steps,
                     conditioning=c,
@@ -409,6 +417,8 @@ def main(args):
                     unconditional_conditioning=uc,
                     eta=args.ddim_eta,
                     x_T=start_code,
+                    attn_map_control="replace",
+                    src_attn_map_dir=args.attn_map_dir,
                 )
 
             b, c, f, h, w = samples_ddim.shape

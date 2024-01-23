@@ -97,6 +97,8 @@ class DDIMSampler(object):
         dynamic_threshold=None,
         ucg_schedule=None,
         timesteps=None,
+        attn_map_control=None,
+        src_attn_map_dir=None,
         **kwargs,
     ):
         if conditioning is not None:
@@ -146,6 +148,8 @@ class DDIMSampler(object):
             dynamic_threshold=dynamic_threshold,
             ucg_schedule=ucg_schedule,
             timesteps=timesteps,
+            attn_map_control=attn_map_control,
+            src_attn_map_dir=src_attn_map_dir,
         )
         return samples, intermediates
 
@@ -174,6 +178,8 @@ class DDIMSampler(object):
         style_cond_tau=1.0,
         dynamic_threshold=None,
         ucg_schedule=None,
+        attn_map_control=None,
+        src_attn_map_dir=None,
     ):
         b = shape[0]
         if x_T is None:
@@ -197,6 +203,31 @@ class DDIMSampler(object):
         for i, step in tqdm(enumerate(iterator), total=len(iterator)):
             index = total_steps - i - 1
             ts = ms.numpy.full((b,), step, dtype=ms.int64)
+
+            # 1. load src attn map
+            downblock_attn_maps = []
+            midblock_attn_maps = []
+            upblock_attn_maps = []
+            if attn_map_control is not None:
+                assert src_attn_map_dir is not None
+                attn_map_fn = f'step{i}-ts{step}.npz'
+                src_attn_maps = np.load(attn_map_fn)
+                print("Loaded attn maps: ", list(src_attn_maps.keys()))
+                # src_attn_dict = {}
+                for attn_name, attn_val in src_attn_maps.items():
+                    if attn_name.endswith("crossattn"):
+                        selfattn = ms.Tensor(src_attn_maps[attn_name.replace("crossattn", "selfattn")])
+                        crossattn = ms.Tensor(attn_val)
+                        if attn_name.startswith("down_"):
+                            downblock_attn_maps.append((selfattn, crossattn)) 
+                        elif attn_name.startswith("mid_"):
+                            midblock_attn_maps.append((selfattn, crossattn)) 
+                        elif attn_name.startswith("up_"):
+                            upblock_attn_maps.append((selfattn, crossattn)) 
+                        else:
+                            raise ValueError(f"{attn_name} unknown")
+                print("D--: num attn pairs: ", len(downblock_attn_maps), len(midblock_attn_maps), len(upblock_attn_maps))
+
 
             if mask is not None:
                 assert x0 is not None
@@ -223,6 +254,9 @@ class DDIMSampler(object):
                 dynamic_threshold=dynamic_threshold,
                 features_adapter=None if index < int((1 - cond_tau) * total_steps) else features_adapter,
                 append_to_context=None if index < int((1 - style_cond_tau) * total_steps) else append_to_context,
+                downblock_attn_maps=downblock_attn_maps,
+                midblock_attn_maps=midblock_attn_maps,
+                upblock_attn_maps=upblock_attn_maps,
             )
             img, pred_x0 = outs
             if callback:
@@ -254,8 +288,17 @@ class DDIMSampler(object):
         dynamic_threshold=None,
         features_adapter=None,
         append_to_context=None,
+        downblock_attn_maps=[],
+        midblock_attn_maps=[],
+        upblock_attn_maps=[],
+
     ):
         b = x.shape[0]
+        
+        # for attn map editing
+        downblock_attn_maps = None if len(downblock_attn_maps)==0 else downblock_attn_maps
+        midblock_attn_maps = None if len(midblock_attn_maps)==0 else midblock_attn_maps
+        upblock_attn_maps = None if len(upblock_attn_maps)==0 else upblock_attn_maps
 
         if unconditional_conditioning is None or unconditional_guidance_scale == 1.0:
             c_in = c if append_to_context is None else ops.cat([c, append_to_context], axis=1)
@@ -371,7 +414,7 @@ class DDIMSampler(object):
         intermediates = []
         inter_steps = []
         
-        # TODO: add timestamp
+        # TODO: use arg input
         attn_save_dir = 'cache_attn_maps'
         os.makedirs(attn_save_dir, exist_ok=True)
         for i, step in enumerate(iterator):
@@ -381,8 +424,9 @@ class DDIMSampler(object):
                 if store_attn_maps:
                     # unet(x, t, c)
                     noise_pred, downblock_attn_maps, midblock_attn_maps, upblock_attn_maps = self.model.model.diffusion_model(x_next, timesteps=t, context=c)
+
                     # save attn maps
-                    step_attn_maps_fn = f'{attn_save_dir}/step{step}.npz'
+                    step_attn_maps_fn = f'{attn_save_dir}/step{i}-ts{step}.npz'
                     save_dict = {}
                     for i, (selfattn, crossattn) in enumerate(downblock_attn_maps):
                         save_dict[f"down_{i}_selfattn"] = selfattn.asnumpy()
