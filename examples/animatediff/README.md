@@ -108,3 +108,30 @@ Results using Zoom-In motion lora:
 ```
 python text_to_video.py --config configs/prompts/v2/1-ToonYou-MotionLoRA.yaml --L 16 --H 256 --W 256 --device_target GPU
 ```
+
+## Training
+
+### Motion Module Training
+
+```
+python train.py --config configs/training/mmv2_train.yaml
+```
+> For 910B, please set `export MS_ASCEND_CHECK_OVERFLOW_MODE="INFNAN_MODE"` before running training.
+
+You may change the arguments including data path, output directory, lr, etc in the yaml config file. You can also change by command line arguments referring to `args_train.py` or `python train.py --help`
+
+
+- Run Training on GPU:
+```
+# reduce num frames and batch size to avoid OOM in 3090
+python train.py --config configs/training/mmv2_train.yaml --data_path ../videocomposer/datasets/webvid5 --image_size 256 --num_frames=4 --device_target GPU --train_batch_size=1
+```
+
+### Motion LoRA Training
+
+```
+python train.py --config configs/training/mmv2_lora.yaml
+```
+> For 910B, please set `export MS_ASCEND_CHECK_OVERFLOW_MODE="INFNAN_MODE"` before running training.
+
+
