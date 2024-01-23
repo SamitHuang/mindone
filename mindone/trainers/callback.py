@@ -11,6 +11,8 @@ from .recorder import PerfRecorder
 
 _logger = logging.getLogger(__name__)
 
+__all__ = ["OverflowMonitor", "EvalSaveCallback", "ProfilerCallback"]
+
 
 class OverflowMonitor(ms.Callback):
     def on_train_step_end(self, run_context):
@@ -243,31 +245,6 @@ class EvalSaveCallback(Callback):
             lr = opt.learning_rate(opt.global_step - 1)[0]
             # lr = opt.learning_rate.asnumpy()(int(opt.global_step.asnumpy()) - 1)[0]
         return lr
-
-
-class ProfilerCallback(ms.Callback):
-    def __init__(self, start_step=1, end_step=2, exit_after_analyze=True, out_dir="./profiler_data"):
-        self.start_step = start_step
-        self.end_step = end_step
-        self.exit_after_analyze = exit_after_analyze
-        self.profiler = ms.Profiler(start_profile=False, output_path=out_dir)
-
-    def on_train_step_begin(self, run_context):
-        cb_params = run_context.original_args()
-        cur_step = cb_params.cur_step_num
-        if cur_step == self.start_step:
-            _logger.info(f"start analyzing profiler in step range [{self.start_step}, {self.end_step}]")
-            self.profiler.start()
-
-    def on_train_step_end(self, run_context):
-        cb_params = run_context.original_args()
-        cur_step = cb_params.cur_step_num
-        if cur_step == self.end_step:
-            self.profiler.stop()
-            self.profiler.analyse()
-            _logger.info(f"finish analyzing profiler in step range [{self.start_step}, {self.end_step}]")
-            if self.exit_after_analyze:
-                run_context.request_stop()
 
 
 class ProfilerCallback(ms.Callback):
