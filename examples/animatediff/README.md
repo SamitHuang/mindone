@@ -111,6 +111,14 @@ python text_to_video.py --config configs/prompts/v2/1-ToonYou-MotionLoRA.yaml --
 
 ## Training
 
+### Image Finetuning
+
+```
+python train.py --config configs/training/image_finetune.yaml
+```
+> For 910B, please set `export MS_ASCEND_CHECK_OVERFLOW_MODE="INFNAN_MODE"` before running training.
+
+
 ### Motion Module Training
 
 ```
