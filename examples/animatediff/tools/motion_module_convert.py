@@ -79,8 +79,8 @@ if __name__ == "__main__":
         torch_names_txt = "./torch_mmv1_params.txt"
         ms_names_txt = "./ms_mmv1_params.txt"
     elif args.version == 'v2':
-        torch_names_txt = "./torch_mmv1_params.txt"
-        ms_names_txt = "./ms_mmv1_params.txt"
+        torch_names_txt = "./torch_mmv2_params.txt"
+        ms_names_txt = "./ms_mmv2_params.txt"
     else:
         raise ValueError
 
