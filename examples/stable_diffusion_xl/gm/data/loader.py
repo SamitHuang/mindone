@@ -2,6 +2,7 @@ import math
 import multiprocessing
 
 from gm.util import get_obj_from_str
+from gm.data.dataset_wds import T2I_Webdataset
 
 import mindspore.dataset as de
 
@@ -78,7 +79,7 @@ def create_loader(
     cores = multiprocessing.cpu_count()
     num_parallel_workers = min(int(cores / rank_size), num_parallel_workers)
     print(f"Dataloader num parallel workers: [{num_parallel_workers}]")
-    if rank_size > 1:
+    if (rank_size > 1) and (not isinstance(dataset, T2I_Webdataset)):
         ds = de.GeneratorDataset(
             dataset,
             column_names=dataset_column_names,
@@ -155,7 +156,7 @@ def create_loader_dreambooth(
     cores = multiprocessing.cpu_count()
     num_parallel_workers = min(int(cores / rank_size), num_parallel_workers)
     print(f"Dataloader num parallel workers: [{num_parallel_workers}]")
-    if rank_size > 1:
+    if (rank_size > 1) and (not isinstance(dataset, T2I_Webdataset)):
         ds = de.GeneratorDataset(
             dataset,
             column_names=dataset_column_names,

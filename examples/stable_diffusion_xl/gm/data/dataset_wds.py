@@ -5,12 +5,15 @@ import json
 import os
 import random
 import time
+from itertools import islice
 
 import numpy as np
+from PIL import Image
 import webdataset as wds
 import wids
+
+from mindspore.communication import get_group_size, get_rank
 from gm.util import instantiate_from_config
-from PIL import Image
 
 
 def get_tar_file_list(data_dir):
@@ -70,6 +73,9 @@ class T2I_BaseDataset:
         per_batch_size=1,  # for multi_aspect
         caption_key="caption",
         prompt_empty_probability=0.0,
+    	return_sample_name=False, # TODO: not used
+	lpw=False, # TODO: not used
+        max_embeddings_multiples=4,  # TODO: not used
     ):
         super().__init__()
         self.tokenizer = tokenizer
@@ -182,26 +188,61 @@ class T2I_BaseDataset:
 
         return cnt
 
+def ms_worker_info():
+    device_id = int(os.getenv("DEVICE_ID", 0))
+    try:
+        rank_id = get_rank()
+        device_num = get_group_size()
+    except:
+        print("Distributed Communication has not been inited. rank_id and rank_size will be retrieved from env variables.")
+        rank_id = int(os.environ.get("RANK_ID", 0))
+        device_num = int(os.environ.get("RANK_SIZE", 1))
+
+    print(f"D--: device_num: {device_num}, rank_id {rank_id}")
+
+    return rank_id, device_num
+
+def split_by_node(src, group=None):
+    # rank, world_size, worker, num_workers = utils.pytorch_worker_info(group=group)
+    assert group is None, "currently only support group is None"
+    rank, world_size = ms_worker_info()
+    
+    if world_size > 1:
+        yield from islice(src, rank, None, world_size)
+    else:
+        yield from src
+
 
 class T2I_Webdataset(T2I_BaseDataset):
-    # sequential reading
+    """
+    Webdataset loading, support data sharding for multiple training nodes.
+    """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         data_path = kwargs.get("data_path")
         num_samples = kwargs.get("num_samples")
+        # cache_dir = kwargs.get("cache_dir", None)
 
         tar_files = get_tar_file_list(data_path)
         print(f"Get {len(tar_files)} tar files")
 
-        self.wds_iterator = wds.WebDataset(tar_files, cache_dir=None)
+        # partition
+        cache_dir = "/tmp/_wds_cache" # TODO: debugging
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
+        cache_dir = None
+        self.wds_iterator = wds.WebDataset(tar_files, resampled=True, cache_dir=cache_dir, nodesplitter=split_by_node)
+
+        # self.wds_iterator = wds.WebDataset(tar_files, cache_dir=None)
         self.wds_iterator = self.wds_iterator.shuffle(1000)
         # ds = ds.decode("rgb8").to_tuple("jpg;png", "json") # will do in getitem to save time
         if num_samples is None:
             print(
                 "WARNING: For webdataset, it's recommended to specify `num_samples` to save time to iterate all samples for counting"
             )
-            self.num_samples = self.count_sample_num(self.wds_iterator)
+            # self.num_samples = self.count_sample_num(self.wds_iterator) # TODO
+            self.num_samples = 100 # TODO: FIXME
             print(f"Total number of samples: {self.num_samples} in all tar files")
         else:
             self.num_samples = num_samples
@@ -249,7 +290,8 @@ class T2I_Webdataset_RndAcs(T2I_BaseDataset):
 
         with open(shardlist_desc, "r") as fp:
             shardlist = json.load(fp)["shardlist"]
-        self.dataset = wids.ShardListDataset(shardlist)
+	# TODO: allow set cache dir and lru_size
+        self.dataset = wids.ShardListDataset(shardlist, cache_dir="/tmp/_wids_cache", lru_size=10,)
         self._datalen = len(self.dataset)
 
         # preload sample
