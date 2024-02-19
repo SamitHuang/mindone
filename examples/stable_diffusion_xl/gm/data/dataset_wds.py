@@ -197,9 +197,9 @@ def get_device_rank_info():
         rank_id = get_rank()
         device_num = get_group_size()
     except Exception:
-        print(
-            "WARNING: Distributed Communication has not been inited (by init()). rank_id and rank_size will be retrieved from env variables."
-        )
+        # print(
+        #     "WARNING: Distributed Communication has not been inited (by init()). rank_id and rank_size will be retrieved from env variables."
+        # )
         rank_id = int(os.environ.get("RANK_ID", 0))
         device_num = int(os.environ.get("RANK_SIZE", 1))
 
