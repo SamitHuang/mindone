@@ -120,7 +120,7 @@ We provide a dataloader for webdataset (`T2I_Webdataset_RndAcs`) that is compati
                 caption_key: 'text_english'
     ```
 
-    A reference config file is shown in `configs/training/sd_xl_base_finetune_910b_wids.yaml` 
+    A reference config file is shown in `configs/training/sd_xl_base_finetune_910b_wids.yaml`
 
 2. Set `--data_path` in the training script with the path to the data root of the whole training dataset, e.g. `data_dir` in the above example.
 
@@ -155,7 +155,7 @@ You can manually specify a new shardlist description file in the config yaml via
 
 We also provide a dataloader for original webdataset (`T2I_Webdataset`) that is compatible with minddata GeneratorDataset.
 
-A reference config file is shown in `configs/training/sd_xl_base_finetune_910b_wds.yaml`. 
+A reference config file is shown in `configs/training/sd_xl_base_finetune_910b_wds.yaml`.
 
 The shardlist description file used here shares the same format as wids.
 

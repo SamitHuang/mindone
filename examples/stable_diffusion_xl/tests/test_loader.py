@@ -1,4 +1,4 @@
-'''
+"""
 To test in distributed mode:
 
 export RANK_SIZE=2
@@ -8,22 +8,25 @@ python tests/test_loader.py
 export RANK_ID=1
 python tests/test_loader.py
 
-'''
-
-import time
-import numpy as np
+"""
 
 import sys
+import time
+
+import numpy as np
+
 sys.path.insert(0, "./")
 
-from gm.data.loader import create_loader
+import os
+
 from gm.data.dataset_wds import T2I_Webdataset, T2I_Webdataset_RndAcs
+from gm.data.loader import create_loader
 from omegaconf import OmegaConf
 
 import mindspore as ms
 
-import os
 os.environ["WIDS_VERBOSE"] = "1"
+
 
 def test_src_dataset(target="T2I_Webdataset"):
     data_path = "datasets/telecom_ori"
@@ -106,7 +109,7 @@ def test_loader(rank=0, rank_size=1):
     tot = 0
     run_steps = 0
     verbose = 1
-    
+
     visited = []
     for i, batch in enumerate(iterator):
         if i >= num_steps:
@@ -133,11 +136,10 @@ def test_loader(rank=0, rank_size=1):
     print("Avg batch loading time: ", mean)
 
 
-
 if __name__ == "__main__":
     rank_id = int(os.environ.get("RANK_ID", 0))
-    rank_size  = int(os.environ.get("RANK_SIZE", 1))
-    
+    rank_size = int(os.environ.get("RANK_SIZE", 1))
+
     # test_src_dataset(target="T2I_Webdataset")
     # test_src_dataset(target="T2I_Webdataset_RndAcs")
     test_loader(rank_id, rank_size)

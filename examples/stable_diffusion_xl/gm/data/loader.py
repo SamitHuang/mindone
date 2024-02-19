@@ -1,8 +1,8 @@
 import math
 import multiprocessing
 
-from gm.util import get_obj_from_str
 from gm.data.dataset_wds import T2I_Webdataset
+from gm.util import get_obj_from_str
 
 import mindspore.dataset as de
 
