@@ -1,4 +1,5 @@
 import copy
+import math
 import glob
 import io
 import json
@@ -189,7 +190,7 @@ class T2I_BaseDataset:
 
         return cnt
 
-def ms_worker_info():
+def get_device_rank_info():
     device_id = int(os.getenv("DEVICE_ID", 0))
     try:
         rank_id = get_rank()
@@ -199,7 +200,7 @@ def ms_worker_info():
         rank_id = int(os.environ.get("RANK_ID", 0))
         device_num = int(os.environ.get("RANK_SIZE", 1))
 
-    print(f"D--: device_num: {device_num}, rank_id {rank_id}")
+    # print(f"D--: device_num: {device_num}, rank_id {rank_id}")
     
     return rank_id, device_num
 
@@ -207,7 +208,7 @@ def ms_worker_info():
 def split_by_node(src, group=None):
     # rank, world_size, worker, num_workers = utils.pytorch_worker_info(group=group)
     assert group is None, "currently only support group is None"
-    rank, world_size = ms_worker_info()
+    rank, world_size = get_device_rank_info()
     
     if world_size > 1:
         yield from islice(src, rank, None, world_size)
@@ -226,11 +227,33 @@ def split_by_worker(src):
         yield from src
 
 
+def get_num_samples(shardlist_desc=None, data_path=None):
+    # data_path: root dir of tar dataset
+    if shardlist_desc is None:
+        assert data_path is not None
+        if not os.path.exists(os.path.join(data_path, "data_info.json")):
+            print("Scanning tar files to get sample nums...")
+            # TODO: only scan tar files who url/name is not in the shardlist description 
+            shardlist_desc = generate_sharlist(data_path)
+            print("=> Saved shardlist json file in ", shardlist_desc)
+        else:
+            shardlist_desc = os.path.join(data_path, "data_info.json")
+    print("Loading sharlist description from: ", shardlist_desc)
+        
+    tot_samples = 0
+    with open(shardlist_desc, "r") as fp:
+        shardlist = json.load(fp)["shardlist"]
+        for shard in shardlist:
+            tot_samples += shard["nsamples"]
+
+    return tot_samples
+
+
 class T2I_Webdataset(T2I_BaseDataset):
     """
     Webdataset loading, support data sharding for multiple training nodes.
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, shardlist_desc=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         data_path = kwargs.get("data_path")
@@ -239,31 +262,20 @@ class T2I_Webdataset(T2I_BaseDataset):
         tar_files = get_tar_file_list(data_path)
         print(f"Get {len(tar_files)} tar files")
 
-        # partition
-        # cache_dir = kwargs.get("cache_dir", None)
-        # if not os.path.exists(cache_dir):
-        #     os.makedirs(cache_dir)
+        # get number of samples in shard 
+        # Change the epoch to return the given number of samples, determine by total samples and rank
+        tot_samples = get_num_samples(shardlist_desc, data_path)
+        rank_id, device_num = get_device_rank_info()
+        samples_per_rank = math.ceil(tot_samples / device_num) 
+        print(f"INFO: Total samples in dataset {tot_samples}, device num {device_num}, rank id {rank_id}, num samples per device: {samples_per_rank}")
+        
+        # webdataset with shard split
         # self.wds_iterator = wds.WebDataset(tar_files, resampled=True, cache_dir=cache_dir, nodesplitter=split_by_node)
-
-        # self.wds_iterator = wds.WebDataset(tar_files, cache_dir=None)
         self.wds_iterator = wds.WebDataset(tar_files, cache_dir=None, nodesplitter=split_by_node, workersplitter=split_by_worker)
+        self.wds_iterator = self.wds_iterator.with_epoch(samples_per_rank)
+        self.num_samples = samples_per_rank
 
-        # Change the epoch to return the given number of samples. # TODO: debugging
-        # self.wds_iterator = self.wds_iterator.with_epoch(30)
-
-
-        if num_samples is None:
-            print(
-                "WARNING: For webdataset, it's recommended to specify `num_samples` to save time to iterate all samples for counting"
-            )
-            # TODO: save the statistic to save time for scanning again
-            # TODO: save stat for each tar like json, read num samples from it. 
-            self.num_samples = self.count_sample_num(self.wds_iterator)
-            print(f"Total number of samples: {self.num_samples} in all tar files for current rank")
-        else:
-            self.num_samples = num_samples
-
-        self.wds_iterator = self.wds_iterator.shuffle(1000)  # TODO: FIXME
+        self.wds_iterator = self.wds_iterator.shuffle(1000)  # TODO: allow set shuffle window size
         # ds = ds.decode("rgb8").to_tuple("jpg;png", "json") # will do in getitem to save time
 
         # prepare normal sample for replacement
