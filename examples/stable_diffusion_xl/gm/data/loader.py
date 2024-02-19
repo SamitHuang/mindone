@@ -65,7 +65,6 @@ def create_loader(
             max_embeddings_multiples=max_embeddings_multiples,
             **dataset_config.get("params", dict()),
         )
-
     batch_collate_fn, dataset_column_names, dataset_output_column_names = (
         dataset.collate_fn,
         dataset.dataset_column_names,

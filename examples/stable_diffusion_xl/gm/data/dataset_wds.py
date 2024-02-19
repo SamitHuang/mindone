@@ -185,6 +185,7 @@ class T2I_BaseDataset:
         cnt = 0
         for cur in wds_iterator:
             cnt += 1
+            # print(cnt)
 
         return cnt
 
@@ -199,8 +200,9 @@ def ms_worker_info():
         device_num = int(os.environ.get("RANK_SIZE", 1))
 
     print(f"D--: device_num: {device_num}, rank_id {rank_id}")
-
+    
     return rank_id, device_num
+
 
 def split_by_node(src, group=None):
     # rank, world_size, worker, num_workers = utils.pytorch_worker_info(group=group)
@@ -209,6 +211,17 @@ def split_by_node(src, group=None):
     
     if world_size > 1:
         yield from islice(src, rank, None, world_size)
+    else:
+        yield from src
+
+
+def split_by_worker(src):
+    # Split the input sequence by worker.
+    # rank, world_size, worker, num_workers = utils.pytorch_worker_info()
+    worker = 0
+    num_workers = 1
+    if num_workers > 1:
+        yield from islice(src, worker, None, num_workers)
     else:
         yield from src
 
@@ -222,30 +235,57 @@ class T2I_Webdataset(T2I_BaseDataset):
 
         data_path = kwargs.get("data_path")
         num_samples = kwargs.get("num_samples")
-        # cache_dir = kwargs.get("cache_dir", None)
 
         tar_files = get_tar_file_list(data_path)
         print(f"Get {len(tar_files)} tar files")
 
         # partition
-        cache_dir = "/tmp/_wds_cache" # TODO: debugging
-        if not os.path.exists(cache_dir):
-            os.makedirs(cache_dir)
-        cache_dir = None
-        self.wds_iterator = wds.WebDataset(tar_files, resampled=True, cache_dir=cache_dir, nodesplitter=split_by_node)
+        # cache_dir = kwargs.get("cache_dir", None)
+        # if not os.path.exists(cache_dir):
+        #     os.makedirs(cache_dir)
+        # self.wds_iterator = wds.WebDataset(tar_files, resampled=True, cache_dir=cache_dir, nodesplitter=split_by_node)
 
         # self.wds_iterator = wds.WebDataset(tar_files, cache_dir=None)
-        self.wds_iterator = self.wds_iterator.shuffle(1000)
-        # ds = ds.decode("rgb8").to_tuple("jpg;png", "json") # will do in getitem to save time
+        self.wds_iterator = wds.WebDataset(tar_files, cache_dir=None, nodesplitter=split_by_node, workersplitter=split_by_worker)
+
+        # Change the epoch to return the given number of samples. # TODO: debugging
+        # self.wds_iterator = self.wds_iterator.with_epoch(30)
+
+
         if num_samples is None:
             print(
                 "WARNING: For webdataset, it's recommended to specify `num_samples` to save time to iterate all samples for counting"
             )
-            # self.num_samples = self.count_sample_num(self.wds_iterator) # TODO
-            self.num_samples = 100 # TODO: FIXME
-            print(f"Total number of samples: {self.num_samples} in all tar files")
+            # TODO: save the statistic to save time for scanning again
+            # TODO: save stat for each tar like json, read num samples from it. 
+            self.num_samples = self.count_sample_num(self.wds_iterator)
+            print(f"Total number of samples: {self.num_samples} in all tar files for current rank")
         else:
             self.num_samples = num_samples
+
+        self.wds_iterator = self.wds_iterator.shuffle(1000)  # TODO: FIXME
+        # ds = ds.decode("rgb8").to_tuple("jpg;png", "json") # will do in getitem to save time
+
+        # prepare normal sample for replacement
+        max_attempts = 100
+        trials = 0
+        for raw in self.wds_iterator:
+            try:
+                image, caption = self.parse_raw_data(raw)
+                sample = self.preprocess(image, caption)
+                trials += 1
+                if sample is not None:
+                    self.prev_ok_sample = copy.deepcopy(sample)
+                    break
+                assert trials > max_attempts, f"Cannot get normal samples in {max_attempts} attempts"
+            except StopIteration:
+                raise StopIteration
+            except Exception as e:
+                print("\tError mg: {}".format(e), flush=True)
+                continue
+                
+        print(f"Finish preparing normal sample in {trials} attempt(s)")
+
 
     def parse_raw_data(self, raw_data):
         if "jpg" in raw_data:
@@ -267,10 +307,21 @@ class T2I_Webdataset(T2I_BaseDataset):
             try:
                 image, caption = self.parse_raw_data(raw)
                 sample = self.preprocess(image, caption)
-                # TODO: add corrupted data check and replacement
+
                 yield sample
             except StopIteration:
                 raise StopIteration
+            except Exception as e:
+                print(
+                    f"=> WARNING: Fail to get the iterated sample. The sample can be corrupted and will be replaced by previous normal sample."
+                )
+                print("\tError type: ", type(e).__name__)
+                print("\tError mg: {}".format(e), flush=True)
+                assert self.prev_ok_sample is not None
+                sample = self.prev_ok_sample  # unless the first sample is already not ok
+                self.require_update_prev = True
+
+                yield sample
 
 
 class T2I_Webdataset_RndAcs(T2I_BaseDataset):
@@ -290,8 +341,8 @@ class T2I_Webdataset_RndAcs(T2I_BaseDataset):
 
         with open(shardlist_desc, "r") as fp:
             shardlist = json.load(fp)["shardlist"]
-	# TODO: allow set cache dir and lru_size
-        self.dataset = wids.ShardListDataset(shardlist, cache_dir="/tmp/_wids_cache", lru_size=10,)
+
+        self.dataset = wids.ShardListDataset(shardlist, cache_dir="/tmp/_wids_cache")
         self._datalen = len(self.dataset)
 
         # preload sample
