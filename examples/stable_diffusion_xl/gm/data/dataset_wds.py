@@ -196,7 +196,7 @@ def get_device_rank_info():
         rank_id = get_rank()
         device_num = get_group_size()
     except:
-        print("Distributed Communication has not been inited. rank_id and rank_size will be retrieved from env variables.")
+        print("WARNING: Distributed Communication has not been inited (by init()). rank_id and rank_size will be retrieved from env variables.")
         rank_id = int(os.environ.get("RANK_ID", 0))
         device_num = int(os.environ.get("RANK_SIZE", 1))
 
@@ -233,7 +233,7 @@ def get_num_samples(shardlist_desc=None, data_path=None):
         assert data_path is not None
         if not os.path.exists(os.path.join(data_path, "data_info.json")):
             print("Scanning tar files to get sample nums...")
-            # TODO: only scan tar files who url/name is not in the shardlist description 
+            # TODO: only scan tar files whose url/name is not in the shardlist description 
             shardlist_desc = generate_sharlist(data_path)
             print("=> Saved shardlist json file in ", shardlist_desc)
         else:
