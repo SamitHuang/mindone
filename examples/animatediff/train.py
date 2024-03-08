@@ -46,6 +46,7 @@ from mindone.utils.seed import set_random_seed
 from mindone.utils.version_control import is_old_ms_version
 
 os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
+os.environ["MS_ASCEND_CHECK_OVERFLOW_MODE"]="INFNAN_MODE"
 
 logger = logging.getLogger(__name__)
 
@@ -327,6 +328,14 @@ def main(args):
             ckpt_save_interval, "steps" if (not args.dataset_sink_mode and step_mode) else "sink epochs"
         )
     )
+
+    # if args.dataset_sink_mode:
+    #    if os.environ.get("MS_DATASET_SINK_QUEUE") is None:
+    #        os.environ["MS_DATASET_SINK_QUEUE"] = "10"
+    #        print("WARNING: Set env `MS_DATASET_SINK_QUEUE` to 10.")
+    #    else:
+    #        print("D--: get dataset sink queue: ", os.environ.get("MS_DATASET_SINK_QUEUE") )
+
 
     # 4. build training utils: lr, optim, callbacks, trainer
     # build learning rate scheduler

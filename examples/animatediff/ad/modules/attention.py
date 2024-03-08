@@ -14,14 +14,15 @@
 # ============================================================================
 
 import logging
-
+import math
 import numpy as np
 
 import mindspore as ms
+import mindspore.numpy as msnp
 from mindspore import nn, ops
 from mindspore.common.initializer import initializer
 
-from mindone.utils.version_control import check_valid_flash_attention, choose_flash_attention_dtype, is_old_ms_version
+from mindone.utils.version_control import check_valid_flash_attention, choose_flash_attention_dtype, is_old_ms_version, MSVersion
 
 logger = logging.getLogger()
 
@@ -151,6 +152,15 @@ class CrossAttention(nn.Cell):
         else:
             self.flash_attention = None
 
+        self.FA_max_head_dim = 256
+        if MSVersion >= "2.2" and MSVersion < "2.3":
+            self.FA_pad_head_dim = 160
+        elif MSVersion >= "2.3":
+            self.FA_pad_head_dim = 40
+            logger.warning("Will head_dim 40 to 64 for Flash Attention for MS2.3-dev. This can be removed in later MS version after check.")
+        else:
+            self.FA_pad_head_dim = []
+
     @staticmethod
     def _rearange_in(x, h):
         # (b, n, h*d) -> (b*h, n, d)
@@ -189,7 +199,7 @@ class CrossAttention(nn.Cell):
         head_dim = q.shape[-1] // self.heads
 
         if (
-            self.enable_flash_attention and q_n % 16 == 0 and k_n % 16 == 0 and head_dim <= 128
+            self.enable_flash_attention and q_n % 16 == 0 and k_n % 16 == 0 and head_dim <= self.FA_max_head_dim
         ):  # FIXME: now restrict head_dim to 128 to avoid 160 bug. revert to 256 once FA bug is fixed.
             # reshape qkv shape ((b n h*d) -> (b h n d))and mask dtype for FA input format
             q = q.view(q_b, q_n, h, -1).transpose(0, 2, 1, 3)
@@ -198,9 +208,20 @@ class CrossAttention(nn.Cell):
             if mask is None:
                 mask = ops.zeros((q_b, q_n, q_n), self.fa_mask_dtype)
 
+            if head_dim == self.FA_pad_head_dim: 
+                # pad to 2**n * 64
+                padding_size = 64 * 2 ** math.ceil(math.log(head_dim / 64, 2)) - head_dim
+                q = msnp.pad(q, ((0, 0), (0, 0), (0, 0), (0, padding_size)), constant_value=0)
+                k = msnp.pad(k, ((0, 0), (0, 0), (0, 0), (0, padding_size)), constant_value=0)
+                v = msnp.pad(v, ((0, 0), (0, 0), (0, 0), (0, padding_size)), constant_value=0)
+
+
             out = self.flash_attention(
                 q.to(ms.float16), k.to(ms.float16), v.to(ms.float16), mask.to(self.fa_mask_dtype)
             )
+
+            if head_dim == self.FA_pad_head_dim: 
+                out = ops.slice(out, [0, 0, 0, 0], [q_b, h, q_n, head_dim])
 
             b, h, n, d = out.shape
             # reshape FA output to original attn input format, (b h n d) -> (b n h*d)
