@@ -175,8 +175,8 @@ class CrossAttention(nn.Cell):
             self.FA_pad_head_dim = 160
         elif MSVersion >= "2.3":
             self.FA_pad_head_dim = 40
-            if self.enable_flash_attention: 
-                # logger.warning("Will head_dim 40 to 64 for Flash Attention for MS2.3-dev. This can be removed in later MS version after check.")
+            # if self.enable_flash_attention: 
+            # logger.warning("Will head_dim 40 to 64 for Flash Attention for MS2.3-dev. This can be removed in later MS version after check.")
         else:
             self.FA_pad_head_dim = -1
 
