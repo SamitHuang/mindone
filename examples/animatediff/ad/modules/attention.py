@@ -28,7 +28,13 @@ logger = logging.getLogger()
 
 FLASH_IS_AVAILABLE = check_valid_flash_attention()
 if FLASH_IS_AVAILABLE:
-    from mindspore.nn.layer.flash_attention import FlashAttention
+    try:
+        from mindspore.nn.layer.flash_attention import FlashAttention
+        FA_MS23_UPDATE = False
+    except:
+        # for ms2.3 >= 20240219, FA API changed
+        from mindspore.ops.operations.nn_ops import FlashAttentionScore
+        FA_MS23_UPDATE = True
 
     logger.info("Flash attention is available.")
 
@@ -144,14 +150,25 @@ class CrossAttention(nn.Cell):
         )
 
         if self.enable_flash_attention:
-            self.flash_attention = FlashAttention(
-                head_dim=dim_head, head_num=heads, high_precision=True
-            )  # TODO: how high_precision affect the training or inference quality
+            if not FA_MS23_UPDATE:
+                self.flash_attention = FlashAttention(
+                    head_dim=dim_head, head_num=heads, high_precision=True
+                )
+            else:
+                # TODO: for MS2.3 PoC, how to adapt high_precision=True?
+                # Q: (b s n*d) -> (b n s d))  #  s - seq_len, n - num_head, d - head dim
+                self.flash_attention = FlashAttention(
+                        scale_value=1.0/math.sqrt(dim_head), # since we did scale q or k before q@k
+                        head_num=heads,
+                        input_layout="BNSD", # BSH or BNSD
+                )
+            # TODO: need to change mask type for MS2.3 PoC version?
             self.fa_mask_dtype = choose_flash_attention_dtype()  # ms.uint8 or ms.float16 depending on version
             # logger.info("Flash attention is enabled.")
         else:
             self.flash_attention = None
 
+        # TODO: due to FA supports well for head dimensions: 64, 80, 96, 120, 128 and 256
         self.FA_max_head_dim = 256
         if MSVersion >= "2.2" and MSVersion < "2.3":
             self.FA_pad_head_dim = 160
@@ -192,7 +209,7 @@ class CrossAttention(nn.Cell):
         k = self.to_k(context)
         v = self.to_v(context)
 
-        q_b, q_n, _ = q.shape  # (b n h*d)
+        q_b, q_n, _ = q.shape  # (b s n*d)
         k_b, k_n, _ = k.shape
         v_b, v_n, _ = v.shape
 
@@ -201,30 +218,35 @@ class CrossAttention(nn.Cell):
         if (
             self.enable_flash_attention and q_n % 16 == 0 and k_n % 16 == 0 and head_dim <= self.FA_max_head_dim
         ):  # FIXME: now restrict head_dim to 128 to avoid 160 bug. revert to 256 once FA bug is fixed.
-            # reshape qkv shape ((b n h*d) -> (b h n d))and mask dtype for FA input format
+            # reshape qkv shape ((b s n*d) -> (b n s d))and mask dtype for FA input format
             q = q.view(q_b, q_n, h, -1).transpose(0, 2, 1, 3)
             k = k.view(k_b, k_n, h, -1).transpose(0, 2, 1, 3)
             v = v.view(v_b, v_n, h, -1).transpose(0, 2, 1, 3)
             if mask is None:
                 mask = ops.zeros((q_b, q_n, q_n), self.fa_mask_dtype)
 
-            if head_dim == self.FA_pad_head_dim: 
+            if head_dim == self.FA_pad_head_dim:
                 # pad to 2**n * 64
                 padding_size = 64 * 2 ** math.ceil(math.log(head_dim / 64, 2)) - head_dim
                 q = msnp.pad(q, ((0, 0), (0, 0), (0, 0), (0, padding_size)), constant_value=0)
                 k = msnp.pad(k, ((0, 0), (0, 0), (0, 0), (0, padding_size)), constant_value=0)
                 v = msnp.pad(v, ((0, 0), (0, 0), (0, 0), (0, padding_size)), constant_value=0)
 
+            if not FA_MS23_UPDATE:
+                out = self.flash_attention(
+                    q.to(ms.float16), k.to(ms.float16), v.to(ms.float16), mask.to(self.fa_mask_dtype)
+                )
+            else:
+                # TODO: why not add None axis to mask in ops.zeros creation?
+                out = self.flash_attention(
+                        q.to(ms.float16), k.to(ms.float16), v.to(ms.float16), None, None, None, mask[:, None, :, :].to(self.fa_mask_dtype), None)
+                )
 
-            out = self.flash_attention(
-                q.to(ms.float16), k.to(ms.float16), v.to(ms.float16), mask.to(self.fa_mask_dtype)
-            )
-
-            if head_dim == self.FA_pad_head_dim: 
+            if head_dim == self.FA_pad_head_dim:
                 out = ops.slice(out, [0, 0, 0, 0], [q_b, h, q_n, head_dim])
 
             b, h, n, d = out.shape
-            # reshape FA output to original attn input format, (b h n d) -> (b n h*d)
+            # reshape FA output to original attn input format, (b n s d) -> (b s n*d)
             out = out.transpose(0, 2, 1, 3).view(b, n, -1)
         else:
             # (b, n, h*d) -> (b*h, n, d)
@@ -238,74 +260,6 @@ class CrossAttention(nn.Cell):
 
         return self.to_out(out).to(x_dtype)
 
-
-class CrossFrameAttention(CrossAttention):
-    def __init__(self, unet_chunk_size=2, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.unet_chunk_size = unet_chunk_size
-
-    def construct(self, x, context=None, mask=None):
-        q = self.to_q(x)
-        is_cross_attention = context is not None
-        context = default(context, x)
-        k = self.to_k(context)
-        v = self.to_v(context)
-
-        def rearange_in(x):
-            # (b, n, h*d) -> (b*h, n, d)
-            h = self.heads
-            b, n, d = x.shape
-            d = d // h
-
-            x = self.reshape(x, (b, n, h, d))
-            x = self.transpose(x, (0, 2, 1, 3))
-            x = self.reshape(x, (b * h, n, d))
-            return x
-
-        def rearange_frame(x, f):
-            b, n, d = x.shape
-            b = b // f
-            x = self.reshape(x, (b, f, n, d))
-            return x
-
-        def rearange_frame_back(x):
-            b, f, n, d = x.shape
-            x = self.reshape(x, (b * f, n, d))
-            return x
-
-        if not is_cross_attention:
-            video_length = k.shape[0] // self.unet_chunk_size
-            former_frame_index = [0] * video_length
-            k = rearange_frame(k, video_length)
-            k = k[:, former_frame_index]
-            k = rearange_frame_back(k)
-            v = rearange_frame(v, video_length)
-            v = v[:, former_frame_index]
-            v = rearange_frame_back(v)
-
-        q = rearange_in(q)
-        k = rearange_in(k)
-        v = rearange_in(v)
-
-        if self.enable_flash_attention and q.shape[1] % 16 == 0 and k.shape[1] % 16 == 0:
-            out = self.flash_attention(q, k, v)
-        else:
-            # TODO: avoid construct another cell for it, use scaled_dot_product_attention?
-            out = self.attention(q, k, v, mask)
-
-        def rearange_out(x):
-            # (b*h, n, d) -> (b, n, h*d)
-            h = self.heads
-            b, n, d = x.shape
-            b = b // h
-
-            x = self.reshape(x, (b, h, n, d))
-            x = self.transpose(x, (0, 2, 1, 3))
-            x = self.reshape(x, (b, n, h * d))
-            return x
-
-        out = rearange_out(out)
-        return self.to_out(out)
 
 
 class Attention(nn.Cell):
