@@ -35,6 +35,7 @@ if FLASH_IS_AVAILABLE:
         # for ms2.3 >= 20240219, FA API changed
         from mindspore.ops.operations.nn_ops import FlashAttentionScore
         FA_MS23_UPDATE = True
+        print("D--: get MS2.3 PoC API! ")
 
     logger.info("Flash attention is available.")
 
@@ -157,8 +158,8 @@ class CrossAttention(nn.Cell):
             else:
                 # TODO: for MS2.3 PoC, how to adapt high_precision=True?
                 # Q: (b s n*d) -> (b n s d))  #  s - seq_len, n - num_head, d - head dim
-                self.flash_attention = FlashAttention(
-                        scale_value=1.0/math.sqrt(dim_head), # since we did scale q or k before q@k
+                self.flash_attention = FlashAttentionScore(
+                        scale_value=1.0/math.sqrt(dim_head), # required if we didn't scale q or k before FA
                         head_num=heads,
                         input_layout="BNSD", # BSH or BNSD
                 )
@@ -174,9 +175,10 @@ class CrossAttention(nn.Cell):
             self.FA_pad_head_dim = 160
         elif MSVersion >= "2.3":
             self.FA_pad_head_dim = 40
-            logger.warning("Will head_dim 40 to 64 for Flash Attention for MS2.3-dev. This can be removed in later MS version after check.")
+            if self.enable_flash_attention: 
+                # logger.warning("Will head_dim 40 to 64 for Flash Attention for MS2.3-dev. This can be removed in later MS version after check.")
         else:
-            self.FA_pad_head_dim = []
+            self.FA_pad_head_dim = -1
 
     @staticmethod
     def _rearange_in(x, h):
@@ -222,8 +224,6 @@ class CrossAttention(nn.Cell):
             q = q.view(q_b, q_n, h, -1).transpose(0, 2, 1, 3)
             k = k.view(k_b, k_n, h, -1).transpose(0, 2, 1, 3)
             v = v.view(v_b, v_n, h, -1).transpose(0, 2, 1, 3)
-            if mask is None:
-                mask = ops.zeros((q_b, q_n, q_n), self.fa_mask_dtype)
 
             if head_dim == self.FA_pad_head_dim:
                 # pad to 2**n * 64
@@ -233,14 +233,16 @@ class CrossAttention(nn.Cell):
                 v = msnp.pad(v, ((0, 0), (0, 0), (0, 0), (0, padding_size)), constant_value=0)
 
             if not FA_MS23_UPDATE:
+                if mask is None:
+                    mask = ops.zeros((q_b, q_n, q_n), self.fa_mask_dtype)
                 out = self.flash_attention(
                     q.to(ms.float16), k.to(ms.float16), v.to(ms.float16), mask.to(self.fa_mask_dtype)
                 )
             else:
                 # TODO: why not add None axis to mask in ops.zeros creation?
-                out = self.flash_attention(
-                        q.to(ms.float16), k.to(ms.float16), v.to(ms.float16), None, None, None, mask[:, None, :, :].to(self.fa_mask_dtype), None)
-                )
+                # print("D--: compute with FA new API!!")
+                # out = self.flash_attention(q.to(ms.float16), k.to(ms.float16), v.to(ms.float16), None, None, None, mask[:, None, :, :].to(self.fa_mask_dtype), None)
+                _, _, _, out = self.flash_attention(q.to(ms.float16), k.to(ms.float16), v.to(ms.float16), None, None, None, None, None)
 
             if head_dim == self.FA_pad_head_dim:
                 out = ops.slice(out, [0, 0, 0, 0], [q_b, h, q_n, head_dim])
