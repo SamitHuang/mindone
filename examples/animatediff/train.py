@@ -390,6 +390,8 @@ def main(args):
         loss_scaler.loss_scale_value = loss_scale
         loss_scaler.cur_iter = cur_iter
         loss_scaler.last_overflow_iter = last_overflow_iter
+        assert start_epoch < sink_epoch, f"Training already finished (last stopped epoch = num epochs). Please set epochs larger if you want to train longer" 
+        logger.info(f"Resume training from {resume_ckpt}")
 
     # trainer (standalone and distributed)
     ema = (
