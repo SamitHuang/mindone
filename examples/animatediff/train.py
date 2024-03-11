@@ -268,6 +268,7 @@ def main(args):
             random_drop_text=args.random_drop_text,
             random_drop_text_ratio=args.random_drop_text_ratio,
             train_data_type=args.train_data_type,
+            disable_flip=args.disable_flip,
         )
     else:
         data_config = dict(
@@ -283,6 +284,7 @@ def main(args):
             random_drop_text=args.random_drop_text,
             random_drop_text_ratio=args.random_drop_text_ratio,
             train_data_type=args.train_data_type,
+            disable_flip=args.disable_flip,
         )
 
     tokenizer = latent_diffusion_with_loss.cond_stage_model.tokenize

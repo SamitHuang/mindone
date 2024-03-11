@@ -10,10 +10,10 @@
 
 python train.py --config configs/training/mmv2_train.yaml \
     --data_path "../videocomposer/datasets/webvid5" \
-    --csv_path "../videocomposer/datasets/webvid5/video_caption.csv" \
-    --output_path "outputs/mmv2_train_webvid5" \
-    --enable_flash_attention=True \
-    --use_recompute=False \
+    --csv_path "../videocomposer/datasets/webvid5_copy.csv" \
+    --output_path "outputs/mmv2_train_webvid5_vFlip" \
+    --enable_flash_attention=False \
+    --use_recompute=True \
     --recompute_strategy="down_mm_half" \
     --dataset_sink_mode=True \
     --sink_size=100 \
@@ -21,4 +21,7 @@ python train.py --config configs/training/mmv2_train.yaml \
     --ckpt_save_steps=4000 \
     --train_batch_size 1 \
     --image_size 512 \
+    --start_learning_rate=1e-4 \
+    --random_drop_text_ratio=0.1 \
+    --disable_flip=False \
 
