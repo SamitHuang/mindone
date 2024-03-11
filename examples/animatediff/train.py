@@ -46,7 +46,7 @@ from mindone.utils.seed import set_random_seed
 from mindone.utils.version_control import is_old_ms_version
 
 os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
-os.environ["MS_ASCEND_CHECK_OVERFLOW_MODE"]="INFNAN_MODE"
+os.environ["MS_ASCEND_CHECK_OVERFLOW_MODE"] = "INFNAN_MODE"
 
 logger = logging.getLogger(__name__)
 
@@ -338,7 +338,6 @@ def main(args):
     #    else:
     #        print("D--: get dataset sink queue: ", os.environ.get("MS_DATASET_SINK_QUEUE") )
 
-
     # 4. build training utils: lr, optim, callbacks, trainer
     # build learning rate scheduler
     if not args.decay_steps:
@@ -392,7 +391,6 @@ def main(args):
         loss_scaler.loss_scale_value = loss_scale
         loss_scaler.cur_iter = cur_iter
         loss_scaler.last_overflow_iter = last_overflow_iter
-        assert start_epoch < sink_epoch, f"Training already finished (last stopped epoch = num epochs). Please set epochs larger if you want to train longer" 
         logger.info(f"Resume training from {resume_ckpt}")
 
     # trainer (standalone and distributed)

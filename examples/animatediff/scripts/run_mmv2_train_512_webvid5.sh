@@ -24,4 +24,3 @@ python train.py --config configs/training/mmv2_train.yaml \
     --start_learning_rate=1e-4 \
     --random_drop_text_ratio=0.1 \
     --disable_flip=False \
-

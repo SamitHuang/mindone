@@ -123,7 +123,12 @@ class TextVideoDataset:
 
         # it should match the transformation used in SD/VAE pretraining, especially for normalization
         self.pixel_transforms = create_video_transforms(
-            sample_size[0], sample_size[1], sample_n_frames, interpolation="bicubic", backend=transform_backend, disable_flip=disable_flip,
+            sample_size[0],
+            sample_size[1],
+            sample_n_frames,
+            interpolation="bicubic",
+            backend=transform_backend,
+            disable_flip=disable_flip,
         )
         self.transform_backend = transform_backend
         self.tokenizer = tokenizer

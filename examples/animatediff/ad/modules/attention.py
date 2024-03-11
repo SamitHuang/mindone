@@ -15,6 +15,7 @@
 
 import logging
 import math
+
 import numpy as np
 
 import mindspore as ms
@@ -22,7 +23,12 @@ import mindspore.numpy as msnp
 from mindspore import nn, ops
 from mindspore.common.initializer import initializer
 
-from mindone.utils.version_control import check_valid_flash_attention, choose_flash_attention_dtype, is_old_ms_version, MSVersion
+from mindone.utils.version_control import (
+    MSVersion,
+    check_valid_flash_attention,
+    choose_flash_attention_dtype,
+    is_old_ms_version,
+)
 
 logger = logging.getLogger()
 
@@ -30,10 +36,12 @@ FLASH_IS_AVAILABLE = check_valid_flash_attention()
 if FLASH_IS_AVAILABLE:
     try:
         from mindspore.nn.layer.flash_attention import FlashAttention
+
         FA_MS23_UPDATE = False
-    except:
+    except Exception:
         # for ms2.3 >= 20240219, FA API changed
         from mindspore.ops.operations.nn_ops import FlashAttentionScore
+
         FA_MS23_UPDATE = True
         print("D--: get MS2.3 PoC API! ")
 
@@ -152,16 +160,14 @@ class CrossAttention(nn.Cell):
 
         if self.enable_flash_attention:
             if not FA_MS23_UPDATE:
-                self.flash_attention = FlashAttention(
-                    head_dim=dim_head, head_num=heads, high_precision=True
-                )
+                self.flash_attention = FlashAttention(head_dim=dim_head, head_num=heads, high_precision=True)
             else:
                 # TODO: for MS2.3 PoC, how to adapt high_precision=True?
                 # Q: (b s n*d) -> (b n s d))  #  s - seq_len, n - num_head, d - head dim
                 self.flash_attention = FlashAttentionScore(
-                        scale_value=1.0/math.sqrt(dim_head), # required if we didn't scale q or k before FA
-                        head_num=heads,
-                        input_layout="BNSD", # BSH or BNSD
+                    scale_value=1.0 / math.sqrt(dim_head),  # required if we didn't scale q or k before FA
+                    head_num=heads,
+                    input_layout="BNSD",  # BSH or BNSD
                 )
             # TODO: need to change mask type for MS2.3 PoC version?
             self.fa_mask_dtype = choose_flash_attention_dtype()  # ms.uint8 or ms.float16 depending on version
@@ -175,7 +181,7 @@ class CrossAttention(nn.Cell):
             self.FA_pad_head_dim = 160
         elif MSVersion >= "2.3":
             self.FA_pad_head_dim = 40
-            # if self.enable_flash_attention: 
+            # if self.enable_flash_attention:
             # logger.warning("Will head_dim 40 to 64 for Flash Attention for MS2.3-dev. This can be removed in later MS version after check.")
         else:
             self.FA_pad_head_dim = -1
@@ -239,10 +245,9 @@ class CrossAttention(nn.Cell):
                     q.to(ms.float16), k.to(ms.float16), v.to(ms.float16), mask.to(self.fa_mask_dtype)
                 )
             else:
-                # TODO: why not add None axis to mask in ops.zeros creation?
-                # print("D--: compute with FA new API!!")
-                # out = self.flash_attention(q.to(ms.float16), k.to(ms.float16), v.to(ms.float16), None, None, None, mask[:, None, :, :].to(self.fa_mask_dtype), None)
-                _, _, _, out = self.flash_attention(q.to(ms.float16), k.to(ms.float16), v.to(ms.float16), None, None, None, None, None)
+                _, _, _, out = self.flash_attention(
+                    q.to(ms.float16), k.to(ms.float16), v.to(ms.float16), None, None, None, None, None
+                )
 
             if head_dim == self.FA_pad_head_dim:
                 out = ops.slice(out, [0, 0, 0, 0], [q_b, h, q_n, head_dim])
@@ -261,7 +266,6 @@ class CrossAttention(nn.Cell):
             out = self._rearange_out(out, h)
 
         return self.to_out(out).to(x_dtype)
-
 
 
 class Attention(nn.Cell):
@@ -307,51 +311,27 @@ class BasicTransformerBlock(nn.Cell):
         checkpoint=True,
         dtype=ms.float32,
         enable_flash_attention=False,
-        cross_frame_attention=False,
         unet_chunk_size=2,
     ):
         super().__init__()
-        if cross_frame_attention:
-            self.attn1 = CrossFrameAttention(
-                unet_chunk_size=unet_chunk_size,
-                query_dim=dim,
-                heads=n_heads,
-                dim_head=d_head,
-                dropout=dropout,
-                dtype=dtype,
-                enable_flash_attention=enable_flash_attention,
-            )  # is a self-attention
-        else:
-            self.attn1 = CrossAttention(
-                query_dim=dim,
-                heads=n_heads,
-                dim_head=d_head,
-                dropout=dropout,
-                dtype=dtype,
-                enable_flash_attention=enable_flash_attention,
-            )  # is a self-attention
+        self.attn1 = CrossAttention(
+            query_dim=dim,
+            heads=n_heads,
+            dim_head=d_head,
+            dropout=dropout,
+            dtype=dtype,
+            enable_flash_attention=enable_flash_attention,
+        )  # is a self-attention
         self.ff = FeedForward(dim, dropout=dropout, glu=gated_ff, dtype=dtype)
-        if cross_frame_attention:
-            self.attn2 = CrossFrameAttention(
-                unet_chunk_size=unet_chunk_size,
-                query_dim=dim,
-                context_dim=context_dim,
-                heads=n_heads,
-                dim_head=d_head,
-                dropout=dropout,
-                dtype=dtype,
-                enable_flash_attention=enable_flash_attention,
-            )  # is self-attn if context is none
-        else:
-            self.attn2 = CrossAttention(
-                query_dim=dim,
-                context_dim=context_dim,
-                heads=n_heads,
-                dim_head=d_head,
-                dropout=dropout,
-                dtype=dtype,
-                enable_flash_attention=enable_flash_attention,
-            )  # is self-attn if context is none
+        self.attn2 = CrossAttention(
+            query_dim=dim,
+            context_dim=context_dim,
+            heads=n_heads,
+            dim_head=d_head,
+            dropout=dropout,
+            dtype=dtype,
+            enable_flash_attention=enable_flash_attention,
+        )  # is self-attn if context is none
         self.norm1 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
         self.norm2 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
         self.norm3 = nn.LayerNorm([dim], epsilon=1e-05).to_float(dtype)
@@ -385,7 +365,6 @@ class SpatialTransformer(nn.Cell):
         use_linear=False,
         dtype=ms.float32,
         enable_flash_attention=False,
-        cross_frame_attention=False,
         unet_chunk_size=2,
     ):
         super().__init__()
@@ -412,7 +391,6 @@ class SpatialTransformer(nn.Cell):
                     checkpoint=use_checkpoint,
                     dtype=self.dtype,
                     enable_flash_attention=enable_flash_attention,
-                    cross_frame_attention=cross_frame_attention,
                     unet_chunk_size=unet_chunk_size,
                 )
                 for d in range(depth)

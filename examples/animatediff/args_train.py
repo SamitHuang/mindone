@@ -187,7 +187,10 @@ def parse_args():
     )
     parser.add_argument("--random_drop_text_ratio", default=0.1, type=float, help="drop ratio")
     parser.add_argument(
-        "--disable_flip", default=True, type=str2bool, help="disable random flip video (to avoid motion direction and text mismatch)"
+        "--disable_flip",
+        default=True,
+        type=str2bool,
+        help="disable random flip video (to avoid motion direction and text mismatch)",
     )
     parser.add_argument("--num_parallel_workers", default=12, type=int, help="num workers for data loading")
     parser.add_argument(

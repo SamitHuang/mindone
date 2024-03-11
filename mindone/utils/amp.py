@@ -1,17 +1,20 @@
 import mindspore as ms
 from mindspore import nn
 from mindspore.train.amp import AMP_BLACK_LIST, AMP_WHITE_LIST, _auto_black_list
+
 try:
     from mindspore.train.amp import _auto_white_list
+
     NEW_AUTO_WHITE = False
-except:
+except Exception:
     # API changed since ms2.3-20240219
-    from mindspore.train.amp import  _auto_mixed_precision_rewrite
-    NEW_AUTO_WHITE = True 
+    from mindspore.train.amp import _auto_mixed_precision_rewrite
+
+    NEW_AUTO_WHITE = True
 
 
 # TODO: after MS2.3-20240219, this API supports bf16 mixed precision setting.
-def auto_mixed_precision(network, amp_level="O0"):
+def auto_mixed_precision(network, amp_level="O0", dtype=ms.float16):
     """
     auto mixed precision function.
 
@@ -43,7 +46,7 @@ def auto_mixed_precision(network, amp_level="O0"):
         if not NEW_AUTO_WHITE:
             return _auto_white_list(network, AMP_WHITE_LIST)
         else:
-            return _auto_mixed_precision_rewrite(network, dtype, white_list=AMP_WHITE_LIST) 
+            return _auto_mixed_precision_rewrite(network, dtype, white_list=AMP_WHITE_LIST)
     elif amp_level == "O2":
         try:
             _auto_black_list(
