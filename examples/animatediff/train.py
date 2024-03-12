@@ -207,7 +207,7 @@ def main(args):
     if not args.image_finetune:
         # load mm pretrained weight
         if args.motion_module_path != "":
-            load_motion_modules(latent_diffusion_with_loss, args.motion_module_path)
+            load_motion_modules(latent_diffusion_with_loss, _to_abspath(args.motion_module_path))
 
         # set motion module amp O2 if required for memory reduction
         if args.force_motion_module_amp_O2:
