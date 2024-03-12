@@ -55,7 +55,7 @@ def _to_abspath(rp):
     return os.path.join(__dir__, rp)
 
 
-def build_model_from_config(config, unet_config_update=None):
+def build_model_from_config(config, unet_config_update=None, vae_use_fp16=None):
     config = OmegaConf.load(config).model
     if unet_config_update is not None:
         # config["params"]["unet_config"]["params"]["enable_flash_attention"] = enable_flash_attention
@@ -64,6 +64,10 @@ def build_model_from_config(config, unet_config_update=None):
             if value is not None:
                 logger.info("Arg `{}` updated: {} -> {}".format(name, unet_args[name], value))
                 unet_args[name] = value
+
+    if args.vae_fp16 is not None:
+        config.params.first_stage_config.params.use_fp16 = args.vae_fp16
+
     if "target" not in config:
         if config == "__is_first_stage__":
             return None
