@@ -101,6 +101,10 @@ def test_loader(image_finetune=False):
         max_rowsize=64,
         video_column=video_column,
         caption_column=caption_column,
+        train_data_type="video_file",
+        disable_flip=True,
+        random_drop_text=False,
+        random_drop_text_ratio=0.,
     )
     dl = create_dataloader(data_config, tokenizer=tokenizer, is_image=image_finetune, device_num=1, rank_id=0)
 
