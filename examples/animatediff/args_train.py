@@ -179,7 +179,7 @@ def parse_args():
         type=str2bool,
         help="if True, set mixed precision O2 for MM. Otherwise, use manually defined precision according to use_fp16 flag",
     )
-    parser.add_argument("--vae_fp16", default=None, type=bool, help="whether use fp16 precision in vae. If None, it will be set by the value in stable diffusion config yaml")
+    parser.add_argument("--vae_fp16", default=None, type=str2bool, help="whether use fp16 precision in vae. If None, it will be set by the value in stable diffusion config yaml")
     parser.add_argument("--image_size", default=256, type=int, help="image size")
     parser.add_argument("--num_frames", default=16, type=int, help="num frames")
     parser.add_argument("--frame_stride", default=4, type=int, help="frame sampling stride")
@@ -237,5 +237,4 @@ def parse_args():
     args.model_config = os.path.join(abs_path, args.model_config)
 
     print(args)
-
     return args
