@@ -394,7 +394,7 @@ class LatentDiffusion(DDPM):
         
         if self.snr_gamma is not None:
             # print("D--: apply snr weighting")
-            snr_gamma = ops.ones_like(t) * self.snr_gamma # [bs, ]
+            snr_gamma = ops.ones_like(snr) * self.snr_gamma # [bs, ]
             # min{snr, k} 
             loss_weight = ops.stack((snr, snr_gamma), axis=0).min(axis=0)
             loss = (loss_weight * loss_sample).mean()

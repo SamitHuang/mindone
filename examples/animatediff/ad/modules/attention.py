@@ -33,15 +33,13 @@ from mindone.utils.version_control import (
 logger = logging.getLogger()
 
 FLASH_IS_AVAILABLE = check_valid_flash_attention()
+FA_MS23_UPDATE = False
 if FLASH_IS_AVAILABLE:
     try:
         from mindspore.nn.layer.flash_attention import FlashAttention
-
-        FA_MS23_UPDATE = False
     except Exception:
         # for ms2.3 >= 20240219, FA API changed
         from mindspore.ops.operations.nn_ops import FlashAttentionScore
-
         FA_MS23_UPDATE = True
         print("D--: get MS2.3 PoC API! ")
 
