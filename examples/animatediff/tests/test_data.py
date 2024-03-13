@@ -15,13 +15,10 @@ mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../../"))
 sys.path.insert(0, mindone_lib_path)
 from mindone.utils.config import instantiate_from_config
 
-# csv_path = "../videocomposer/datasets/webvid5/video_caption.csv"
-# video_folder = "../videocomposer/datasets/webvid5"
-
-video_folder="/data3/hyx/datasets/wx_dataset"
-csv_path="/data3/hyx/datasets/wx_dataset/train_data_0311_vision_china.csv"
-video_column="videoid"
-caption_column="name"
+csv_path = "../videocomposer/datasets/webvid5/video_caption.csv"
+video_folder = "../videocomposer/datasets/webvid5"
+video_column = "video"
+caption_column = "caption"
 
 # csv_path = "./datasets/webvid_overfit/video_caption.csv"
 # video_folder = "./datasets/webvid_overfit"
@@ -104,7 +101,7 @@ def test_loader(image_finetune=False):
         train_data_type="video_file",
         disable_flip=True,
         random_drop_text=False,
-        random_drop_text_ratio=0.,
+        random_drop_text_ratio=0.0,
     )
     dl = create_dataloader(data_config, tokenizer=tokenizer, is_image=image_finetune, device_num=1, rank_id=0)
 
