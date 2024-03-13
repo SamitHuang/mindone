@@ -168,11 +168,10 @@ class DDPM(nn.Cell):
         sigma = extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape)
         noisy_samples = alpha * x_start + sigma * noise
         
-        # FIXME: is sigma possible to be 0?
-        # [bs, ...] -> [bs]
-        snr = ((alpha / sigma) ** 2).squeeze()
-        
-        print("D--: snr shape", snr.shape)
+        # FIXME: is sigma possible to be 0? if we apply beta zero rescale, we need to fix it.
+        snr = (alpha / sigma) ** 2
+        # [bs, 1, 1, 1] -> [bs]
+        snr = snr.squeeze()
 
         return noisy_samples, snr
 
@@ -388,18 +387,21 @@ class LatentDiffusion(DDPM):
         else:
             raise NotImplementedError()
 
-        # loss = self.mse_mean(target, model_output)
         loss_element = self.compute_loss(model_output, target)
         loss_sample = self.reduce_loss(loss_element)
         
         if self.snr_gamma is not None:
-            # print("D--: apply snr weighting")
-            snr_gamma = ops.ones_like(snr) * self.snr_gamma # [bs, ]
-            # min{snr, k} 
-            loss_weight = ops.stack((snr, snr_gamma), axis=0).min(axis=0)
+            snr_gamma = ops.ones_like(snr) * self.snr_gamma
+            # TODO: for v-pred, .../ (snr+1)
+            # TODO: for beta zero rescale, consider snr=0  
+            # min{snr, gamma} / snr 
+            loss_weight = ops.stack((snr, snr_gamma), axis=0).min(axis=0) / snr
+            print("D--: snr: ", snr)
+            print("D--: loss_weight: ", loss_weight)
             loss = (loss_weight * loss_sample).mean()
         else:
             loss = loss_sample.mean()
+            # loss = self.mse_mean(target, model_output)
         
         """
         # can be used to place more weights to high-score samples
