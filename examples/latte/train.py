@@ -1,6 +1,5 @@
 """
-DiT training pipeline
-- Image finetuning conditioned on class labels (optional)
+Latte training script
 """
 import datetime
 import logging
@@ -10,9 +9,11 @@ from typing import Tuple
 
 import yaml
 from args_train import parse_args
-from data.dataset import create_dataloader, create_dataloader_imagenet
-from pipelines.train_pipeline import DiTWithLoss
-from utils.model_utils import load_dit_ckpt_params
+from data.dataset import get_dataset
+from modules.text_encoders import initiate_clip_text_encoder
+from omegaconf import OmegaConf
+from pipelines import get_model_with_loss
+from utils.model_utils import remove_pname_prefix
 
 import mindspore as ms
 from mindspore import Model, nn
@@ -24,11 +25,10 @@ __dir__ = os.path.dirname(os.path.abspath(__file__))
 mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../"))
 sys.path.insert(0, mindone_lib_path)
 
-
 from diffusion import create_diffusion
 from modules.autoencoder import SD_CONFIG, AutoencoderKL
 
-from mindone.models.dit import DiT_models
+from mindone.models.latte import Latte_models
 
 # load training modules
 from mindone.trainers.callback import EvalSaveCallback, OverflowMonitor, ProfilerCallback
@@ -65,7 +65,6 @@ def init_env(
         A tuple containing the device ID, rank ID and number of devices.
     """
     set_random_seed(seed)
-
     if max_device_memory is not None:
         ms.set_context(max_device_memory=max_device_memory)
 
@@ -105,28 +104,12 @@ def init_env(
     return device_id, rank_id, device_num
 
 
-def set_dit_all_params(dit_model, train=True, **kwargs):
-    n_params_trainable = 0
-    for param in dit_model.get_parameters():
-        param.requires_grad = train
-        if train:
-            n_params_trainable += 1
-    logger.info(f"Set {n_params_trainable} params to train.")
-
-
-def set_dit_params(dit_model, ft_all_params, **kwargs):
-    if ft_all_params:
-        set_dit_all_params(dit_model, **kwargs)
-    else:
-        raise ValueError("Fintuning partial params is not supported!")
-
-
 def main(args):
     time_str = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     args.output_path = os.path.join(args.output_path, time_str)
 
     # 1. init
-    _, rank_id, device_num = init_env(
+    device_id, rank_id, device_num = init_env(
         args.mode,
         seed=args.seed,
         distributed=args.use_parallel,
@@ -136,25 +119,32 @@ def main(args):
     set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
 
     # 2. model initiate and weight loading
-    # 2.1 dit
+    # 2.1 latte
     logger.info(f"{args.model_name}-{args.image_size}x{args.image_size} init")
     latent_size = args.image_size // 8
-    dit_model = DiT_models[args.model_name](
+    latte_model = Latte_models[args.model_name](
         input_size=latent_size,
-        num_classes=1000,
+        num_classes=args.num_classes,
         block_kwargs={"enable_flash_attention": args.enable_flash_attention},
+        condition=args.condition,
+        num_frames=args.num_frames,
     )
+
     if args.use_fp16:
-        dit_model = auto_mixed_precision(dit_model, amp_level="O2")
+        latte_model = auto_mixed_precision(latte_model, amp_level="O2")
 
-    if args.dit_checkpoint:
-        dit_model = load_dit_ckpt_params(dit_model, args.dit_checkpoint)
+    if len(args.pretrained_model_path) > 0:
+        param_dict = ms.load_checkpoint(args.pretrained_model_path)
+        logger.info(f"Loading ckpt {args.pretrained_model_path} into Latte...")
+        # in case a save ckpt with "network." prefix, removing it before loading
+        param_dict = remove_pname_prefix(param_dict, prefix="network.")
+        latte_model.load_params_from_ckpt(param_dict)
     else:
-        logger.info("Initialize DIT ramdonly")
-    dit_model.set_train(True)
-
-    set_dit_params(dit_model, ft_all_params=True, train=True)
-
+        logger.info("Use random initialization for Latte")
+    # set train
+    latte_model.set_train(True)
+    for param in latte_model.get_parameters():
+        param.requires_grad = True
     # 2.2 vae
     logger.info("vae init")
     vae = AutoencoderKL(
@@ -167,51 +157,39 @@ def main(args):
     for param in vae.get_parameters():  # freeze vae
         param.requires_grad = False
 
+    if args.condition == "text":
+        text_encoder = initiate_clip_text_encoder(
+            use_fp16=args.use_fp16,
+            ckpt_path=args.clip_checkpoint,
+            trainable=False,
+        )
+        tokenizer = text_encoder.tokenizer
+    else:
+        text_encoder, tokenizer = None, None
     diffusion = create_diffusion(timestep_respacing="")
-    latent_diffusion_with_loss = DiTWithLoss(
-        dit_model,
+    latent_diffusion_with_loss = get_model_with_loss(args.condition)(
+        latte_model,
         vae,
         diffusion,
         args.sd_scale_factor,
         args.condition,
-        text_encoder=None,
+        text_encoder=text_encoder,
         cond_stage_trainable=False,
     )
+    # select dataset
+    data_config = OmegaConf.load(args.data_config_file).data_config
+    # set some data params from argument parser
+    data_config.sample_size = args.image_size
+    data_config.sample_n_frames = args.num_frames
+    data_config.batch_size = args.train_batch_size
 
-    # image dataset
-    if args.imagenet_format:
-        data_config = dict(
-            data_folder=args.data_path,
-            sample_size=args.image_size,
-            batch_size=args.train_batch_size,
-            shuffle=True,
-            num_parallel_workers=args.num_parallel_workers,
-        )
-        dataset = create_dataloader_imagenet(
-            data_config,
-            device_num=device_num,
-            rank_id=rank_id,
-        )
-    else:
-        data_config = dict(
-            data_folder=args.data_path,
-            csv_path=args.data_path + "/image_caption.csv",
-            sample_size=args.image_size,
-            batch_size=args.train_batch_size,
-            shuffle=True,
-            num_parallel_workers=args.num_parallel_workers,
-            max_rowsize=64,
-        )
-
-        dataset = create_dataloader(
-            data_config,
-            tokenizer=None,
-            device_num=device_num,
-            rank_id=rank_id,
-            image_column="image",
-            caption_column="caption" if args.condition == "text" else None,
-            class_column="class" if args.condition == "class" else None,
-        )
+    dataset = get_dataset(
+        args.dataset_name,
+        data_config,
+        tokenizer=tokenizer,
+        device_num=device_num,
+        rank_id=rank_id,
+    )
     dataset_size = dataset.get_dataset_size()
 
     # 4. build training utils: lr, optim, callbacks, trainer
@@ -261,7 +239,9 @@ def main(args):
     if args.resume:
         resume_ckpt = os.path.join(ckpt_dir, "train_resume.ckpt") if isinstance(args.resume, bool) else args.resume
 
-        start_epoch, loss_scale, cur_iter, last_overflow_iter = resume_train_network(dit_model, optimizer, resume_ckpt)
+        start_epoch, loss_scale, cur_iter, last_overflow_iter = resume_train_network(
+            latte_model, optimizer, resume_ckpt
+        )
         loss_scaler.loss_scale_value = loss_scale
         loss_scaler.cur_iter = cur_iter
         loss_scaler.last_overflow_iter = last_overflow_iter
@@ -295,7 +275,7 @@ def main(args):
 
     if rank_id == 0:
         save_cb = EvalSaveCallback(
-            network=latent_diffusion_with_loss.network,  # save dit only
+            network=latent_diffusion_with_loss.network,  # save latte only
             rank_id=rank_id,
             ckpt_save_dir=ckpt_dir,
             ema=ema,
@@ -305,8 +285,8 @@ def main(args):
             ckpt_save_interval=args.ckpt_save_interval,
             log_interval=args.callback_size,
             start_epoch=start_epoch,
-            model_name="DiT",
-            record_lr=True,
+            model_name="Latte",
+            record_lr=False,  # TODO: check LR retrival for new MS on 910b
         )
         callback.append(save_cb)
         if args.profile:
@@ -316,25 +296,24 @@ def main(args):
     if rank_id == 0:
         # 4. print key info
         num_params_vae, num_params_vae_trainable = count_params(vae)
-        num_params_dit, num_params_dit_trainable = count_params(dit_model)
-        num_params = num_params_vae + num_params_dit
-        num_params_trainable = num_params_vae_trainable + num_params_dit_trainable
+        num_params_latte, num_params_latte_trainable = count_params(latte_model)
+        num_params = num_params_vae + num_params_latte
+        num_params_trainable = num_params_vae_trainable + num_params_latte_trainable
         key_info = "Key Settings:\n" + "=" * 50 + "\n"
         key_info += "\n".join(
             [
                 f"MindSpore mode[GRAPH(0)/PYNATIVE(1)]: {args.mode}",
                 f"Distributed mode: {args.use_parallel}",
-                f"Data path: {args.data_path}",
-                f"Num params: {num_params:,} (dit: {num_params_dit:,}, vae: {num_params_vae:,})",
+                f"Num params: {num_params:,} (dit: {num_params_latte:,}, vae: {num_params_vae:,})",
                 f"Num trainable params: {num_params_trainable:,}",
                 f"Use FP16: {args.use_fp16}",
                 f"Learning rate: {args.start_learning_rate}",
                 f"Batch size: {args.train_batch_size}",
                 f"Image size: {args.image_size}",
+                f"Frames: {args.num_frames}",
                 f"Weight decay: {args.weight_decay}",
                 f"Grad accumulation steps: {args.gradient_accumulation_steps}",
                 f"Num epochs: {args.epochs}",
-                f"Total training steps: {dataset_size * args.epochs:,}",
                 f"Loss scaler: {args.loss_scaler_type}",
                 f"Init loss scale: {args.init_loss_scale}",
                 f"Grad clipping: {args.clip_grad}",
