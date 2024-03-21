@@ -359,7 +359,8 @@ class LatentDiffusion(DDPM):
         return self.first_stage_model.decode(z)
 
     def encode_first_stage(self, x):
-        return self.first_stage_model.encode(x)
+        z_sampled, z_mean, z_logvar = self.first_stage_model.encode(x)
+        return z_sampled
 
     def get_first_stage_encoding(self, z):
         return self.scale_factor * z

@@ -77,7 +77,20 @@ class AutoencoderKL(nn.Cell):
         h = self.encoder(x)
         moments = self.quant_conv(h)
         mean, logvar = self.split(moments)
+
+        # print("D-- mean: ", mean)
+        # print("D-- logvar: ", logvar)
         logvar = ops.clip_by_value(logvar, -30.0, 20.0)
         std = self.exp(0.5 * logvar)
-        x = mean + std * self.stdnormal(mean.shape)
-        return x
+        z = mean + std * self.stdnormal(mean.shape)
+
+        return z, mean, logvar
+
+    def construct(self, input):
+        z, posterior_mean, posterior_logvar = self.encode(input)
+        dec = self.decode(z)
+
+        return dec, posterior_mean, posterior_logvar
+
+
+
