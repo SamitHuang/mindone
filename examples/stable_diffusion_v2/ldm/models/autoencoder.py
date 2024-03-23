@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-from ldm.modules.diffusionmodules.model import Decoder, Encoder
 
 import mindspore as ms
-import mindspore.nn as nn
+from mindspore import nn
 from mindspore import ops
+
+from ldm.modules.diffusionmodules.model import Decoder, Encoder
+from ldm.models.lpips import LPIPS
 
 
 class AutoencoderKL(nn.Cell):
@@ -77,7 +79,204 @@ class AutoencoderKL(nn.Cell):
         h = self.encoder(x)
         moments = self.quant_conv(h)
         mean, logvar = self.split(moments)
+
+        # print("D-- mean: ", mean)
+        # print("D-- logvar: ", logvar)
         logvar = ops.clip_by_value(logvar, -30.0, 20.0)
         std = self.exp(0.5 * logvar)
-        x = mean + std * self.stdnormal(mean.shape)
-        return x
+        z = mean + std * self.stdnormal(mean.shape)
+        
+        # TODO: this API change will affact other models using SDv2 VAE!! create another called encode_posterior
+        return z, mean, logvar
+
+    def construct(self, input):
+        z, posterior_mean, posterior_logvar = self.encode(input)
+        recons = self.decode(z)
+
+        return recons, posterior_mean, posterior_logvar
+
+
+class GeneratorWithLoss(nn.Cell):  
+    def __init__(self, 
+            autoencoder,
+            disc_start=50001,
+            kl_weight=1.0e-06,
+            disc_weight=0.5,
+            disc_factor=1.0,
+            perceptual_weight=1.0,
+            logvar_init=0.0,
+            discriminator=None,
+            dtype=ms.float32,
+            ):
+        super().__init__()
+
+        # build perceptual models for loss compute
+        self.autoencoder = autoencoder
+        # TODO: set dtype for LPIPS ?
+        self.perceptual_loss = LPIPS()  # freeze params inside
+
+        self.l1 = nn.L1Loss(reduction='none')
+        # TODO: is self.logvar trainable?
+        self.logvar = ms.Parameter(ms.Tensor([logvar_init], dtype=dtype))
+
+        self.disc_start = disc_start
+        self.kl_weight = kl_weight
+        self.disc_weight = disc_weight
+        self.disc_factor = disc_factor
+        self.perceptual_weight = perceptual_weight
+
+        assert discriminator is None, "Discriminator is not supported yet"
+
+    def kl(self, mean, logvar):
+        var = ops.exp(logvar)
+        kl_loss = 0.5 * ops.sum(
+                                ops.pow(mean, 2) + var - 1.0 - logvar,
+                                dim=[1, 2, 3],
+                                )
+        return kl_loss
+
+    # in graph mode, construct code will run in graph. TODO: in pynative mode, need to add ms.jit decorator
+    def construct(self, x: ms.Tensor, weights: ms.Tensor=None, cond=None, global_step=-1):
+        '''
+        x: input image/video, (bs c h w)
+        weights: sample weights
+        '''
+        bs = x.shape[0] 
+
+        # 1. AE forward, get posterior (mean, logvar) and recons
+        recons, mean, logvar = self.autoencoder(x)
+
+        # 2. compuate loss
+        # 2.1 reconstruction loss in pixels
+        rec_loss = self.l1(x, recons) 
+
+        # 2.2 perceptual loss
+        if self.perceptual_weight > 0:
+            p_loss = self.perceptual_loss(x, recons)
+            rec_loss = rec_loss + self.perceptual_weight * p_loss
+
+        nll_loss = rec_loss / ops.exp(self.logvar) + self.logvar
+        if weights is not None:
+            weighted_nll_loss = weights * nll_loss
+            mean_weighted_nll_loss = weighted_nll_loss.sum() / bs
+            # mean_nll_loss = nll_loss.sum() / bs
+        else:
+            mean_weighted_nll_loss = nll_loss.sum() / bs
+            # mean_nll_loss = mean_weighted_nll_loss 
+
+        # 2.3 kl loss
+        kl_loss = self.kl(mean, logvar)
+        kl_loss = kl_loss.sum() / bs
+
+        loss = mean_weighted_nll_loss + self.kl_weight * kl_loss
+
+        # 2.4 discriminator loss if enabled
+        # g_loss = ms.Tensor(0., dtype=ms.float32)
+        # TODO: how to get global_step?
+        if global_step >= self.disc_start:
+            if (self.discriminator is not None) and (self.disc_factor > 0.):
+                # calc gan loss
+                if cond is None:
+                    logits_fake = self.discriminator(recons)
+                else:
+                    logits_fake = self.discriminator(ops.concat((recons, cond), dim=1))
+                g_loss = -ops.reduce_mean(logits_fake)
+                # TODO: do adaptive weighting based on grad
+                # d_weight = self.calculate_adaptive_weight(mean_nll_loss, g_loss, last_layer=last_layer)
+                d_weight = self.disc_weight
+                loss += d_weight * self.disc_factor * g_loss
+        
+                # return loss, mean_weighted_nll_loss, kl_loss, g_loss 
+
+        # return loss, mean_weighted_nll_loss, kl_loss
+        # TODO: monitor more losses
+
+        # print(f"nll_loss: {mean_weighted_nll_loss.asnumpy():.4f}, kl_loss: {kl_loss.asnumpy():.4f}")
+        '''
+        split = "train"
+        log = {"{}/total_loss".format(split): loss.asnumpy().mean(), 
+           "{}/logvar".format(split): self.logvar.value().asnumpy(),
+           "{}/kl_loss".format(split): kl_loss.asnumpy().mean(), 
+           "{}/nll_loss".format(split): nll_loss.asnumpy().mean(),
+           "{}/rec_loss".format(split): rec_loss.asnumpy().mean(),
+           # "{}/d_weight".format(split): d_weight.detach(),
+           # "{}/disc_factor".format(split): torch.tensor(disc_factor),
+           # "{}/g_loss".format(split): g_loss.detach().mean(),
+           }
+        for k in log:
+            print(k.split("/")[1], log[k])
+        '''
+
+        return loss
+
+
+class NLayerDiscriminator(nn.Cell):
+    """Defines a PatchGAN discriminator as in Pix2Pix
+        --> refer to: https://github.com/junyanz/pyms-CycleGAN-and-pix2pix/blob/master/models/networks.py
+    """
+    def __init__(self, input_nc=3, ndf=64, n_layers=3, use_actnorm=False, dtype=ms.float32):
+        """Construct a PatchGAN discriminator
+        Parameters:
+            input_nc (int)  -- the number of channels in input images
+            ndf (int)       -- the number of filters in the last conv layer
+            n_layers (int)  -- the number of conv layers in the discriminator
+            norm_layer      -- normalization layer
+        """
+
+        # TODO: check forward consistency!!!
+        super().__init__()
+        if isinstance(dtype, str):
+            if dtype == 'fp32':
+                self.dtype = ms.float32
+            elif dtype == 'fp16':
+                self.dtype = ms.float16
+            elif dtype == 'bf16':
+                self.dtype = ms.bfloat16
+            else:
+                raise ValueError
+        else:
+            self.dtype = dtype
+
+        if not use_actnorm:
+            norm_layer = nn.BatchNorm2d
+        else:
+            norm_layer = ActNorm
+        if type(norm_layer) == functools.partial:  # no need to use bias as BatchNorm2d has affine parameters
+            use_bias = norm_layer.func != nn.BatchNorm2d
+        else:
+            use_bias = norm_layer != nn.BatchNorm2d
+
+        kw = 4
+        padw = 1
+        # FIX:
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, pad_mode='pad', padding=padw, has_bias=True).to_float(self.dtype),
+                    nn.LeakyReLU(0.2)]
+        nf_mult = 1
+        nf_mult_prev = 1
+        for n in range(1, n_layers):  # gradually increase the number of filters
+            nf_mult_prev = nf_mult
+            nf_mult = min(2 ** n, 8)
+            sequence += [
+                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, pad_mode='pad', padding=padw, has_bias=use_bias).to_float(self.dtype),
+                norm_layer(ndf * nf_mult),
+                nn.LeakyReLU(0.2)
+            ]
+
+        nf_mult_prev = nf_mult
+        nf_mult = min(2 ** n_layers, 8)
+        sequence += [
+            nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, pad_mode='pad', padding=padw, has_bias=use_bias).to_float(self.dtype),
+            norm_layer(ndf * nf_mult),
+            nn.LeakyReLU(0.2)
+        ]
+
+        # output 1 channel prediction map
+        sequence += [
+            nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, pad_mode='pad', padding=padw, has_bias=True).to_float(self.dtype)]
+        self.main = nn.SequentialCell(sequence)
+        self.cast = ops.Cast()
+
+    def construct(self, x):
+
+        y = self.main(x)
+        return y
