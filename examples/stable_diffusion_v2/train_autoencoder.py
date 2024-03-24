@@ -34,6 +34,7 @@ from mindone.trainers.checkpoint import CheckpointManager
 
 
 os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
+# TODO: only for 910b
 os.environ["MS_ASCEND_CHECK_OVERFLOW_MODE"] = "INFNAN_MODE"
 
 logger = logging.getLogger(__name__)
@@ -206,7 +207,7 @@ def main(args):
 
     ## Phase 1: only train ae. build training pipeline with model.train
     if not args.use_discriminator:
-        use_custom_train = False
+        use_custom_train = True
         if use_custom_train:
             # self-define train pipeline
             # TODO: support data sink, refer to mindspore/train/dataset_helper.py and mindspore.train.model

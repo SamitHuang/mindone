@@ -80,7 +80,8 @@ class ImageDataset:
 
     def read_sample(self, idx):
         image_dict = self.dataset[idx]
-        image_fn = image_dict[self.image_column]
+        # first column is image path
+        image_fn = image_dict[list(image_dict.keys())[0]]
         image_path = os.path.join(self.image_folder, image_fn)
 
         image = Image.open(image_path).convert("RGB")
