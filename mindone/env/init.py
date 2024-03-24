@@ -56,8 +56,17 @@ def init_train_env(
         mode = ms.PYNATIVE_MODE
 
     if distributed:
-        device_id = int(os.getenv("DEVICE_ID"))
-        ms.set_context(mode=mode, device_target=device_target, device_id=device_id, ascend_config=ascend_config or {})
+        if device_target == 'Ascend':
+            device_id = int(os.getenv("DEVICE_ID"))
+            ms.set_context(mode=mode, device_target=device_target, device_id=device_id)
+        else:
+            # FIXME: for GPUs, cannot use DEVICE_ID to get device id from multiple cards
+            ms.set_context(mode=mode)
+            device_id = None
+
+        if ascend_config is not None:
+            ms.set_context(ascend_config=ascend_config)
+
         init()
         device_num = get_group_size()
         rank_id = get_rank()
@@ -83,10 +92,11 @@ def init_train_env(
             mode=mode,
             device_target=device_target,
             device_id=device_id,
-            ascend_config=ascend_config or {},
             pynative_synchronize=debug,
             enable_compile_cache=cache_graph,
             compile_cache_path=cache_path,
         )
+        if ascend_config is not None:
+            ms.set_context(ascend_config=ascend_config)
 
     return device_id, rank_id, device_num

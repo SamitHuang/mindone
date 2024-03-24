@@ -206,12 +206,13 @@ def main(args):
 
     ## Phase 1: only train ae. build training pipeline with model.train
     if not args.use_discriminator:
-        use_custom_train = True
+        use_custom_train = False
         if use_custom_train:
             # self-define train pipeline
             # TODO: support data sink, refer to mindspore/train/dataset_helper.py and mindspore.train.model
             # TODO: support step mode, resume train in step unit, dat
-            ckpt_manager = CheckpointManager(ckpt_dir, "latest_k", k=args.ckpt_max_keep)
+            if rank_id == 0:
+                ckpt_manager = CheckpointManager(ckpt_dir, "latest_k", k=args.ckpt_max_keep)
             ds_iter = dataset.create_dict_iterator(args.epochs - start_epoch)
 
             for epoch in range(start_epoch, args.epochs):
@@ -237,11 +238,12 @@ def main(args):
                 cur_epoch = epoch + 1
                 logger.info(f"Epoch:[{int(cur_epoch):>3d}/{int(args.epochs):>3d}], "
                     f"epoch time:{epoch_cost:.2f}s, per step time:{per_step_time*1000:.2f}ms, ")
-                if (cur_epoch % args.ckpt_save_interval == 0) or (cur_epoch == args.epochs):
-                    ckpt_name = f"vae_kl_f8-e{cur_epoch}.ckpt"
-                    # TODO: set append_dict to save loss scale and data iteratered.
-                    # TODO: save logvar if udpate it
-                    ckpt_manager.save(ae, None, ckpt_name=ckpt_name, append_dict=None)
+                # TODO: save checkpoint in each node? rank_id % 8 == 0
+                if rank_id  == 0:
+                    if (cur_epoch % args.ckpt_save_interval == 0) or (cur_epoch == args.epochs):
+                        ckpt_name = f"vae_kl_f8-e{cur_epoch}.ckpt"
+                        ckpt_manager.save(ae, None, ckpt_name=ckpt_name, append_dict=None)
+                        # TODO: save optimizer ckpt and other states for resume training (loss scale, data visited) via append_dict
 
         else:
             model = Model(training_step_ae)
@@ -325,7 +327,7 @@ def parse_args():
     parser.add_argument("--csv_path", default=None, type=str, help="path to csv annotation file")
     parser.add_argument("--dataset_sink_mode", default=False, type=str2bool, help="sink mode")
     parser.add_argument("--shuffle", default=True, type=str2bool, help="data shuffle")
-    parser.add_argument("--num_parallel_workers", default=12, type=int, help="num workers for data loading")
+    parser.add_argument("--num_parallel_workers", default=8, type=int, help="num workers for data loading")
     parser.add_argument("--size", default=384, type=int, help="image rescale size")
     parser.add_argument("--crop_size", default=256, type=int, help="image crop size")
     parser.add_argument("--random_crop", default=False, type=str2bool, help="random crop for data augmentation")
