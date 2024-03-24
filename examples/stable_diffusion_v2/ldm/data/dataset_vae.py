@@ -202,9 +202,8 @@ if __name__ == '__main__':
 
     start = time.time()
     for epoch in range(math.ceil(steps / num_batches)):
-        print(epoch)
         for i, batch in enumerate(iterator):
-            print(i)
+            print('epoch', epoch, 'step', i)
             dur = time.time() - start
             tot += dur
 

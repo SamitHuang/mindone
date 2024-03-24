@@ -6,6 +6,7 @@ import sys
 import argparse
 import logging
 import yaml
+import time
 import shutil
 from omegaconf import OmegaConf
 from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
@@ -29,6 +30,7 @@ from mindone.trainers.lr_schedule import create_scheduler
 from mindone.trainers.optim import create_optimizer
 from mindone.trainers.train_step import TrainOneStepWrapper
 from mindone.utils.params import count_params, load_param_into_net_with_filter
+from mindone.trainers.checkpoint import CheckpointManager
 
 
 os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
@@ -120,8 +122,13 @@ def main(args):
     # build optimizer
     # TODO: Adam optimizer in MS is less reliable?
     # TODO: optim hyper-params like beta copied from torch may not be suitable for MS
+    update_logvar = False # in torch, ae_with_loss.logvar  is not updated.
+    if update_logvar:
+        params_to_update =  ae_with_loss.trainable_params()
+    else:
+        params_to_update =  ae_with_loss.autoencoder.trainable_params()
     optim_ae = create_optimizer(
-        ae_with_loss.autoencoder.trainable_params(),
+        params_to_update,
         name=args.optim,
         betas=(0.5, 0.9),
         group_strategy=args.group_strategy,
@@ -199,46 +206,84 @@ def main(args):
 
     ## Phase 1: only train ae. build training pipeline with model.train
     if not args.use_discriminator:
-        model = Model(training_step_ae)
+        use_custom_train = True
+        if use_custom_train:
+            # self-define train pipeline
+            # TODO: support data sink, refer to mindspore/train/dataset_helper.py and mindspore.train.model
+            # TODO: support step mode, resume train in step unit, dat
+            ckpt_manager = CheckpointManager(ckpt_dir, "latest_k", k=args.ckpt_max_keep)
+            ds_iter = dataset.create_dict_iterator(args.epochs - start_epoch)
 
-        # callbacks
-        callback = [TimeMonitor(args.log_interval)]
-        ofm_cb = OverflowMonitor()
-        callback.append(ofm_cb)
+            for epoch in range(start_epoch, args.epochs):
+                start_time_e = time.time()
+                # output_numpy=True ?
+                for step, data in enumerate(ds_iter):
+                    start_time_s = time.time()
+                    x = data['image']
 
-        if rank_id == 0:
-            save_cb = EvalSaveCallback(
-                network=ae_with_loss.autoencoder,
-                rank_id=rank_id,
-                ckpt_save_dir=ckpt_dir,
-                ema=None,
-                ckpt_save_policy="latest_k",
-                ckpt_max_keep=args.ckpt_max_keep,
-                ckpt_save_interval=args.ckpt_save_interval,
-                log_interval=args.log_interval,
-                start_epoch=start_epoch,
-                model_name="vae_kl_f8",
-                record_lr=False,
+                    loss_ae_t, overflow, scaling_sens = training_step_ae(x)
+
+                    cur_global_step = epoch * dataset_size + step + 1
+                    if overflow:
+                        logger.warning(f"Overflow occurs in step {cur_global_step}")
+
+                    loss_ae = float(loss_ae_t.asnumpy())
+
+                    step_time = time.time() - start_time_s
+                    if step % args.log_interval == 0:
+                        logger.info(f"Loss ae: {loss_ae:.4f}, Step time: {step_time*1000:.2f}ms")
+                epoch_cost = time.time() - start_time_e
+                per_step_time = epoch_cost / dataset_size 
+                cur_epoch = epoch + 1
+                logger.info(f"Epoch:[{int(cur_epoch):>3d}/{int(args.epochs):>3d}], "
+                    f"epoch time:{epoch_cost:.2f}s, per step time:{per_step_time*1000:.2f}ms, ")
+                if (cur_epoch % args.ckpt_save_interval == 0) or (cur_epoch == args.epochs):
+                    ckpt_name = f"vae_kl_f8-e{cur_epoch}.ckpt"
+                    # TODO: set append_dict to save loss scale and data iteratered.
+                    # TODO: save logvar if udpate it
+                    ckpt_manager.save(ae, None, ckpt_name=ckpt_name, append_dict=None)
+
+        else:
+            model = Model(training_step_ae)
+
+            # callbacks
+            callback = [TimeMonitor(args.log_interval)]
+            ofm_cb = OverflowMonitor()
+            callback.append(ofm_cb)
+
+            if rank_id == 0:
+                save_cb = EvalSaveCallback(
+                    network=ae_with_loss.autoencoder,
+                    rank_id=rank_id,
+                    ckpt_save_dir=ckpt_dir,
+                    ema=None,
+                    ckpt_save_policy="latest_k",
+                    ckpt_max_keep=args.ckpt_max_keep,
+                    ckpt_save_interval=args.ckpt_save_interval,
+                    log_interval=args.log_interval,
+                    start_epoch=start_epoch,
+                    model_name="vae_kl_f8",
+                    record_lr=False,
+                )
+                callback.append(save_cb)
+                if args.profile:
+                    callback.append(ProfilerCallback())
+
+                logger.info("Start training...")
+                # backup config files
+                shutil.copyfile(args.base_config, os.path.join(args.output_path, os.path.basename(args.base_config)))
+
+                with open(os.path.join(args.output_path, "args.yaml"), "w") as f:
+                    yaml.safe_dump(vars(args), stream=f, default_flow_style=False, sort_keys=False)
+
+            model.train(
+                args.epochs,
+                dataset,
+                callbacks=callback,
+                dataset_sink_mode=args.dataset_sink_mode,
+                # sink_size=args.sink_size,
+                initial_epoch=start_epoch,
             )
-            callback.append(save_cb)
-            if args.profile:
-                callback.append(ProfilerCallback())
-
-            logger.info("Start training...")
-            # backup config files
-            shutil.copyfile(args.base_config, os.path.join(args.output_path, os.path.basename(args.base_config)))
-
-            with open(os.path.join(args.output_path, "args.yaml"), "w") as f:
-                yaml.safe_dump(vars(args), stream=f, default_flow_style=False, sort_keys=False)
-
-        model.train(
-            args.epochs,
-            dataset,
-            callbacks=callback,
-            dataset_sink_mode=args.dataset_sink_mode,
-            # sink_size=args.sink_size,
-            initial_epoch=start_epoch,
-        )
     else:
         raise NotImplementedError
 
@@ -252,6 +297,7 @@ def _check_cfgs_in_parser(cfgs: dict, parser: argparse.ArgumentParser):
             # raise KeyError(f"{k} does not exist in ArgumentParser!")
             cfgs.pop(k)
     return cfgs
+
 
 def parse_args():
     parser = argparse.ArgumentParser()

@@ -210,6 +210,11 @@ class GeneratorWithLoss(nn.Cell):
         return loss
 
 
+def validation_step(input):
+    # validate on validatioin set for model selection
+    pass
+
+
 class NLayerDiscriminator(nn.Cell):
     """Defines a PatchGAN discriminator as in Pix2Pix
         --> refer to: https://github.com/junyanz/pyms-CycleGAN-and-pix2pix/blob/master/models/networks.py
