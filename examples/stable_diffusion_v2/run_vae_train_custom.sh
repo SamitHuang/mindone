@@ -8,9 +8,10 @@ python train_autoencoder.py --base_config configs/train/autoencoder_kl_f8.yaml \
     --init_loss_scale=1 \
     --epochs=1000 \
     --ckpt_save_interval=100 \
-    --batch_size=4 \
+    --batch_size=3 \
     --flip=True \
     --random_crop=True \
+    --use_discriminator=True \
 
     # --scale_lr=False \
     # --base_learning_rate=1e-4 \

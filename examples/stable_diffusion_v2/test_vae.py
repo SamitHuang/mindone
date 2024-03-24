@@ -52,18 +52,20 @@ def test_vae():
     ckpt_path = "models/sd_v1.5-d0ab7146.ckpt"
     # ckpt_path = "outputs/vae_custom_train/ckpt/vae_kl_f8-e1000.ckpt"
     # ckpt_path = "outputs/vae/ckpt/vae_kl_f8-e1000.ckpt"
-    # csv_path = '/home/mindocr/yx/datasets/chinese_art_blip/test/img_txt.csv'
-    # image_folder='/home/mindocr/yx/datasets/chinese_art_blip/test'
+    csv_path = '/home/mindocr/yx/datasets/chinese_art_blip/test/img_txt.csv'
+    image_folder='/home/mindocr/yx/datasets/chinese_art_blip/test'
     # csv_path = '/home/mindocr/yx/datasets/chinese_art_blip/train/metadata.csv'
     # image_folder='/home/mindocr/yx/datasets/chinese_art_blip/train'
-    csv_path = 'datasets/chinese_art_blip/train/img_txt.csv'
-    image_folder='datasets/chinese_art_blip/train'
+    # csv_path = 'datasets/chinese_art_blip/train/img_txt.csv'
+    # image_folder='datasets/chinese_art_blip/train'
 
     ms.set_context(mode=1)
 
     config = OmegaConf.load(cfg)
     model = instantiate_from_config(config.generator)
     model = load_model_weights(model, ckpt_path)
+    # state_dict = ms.load_checkpoint(ckpt_path, model, specify_prefix=["first_stage_model", "autoencoder"])
+
     model.set_train(False)
     
     ds_config = dict(

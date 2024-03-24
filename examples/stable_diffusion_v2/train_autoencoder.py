@@ -9,6 +9,8 @@ import yaml
 import time
 import shutil
 from omegaconf import OmegaConf
+
+import mindspore as ms
 from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
 from mindspore import Model, load_checkpoint, load_param_into_net, nn
 from mindspore.train.callback import TimeMonitor
@@ -25,7 +27,7 @@ from mindone.env import init_train_env
 from mindone.utils.logger import set_logger
 from mindone.trainers.callback import EvalSaveCallback, OverflowMonitor, ProfilerCallback
 from mindone.trainers.checkpoint import resume_train_network
-from mindone.trainers.ema import EMA
+# from mindone.trainers.ema import EMA
 from mindone.trainers.lr_schedule import create_scheduler
 from mindone.trainers.optim import create_optimizer
 from mindone.trainers.train_step import TrainOneStepWrapper
@@ -84,16 +86,16 @@ def main(args):
     ## G with loss
     ae_with_loss = GeneratorWithLoss(ae, discriminator=disc, **config.lossconfig)
     
+    train_discriminator = False  # FIXME: temp. False for debug
     ## D with loss
-    if args.use_discriminator:
+    if args.use_discriminator and train_discriminator:
         disc_with_loss = None
         raise NotImplementedError
 
     tot_params, trainable_params = count_params(ae_with_loss)
-    logger.info("ae with loss: total param size {:,}, trainable {:,}".format(tot_params, trainable_params))
-    trainable_ae = count_params(ae)[1]
-    # TODO: check logvar trainability
-    assert trainable_params <= trainable_ae+1, f"ae trainable: {trainable_ae}"
+    logger.info("Total params {:,}; Trainable params{:,}".format(tot_params, trainable_params))
+    # trainable_ae = count_params(ae)[1]
+    # assert trainable_params <= trainable_ae+1, f"ae trainable: {trainable_ae}"
 
     # 4. build dataset
     ds_config = dict(
@@ -125,7 +127,7 @@ def main(args):
     # TODO: optim hyper-params like beta copied from torch may not be suitable for MS
     update_logvar = False # in torch, ae_with_loss.logvar  is not updated.
     if update_logvar:
-        params_to_update =  ae_with_loss.trainable_params()
+        params_to_update =  [ae_with_loss.autoencoder.trainable_params(), ae_with_loss.logvar] 
     else:
         params_to_update =  ae_with_loss.autoencoder.trainable_params()
     optim_ae = create_optimizer(
@@ -138,7 +140,7 @@ def main(args):
     )
     loss_scaler_ae = create_loss_scaler(args.loss_scaler_type, args.init_loss_scale, args.loss_scale_factor, args.scale_window)
 
-    if args.use_discriminator:
+    if args.use_discriminator and train_discriminator:
         # TODO: different LR for disc?
         optim_disc = create_optimizer(
                 disc.trainable_paramrs(), 
@@ -163,8 +165,8 @@ def main(args):
         ema=None,
     )
 
-    if args.use_discriminator:
-        training_step_ae = TrainOneStepWrapper(
+    if args.use_discriminator and train_discriminator:
+        training_step_disc = TrainOneStepWrapper(
             disc_with_loss,
             optimizer=optim_disc,
             scale_sense=loss_scaler_disc,
@@ -206,7 +208,7 @@ def main(args):
         os.makedirs(ckpt_dir, exist_ok=True)
 
     ## Phase 1: only train ae. build training pipeline with model.train
-    if not args.use_discriminator:
+    if not (args.use_discriminator and train_discriminator):
         use_custom_train = True
         if use_custom_train:
             # self-define train pipeline
@@ -222,10 +224,15 @@ def main(args):
                 for step, data in enumerate(ds_iter):
                     start_time_s = time.time()
                     x = data['image']
+                    
+                    # TODO: get global step by optimizer.global_step() ?
+                    global_step = epoch * dataset_size + step
+                    global_step = ms.Tensor(global_step, dtype=ms.int64) 
 
-                    loss_ae_t, overflow, scaling_sens = training_step_ae(x)
-
-                    cur_global_step = epoch * dataset_size + step + 1
+                    # NOTE: inputs must match the order in GeneratorWithLoss.construct
+                    loss_ae_t, overflow, scaling_sens = training_step_ae(x, global_step)
+                    
+                    cur_global_step = epoch * dataset_size + step + 1  # starting from 1 for logging
                     if overflow:
                         logger.warning(f"Overflow occurs in step {cur_global_step}")
 

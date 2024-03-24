@@ -13,20 +13,24 @@ class LPIPS(nn.Cell):
         self.scaling_layer = ScalingLayer()
         self.chns = [64, 128, 256, 512, 512]  # vgg16 features
         # TODO: what about vgg dtype??
-        self.net = vgg16(pretrained=True, requires_grad=False)
         self.lin0 = NetLinLayer(self.chns[0], use_dropout=use_dropout, dtype=dtype)
         self.lin1 = NetLinLayer(self.chns[1], use_dropout=use_dropout, dtype=dtype)
         self.lin2 = NetLinLayer(self.chns[2], use_dropout=use_dropout, dtype=dtype)
         self.lin3 = NetLinLayer(self.chns[3], use_dropout=use_dropout, dtype=dtype)
         self.lin4 = NetLinLayer(self.chns[4], use_dropout=use_dropout, dtype=dtype)
+        # load NetLin metric layers
         self.load_from_pretrained()
 
         self.lins = [self.lin0, self.lin1, self.lin2, self.lin3, self.lin4]
         self.lins = nn.CellList(self.lins)
+        
+        # create vision backbone and load pretrained weights
+        self.net = vgg16(pretrained=True, requires_grad=False)
 
         self.set_train(False)
         for param in self.trainable_params():
             param.requires_grad = False
+
     
     def load_from_pretrained(self, ckpt_path="taming/modules/autoencoder/lpips/vgg.pth"):
         # TODO: just load ms ckpt

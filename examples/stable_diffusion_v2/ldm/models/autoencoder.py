@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-
+import functools
 import mindspore as ms
 from mindspore import nn
 from mindspore import ops
@@ -124,8 +124,9 @@ class GeneratorWithLoss(nn.Cell):
         self.disc_weight = disc_weight
         self.disc_factor = disc_factor
         self.perceptual_weight = perceptual_weight
-
-        assert discriminator is None, "Discriminator is not supported yet"
+        
+        self.discriminator = discriminator
+        # assert discriminator is None, "Discriminator is not supported yet"
 
     def kl(self, mean, logvar):
         var = ops.exp(logvar)
@@ -136,10 +137,11 @@ class GeneratorWithLoss(nn.Cell):
         return kl_loss
 
     # in graph mode, construct code will run in graph. TODO: in pynative mode, need to add ms.jit decorator
-    def construct(self, x: ms.Tensor, weights: ms.Tensor=None, cond=None, global_step=-1):
+    def construct(self, x: ms.Tensor, global_step: ms.Tensor=-1, weights: ms.Tensor=None, cond=None):
         '''
         x: input image/video, (bs c h w)
         weights: sample weights
+        global_step: global training step  
         '''
         bs = x.shape[0] 
 
@@ -210,6 +212,83 @@ class GeneratorWithLoss(nn.Cell):
         return loss
 
 
+class DiscriminatorWithLoss(nn.Cell):  
+    '''
+    Training logic:
+        For training step i, input data x:
+            1. AE generator takes input x, feedforward to get posterior/latent and reconstructed data, and compute ae loss 
+            2. AE optimizer updates AE trainable params
+            3. D takes the same input x, feed x to AE again **again** to get the new posterior and reconstructions (since AE params has updated), feed x and recons to D, and compute D loss 
+            4. D optimizer updates D trainable params 
+            --> Go to next training step
+        Ref: sd-vae training
+    '''
+    def __init__(self,
+            autoentcoder,
+            discriminator,
+            disc_start=50001,
+            disc_factor=1.0,
+            disc_loss="hinge",
+            ):
+        super().__init__()
+        self.autoencoder = autoencoder
+        self.discriminator = discriminator
+        self.disc_start = disc_start
+        self.disc_factor = disc_factor
+
+        assert disc_loss in ["hinge", "vanilla"]
+        if disc_loss == 'hinge':
+            self.disc_loss = self.hinge_loss
+        else:
+            self.softplus = ops.Softplus()
+            self.disc_loss = self.vanilla_d_loss
+
+    def hinge_loss(self, logits_real, logits_fake):
+        loss_real = ops.mean(ops.relu(1. - logits_real))
+        loss_fake = ops.mean(ops.relu(1. + logits_fake))
+        d_loss = 0.5 * (loss_real + loss_fake)
+        return d_loss 
+
+    def vanilla_d_loss(self, logits_real, logits_fake):
+        d_loss = 0.5 * (ops.mean(self.softplus(-logits_real)) + 
+                ops.mean(self.softplus(logits_fake)))
+        return d_loss
+
+
+    def construct(self, x: ms.Tensor, global_step=-1, cond=None):
+        '''
+        Second pass
+        Args:
+            x: input image/video, (bs c h w)
+            weights: sample weights
+        '''
+
+        if global_step >= self.disc_start:
+            bs = x.shape[0] 
+
+            # 1. AE forward, get posterior (mean, logvar) and recons
+            recons, mean, logvar = ops.stop_gradient(self.autoencoder(x))
+            
+            # 2. Disc forward to get class prediction on real input and reconstrucions
+            if cond is None:
+                logits_real = self.discriminator(x)
+                logits_fake = self.discriminator(recons)
+            else:
+                logits_real = self.discriminator(ops.concat((x, cond), dim=1))
+                logits_fake = self.discriminator(ops.concat((recons, cond), dim=1))
+
+            d_loss = disc_factor * self.disc_loss(logits_real, logits_fake) 
+
+            # log = {"{}/disc_loss".format(split): d_loss.clone().detach().mean(),
+            #        "{}/logits_real".format(split): logits_real.detach().mean(),
+            #       "{}/logits_fake".format(split): logits_fake.detach().mean()
+            #       }
+
+            return d_loss
+        else:
+            return ms.Tensor(0., dtype=x.dtype)
+
+
 def validation_step(input):
     # validate on validatioin set for model selection
     pass
@@ -253,7 +332,7 @@ class NLayerDiscriminator(nn.Cell):
 
         kw = 4
         padw = 1
-        # FIX:
+        # Fixed
         sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, pad_mode='pad', padding=padw, has_bias=True).to_float(self.dtype),
                     nn.LeakyReLU(0.2)]
         nf_mult = 1
