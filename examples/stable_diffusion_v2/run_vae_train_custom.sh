@@ -6,7 +6,7 @@ python train_autoencoder.py --base_config configs/train/autoencoder_kl_f8.yaml \
     --data_path="/home/mindocr/yx/datasets/chinese_art_blip/train" \
     --dtype="fp32" \
     --init_loss_scale=1 \
-    --epochs=1000 \
+    --epochs=3000 \
     --ckpt_save_interval=100 \
     --batch_size=3 \
     --flip=True \

@@ -14,9 +14,10 @@ import mindspore as ms
 from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
 from mindspore import Model, load_checkpoint, load_param_into_net, nn
 from mindspore.train.callback import TimeMonitor
+from mindspore.ops import functional as F
 
 from ldm.util import str2bool
-from ldm.models.autoencoder import GeneratorWithLoss
+from ldm.models.autoencoder import GeneratorWithLoss, DiscriminatorWithLoss
 from ldm.data.dataset_vae import create_dataloader 
 from ldm.util import instantiate_from_config
 
@@ -85,12 +86,12 @@ def main(args):
     # 3. build net with loss (core)
     ## G with loss
     ae_with_loss = GeneratorWithLoss(ae, discriminator=disc, **config.lossconfig)
+    disc_start = config.lossconfig.disc_start
     
-    train_discriminator = False  # FIXME: temp. False for debug
+    train_discriminator = True  # FIXME: temp. False for debug
     ## D with loss
     if args.use_discriminator and train_discriminator:
-        disc_with_loss = None
-        raise NotImplementedError
+        disc_with_loss = DiscriminatorWithLoss(ae, disc, disc_start)
 
     tot_params, trainable_params = count_params(ae_with_loss)
     logger.info("Total params {:,}; Trainable params{:,}".format(tot_params, trainable_params))
@@ -143,7 +144,7 @@ def main(args):
     if args.use_discriminator and train_discriminator:
         # TODO: different LR for disc?
         optim_disc = create_optimizer(
-                disc.trainable_paramrs(), 
+                disc_with_loss.discriminator.trainable_params(), 
                 betas=(0.5, 0.9),
                 name=args.optim,
                 lr=learning_rate, 
@@ -208,94 +209,98 @@ def main(args):
         os.makedirs(ckpt_dir, exist_ok=True)
 
     ## Phase 1: only train ae. build training pipeline with model.train
-    if not (args.use_discriminator and train_discriminator):
-        use_custom_train = True
-        if use_custom_train:
-            # self-define train pipeline
-            # TODO: support data sink, refer to mindspore/train/dataset_helper.py and mindspore.train.model
-            # TODO: support step mode, resume train in step unit, dat
-            if rank_id == 0:
-                ckpt_manager = CheckpointManager(ckpt_dir, "latest_k", k=args.ckpt_max_keep)
-            ds_iter = dataset.create_dict_iterator(args.epochs - start_epoch)
+    if not args.use_discriminator:
+        model = Model(training_step_ae)
 
-            for epoch in range(start_epoch, args.epochs):
-                start_time_e = time.time()
-                # output_numpy=True ?
-                for step, data in enumerate(ds_iter):
-                    start_time_s = time.time()
-                    x = data['image']
-                    
-                    # TODO: get global step by optimizer.global_step() ?
-                    global_step = epoch * dataset_size + step
-                    global_step = ms.Tensor(global_step, dtype=ms.int64) 
+        # callbacks
+        callback = [TimeMonitor(args.log_interval)]
+        ofm_cb = OverflowMonitor()
+        callback.append(ofm_cb)
 
-                    # NOTE: inputs must match the order in GeneratorWithLoss.construct
-                    loss_ae_t, overflow, scaling_sens = training_step_ae(x, global_step)
-                    
-                    cur_global_step = epoch * dataset_size + step + 1  # starting from 1 for logging
-                    if overflow:
-                        logger.warning(f"Overflow occurs in step {cur_global_step}")
-
-                    loss_ae = float(loss_ae_t.asnumpy())
-
-                    step_time = time.time() - start_time_s
-                    if step % args.log_interval == 0:
-                        logger.info(f"Loss ae: {loss_ae:.4f}, Step time: {step_time*1000:.2f}ms")
-                epoch_cost = time.time() - start_time_e
-                per_step_time = epoch_cost / dataset_size 
-                cur_epoch = epoch + 1
-                logger.info(f"Epoch:[{int(cur_epoch):>3d}/{int(args.epochs):>3d}], "
-                    f"epoch time:{epoch_cost:.2f}s, per step time:{per_step_time*1000:.2f}ms, ")
-                # TODO: save checkpoint in each node? rank_id % 8 == 0
-                if rank_id  == 0:
-                    if (cur_epoch % args.ckpt_save_interval == 0) or (cur_epoch == args.epochs):
-                        ckpt_name = f"vae_kl_f8-e{cur_epoch}.ckpt"
-                        ckpt_manager.save(ae, None, ckpt_name=ckpt_name, append_dict=None)
-                        # TODO: save optimizer ckpt and other states for resume training (loss scale, data visited) via append_dict
-
-        else:
-            model = Model(training_step_ae)
-
-            # callbacks
-            callback = [TimeMonitor(args.log_interval)]
-            ofm_cb = OverflowMonitor()
-            callback.append(ofm_cb)
-
-            if rank_id == 0:
-                save_cb = EvalSaveCallback(
-                    network=ae_with_loss.autoencoder,
-                    rank_id=rank_id,
-                    ckpt_save_dir=ckpt_dir,
-                    ema=None,
-                    ckpt_save_policy="latest_k",
-                    ckpt_max_keep=args.ckpt_max_keep,
-                    ckpt_save_interval=args.ckpt_save_interval,
-                    log_interval=args.log_interval,
-                    start_epoch=start_epoch,
-                    model_name="vae_kl_f8",
-                    record_lr=False,
-                )
-                callback.append(save_cb)
-                if args.profile:
-                    callback.append(ProfilerCallback())
-
-                logger.info("Start training...")
-                # backup config files
-                shutil.copyfile(args.base_config, os.path.join(args.output_path, os.path.basename(args.base_config)))
-
-                with open(os.path.join(args.output_path, "args.yaml"), "w") as f:
-                    yaml.safe_dump(vars(args), stream=f, default_flow_style=False, sort_keys=False)
-
-            model.train(
-                args.epochs,
-                dataset,
-                callbacks=callback,
-                dataset_sink_mode=args.dataset_sink_mode,
-                # sink_size=args.sink_size,
-                initial_epoch=start_epoch,
+        if rank_id == 0:
+            save_cb = EvalSaveCallback(
+                network=ae_with_loss.autoencoder,
+                rank_id=rank_id,
+                ckpt_save_dir=ckpt_dir,
+                ema=None,
+                ckpt_save_policy="latest_k",
+                ckpt_max_keep=args.ckpt_max_keep,
+                ckpt_save_interval=args.ckpt_save_interval,
+                log_interval=args.log_interval,
+                start_epoch=start_epoch,
+                model_name="vae_kl_f8",
+                record_lr=False,
             )
+            callback.append(save_cb)
+            if args.profile:
+                callback.append(ProfilerCallback())
+
+            logger.info("Start training...")
+            # backup config files
+            shutil.copyfile(args.base_config, os.path.join(args.output_path, os.path.basename(args.base_config)))
+
+            with open(os.path.join(args.output_path, "args.yaml"), "w") as f:
+                yaml.safe_dump(vars(args), stream=f, default_flow_style=False, sort_keys=False)
+
+        model.train(
+            args.epochs,
+            dataset,
+            callbacks=callback,
+            dataset_sink_mode=args.dataset_sink_mode,
+            # sink_size=args.sink_size,
+            initial_epoch=start_epoch,
+        )
     else:
-        raise NotImplementedError
+        # self-define train pipeline
+        # TODO: support data sink, refer to mindspore/train/dataset_helper.py and mindspore.train.model
+        # TODO: support step mode, resume train in step unit, dat
+        if rank_id == 0:
+            ckpt_manager = CheckpointManager(ckpt_dir, "latest_k", k=args.ckpt_max_keep)
+        ds_iter = dataset.create_dict_iterator(args.epochs - start_epoch)
+
+        for epoch in range(start_epoch, args.epochs):
+            start_time_e = time.time()
+            # output_numpy=True ?
+            for step, data in enumerate(ds_iter):
+                start_time_s = time.time()
+                x = data['image']
+                
+                # TODO: get global step by optimizer.global_step() ?
+                global_step = epoch * dataset_size + step
+                global_step = ms.Tensor(global_step, dtype=ms.int64) 
+
+                # NOTE: inputs must match the order in GeneratorWithLoss.construct
+                loss_ae_t, overflow, scaling_sens =  training_step_ae(x, global_step)
+                # loss_ae_t, overflow, scaling_sens = ms.Tensor(0),  ms.Tensor(0), ms.Tensor(0)
+                # TODO: use F.depend() to make sure Disc update after G ?
+                # skip D pass and update to save time in phase 1
+                if train_discriminator and (global_step >= disc_start):
+                    loss_disc_t, overflow_d, scaling_sens_d = training_step_disc(x, global_step)
+                
+                cur_global_step = epoch * dataset_size + step + 1  # starting from 1 for logging
+                if overflow:
+                    logger.warning(f"Overflow occurs in step {cur_global_step}")
+                
+                # log
+                step_time = time.time() - start_time_s
+                if step % args.log_interval == 0:
+                    loss_ae = float(loss_ae_t.asnumpy())
+                    logger.info(f"Loss ae: {loss_ae:.4f}, Step time: {step_time*1000:.2f}ms")
+                    if train_discriminator and (global_step >= disc_start): 
+                        loss_disc = float(loss_disc_t.asnumpy())
+                        logger.info(f"Loss disc: {loss_disc:.4f}")
+
+            epoch_cost = time.time() - start_time_e
+            per_step_time = epoch_cost / dataset_size 
+            cur_epoch = epoch + 1
+            logger.info(f"Epoch:[{int(cur_epoch):>3d}/{int(args.epochs):>3d}], "
+                f"epoch time:{epoch_cost:.2f}s, per step time:{per_step_time*1000:.2f}ms, ")
+            # TODO: save checkpoint in each node? rank_id % 8 == 0
+            if rank_id  == 0:
+                if (cur_epoch % args.ckpt_save_interval == 0) or (cur_epoch == args.epochs):
+                    ckpt_name = f"vae_kl_f8-e{cur_epoch}.ckpt"
+                    ckpt_manager.save(ae, None, ckpt_name=ckpt_name, append_dict=None)
+                    # TODO: save optimizer ckpt and other states for resume training (loss scale, data visited) via append_dict
 
 
 def _check_cfgs_in_parser(cfgs: dict, parser: argparse.ArgumentParser):

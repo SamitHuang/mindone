@@ -224,7 +224,7 @@ class DiscriminatorWithLoss(nn.Cell):
         Ref: sd-vae training
     '''
     def __init__(self,
-            autoentcoder,
+            autoencoder,
             discriminator,
             disc_start=50001,
             disc_factor=1.0,
@@ -263,30 +263,33 @@ class DiscriminatorWithLoss(nn.Cell):
             weights: sample weights
         '''
 
-        if global_step >= self.disc_start:
-            bs = x.shape[0] 
+        bs = x.shape[0] 
 
-            # 1. AE forward, get posterior (mean, logvar) and recons
-            recons, mean, logvar = ops.stop_gradient(self.autoencoder(x))
-            
-            # 2. Disc forward to get class prediction on real input and reconstrucions
-            if cond is None:
-                logits_real = self.discriminator(x)
-                logits_fake = self.discriminator(recons)
-            else:
-                logits_real = self.discriminator(ops.concat((x, cond), dim=1))
-                logits_fake = self.discriminator(ops.concat((recons, cond), dim=1))
-
-            d_loss = disc_factor * self.disc_loss(logits_real, logits_fake) 
-
-            # log = {"{}/disc_loss".format(split): d_loss.clone().detach().mean(),
-            #        "{}/logits_real".format(split): logits_real.detach().mean(),
-            #       "{}/logits_fake".format(split): logits_fake.detach().mean()
-            #       }
-
-            return d_loss
+        # 1. AE forward, get posterior (mean, logvar) and recons
+        recons, mean, logvar = ops.stop_gradient(self.autoencoder(x))
+        
+        # 2. Disc forward to get class prediction on real input and reconstrucions
+        if cond is None:
+            logits_real = self.discriminator(x)
+            logits_fake = self.discriminator(recons)
         else:
-            return ms.Tensor(0., dtype=x.dtype)
+            logits_real = self.discriminator(ops.concat((x, cond), dim=1))
+            logits_fake = self.discriminator(ops.concat((recons, cond), dim=1))
+        
+        # TODO: skip previous computation if global step < self.disc_start, to save time
+        if global_step >= self.disc_start:
+            disc_factor = self.disc_factor 
+        else:
+            disc_factor = 0.
+
+        d_loss = disc_factor * self.disc_loss(logits_real, logits_fake) 
+
+        # log = {"{}/disc_loss".format(split): d_loss.clone().detach().mean(),
+        #        "{}/logits_real".format(split): logits_real.detach().mean(),
+        #       "{}/logits_fake".format(split): logits_fake.detach().mean()
+        #       }
+
+        return d_loss
 
 
 def validation_step(input):

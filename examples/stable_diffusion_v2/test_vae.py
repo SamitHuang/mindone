@@ -49,13 +49,13 @@ def postprocess(x, trim=True):
 
 def test_vae():
     cfg = "configs/train/autoencoder_kl_f8.yaml"
-    ckpt_path = "models/sd_v1.5-d0ab7146.ckpt"
-    # ckpt_path = "outputs/vae_custom_train/ckpt/vae_kl_f8-e1000.ckpt"
+    # ckpt_path = "models/sd_v1.5-d0ab7146.ckpt"
+    ckpt_path = "outputs/vae_custom_train/ckpt/vae_kl_f8-e2400.ckpt"
     # ckpt_path = "outputs/vae/ckpt/vae_kl_f8-e1000.ckpt"
-    csv_path = '/home/mindocr/yx/datasets/chinese_art_blip/test/img_txt.csv'
-    image_folder='/home/mindocr/yx/datasets/chinese_art_blip/test'
-    # csv_path = '/home/mindocr/yx/datasets/chinese_art_blip/train/metadata.csv'
-    # image_folder='/home/mindocr/yx/datasets/chinese_art_blip/train'
+    # csv_path = '/home/mindocr/yx/datasets/chinese_art_blip/test/img_txt.csv'
+    # image_folder='/home/mindocr/yx/datasets/chinese_art_blip/test'
+    csv_path = '/home/mindocr/yx/datasets/chinese_art_blip/train/metadata.csv'
+    image_folder='/home/mindocr/yx/datasets/chinese_art_blip/train'
     # csv_path = 'datasets/chinese_art_blip/train/img_txt.csv'
     # image_folder='datasets/chinese_art_blip/train'
 
