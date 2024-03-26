@@ -74,6 +74,14 @@ class AutoencoderKL(nn.Cell):
         z = self.post_quant_conv(z)
         dec = self.decoder(z)
         return dec
+    
+    def sample(self, mean, logvar):
+        # sample z from gaussian distribution
+        logvar = ops.clip_by_value(logvar, -30.0, 20.0)
+        std = self.exp(0.5 * logvar)
+        z = mean + std * self.stdnormal(mean.shape)
+        
+        return z
 
     def encode(self, x):
         h = self.encoder(x)
@@ -135,20 +143,10 @@ class GeneratorWithLoss(nn.Cell):
                                 dim=[1, 2, 3],
                                 )
         return kl_loss
-
-    # in graph mode, construct code will run in graph. TODO: in pynative mode, need to add ms.jit decorator
-    def construct(self, x: ms.Tensor, global_step: ms.Tensor=-1, weights: ms.Tensor=None, cond=None):
-        '''
-        x: input image/video, (bs c h w)
-        weights: sample weights
-        global_step: global training step  
-        '''
+    
+    def loss_function(self, x, recons, mean, logvar, global_step: ms.Tensor=-1, weights: ms.Tensor=None, cond=None):
         bs = x.shape[0] 
 
-        # 1. AE forward, get posterior (mean, logvar) and recons
-        recons, mean, logvar = self.autoencoder(x)
-
-        # 2. compuate loss
         # 2.1 reconstruction loss in pixels
         rec_loss = self.l1(x, recons) 
 
@@ -187,13 +185,8 @@ class GeneratorWithLoss(nn.Cell):
                 # d_weight = self.calculate_adaptive_weight(mean_nll_loss, g_loss, last_layer=last_layer)
                 d_weight = self.disc_weight
                 loss += d_weight * self.disc_factor * g_loss
-        
-                # return loss, mean_weighted_nll_loss, kl_loss, g_loss 
-
-        # return loss, mean_weighted_nll_loss, kl_loss
-        # TODO: monitor more losses
-
         # print(f"nll_loss: {mean_weighted_nll_loss.asnumpy():.4f}, kl_loss: {kl_loss.asnumpy():.4f}")
+
         '''
         split = "train"
         log = {"{}/total_loss".format(split): loss.asnumpy().mean(), 
@@ -208,6 +201,23 @@ class GeneratorWithLoss(nn.Cell):
         for k in log:
             print(k.split("/")[1], log[k])
         '''
+        # TODO: return more losses
+
+        return loss
+
+    # in graph mode, construct code will run in graph. TODO: in pynative mode, need to add ms.jit decorator
+    def construct(self, x: ms.Tensor, global_step: ms.Tensor=-1, weights: ms.Tensor=None, cond=None):
+        '''
+        x: input image/video, (bs c h w)
+        weights: sample weights
+        global_step: global training step  
+        '''
+
+        # 1. AE forward, get posterior (mean, logvar) and recons
+        recons, mean, logvar = self.autoencoder(x)
+
+        # 2. compuate loss
+        loss = self.loss_function(x, recons, mean, logvar, global_step, weights, cond)
 
         return loss
 

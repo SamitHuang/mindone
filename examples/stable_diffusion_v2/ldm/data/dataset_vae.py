@@ -145,7 +145,9 @@ def create_dataloader(
         max_rowsize=32,
         shuffle=True, 
         device_num=1, 
-        rank_id=0):
+        rank_id=0,
+        drop_remainder=True,
+        ):
 
     dataset = ImageDataset(
             **ds_config,
@@ -169,7 +171,7 @@ def create_dataloader(
 
     dl = dataloader.batch(
         batch_size,
-        drop_remainder=True,
+        drop_remainder=drop_remainder,
     )
 
     # TODO: add repeat for for-loop trainer?

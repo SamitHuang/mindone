@@ -28,7 +28,7 @@ from mindone.env import init_train_env
 from mindone.utils.logger import set_logger
 from mindone.trainers.callback import EvalSaveCallback, OverflowMonitor, ProfilerCallback
 from mindone.trainers.checkpoint import resume_train_network
-# from mindone.trainers.ema import EMA
+from mindone.trainers.ema import EMA
 from mindone.trainers.lr_schedule import create_scheduler
 from mindone.trainers.optim import create_optimizer
 from mindone.trainers.train_step import TrainOneStepWrapper
@@ -77,7 +77,11 @@ def main(args):
     # TODO: allow loading pretrained weights
 
     ## discriminator (D)
-    if args.use_discriminator:
+    use_discriminator = args.use_discriminator and (model_config.lossconfig.disc_weight > 0.)
+    if args.use_discriminator and (model_config.lossconfig.disc_weight <= 0.):
+        logging.warning("use_discriminator is True but disc_weight is 0.")
+            
+    if use_discriminator:
         disc = instantiate_from_config(model_config.discriminator) 
     else:
         disc = None
@@ -89,7 +93,7 @@ def main(args):
     disc_start = model_config.lossconfig.disc_start
     
     ## D with loss
-    if args.use_discriminator:
+    if use_discriminator:
         disc_with_loss = DiscriminatorWithLoss(ae, disc, disc_start)
 
     tot_params, trainable_params = count_params(ae_with_loss)
@@ -122,36 +126,57 @@ def main(args):
     else:
         learning_rate = args.base_learning_rate
 
+    if not args.decay_steps:
+        args.decay_steps = max(1, args.epochs * dataset_size - args.warmup_steps)
+
+    lr = create_scheduler(
+        steps_per_epoch=dataset_size,
+        name=args.scheduler,
+        lr=learning_rate,
+        end_lr=args.end_learning_rate,
+        warmup_steps=args.warmup_steps,
+        decay_steps=args.decay_steps,
+        num_epochs=args.epochs,
+    )
+
     # build optimizer
     # TODO: Adam optimizer in MS is less reliable?
     # TODO: optim hyper-params like beta copied from torch may not be suitable for MS
     update_logvar = False # in torch, ae_with_loss.logvar  is not updated.
     if update_logvar:
-        params_to_update =  [ae_with_loss.autoencoder.trainable_params(), ae_with_loss.logvar] 
+        ae_params_to_update =  [ae_with_loss.autoencoder.trainable_params(), ae_with_loss.logvar] 
     else:
-        params_to_update =  ae_with_loss.autoencoder.trainable_params()
+        ae_params_to_update =  ae_with_loss.autoencoder.trainable_params()
     optim_ae = create_optimizer(
-        params_to_update,
+        ae_params_to_update,
         name=args.optim,
         betas=(0.5, 0.9),
         group_strategy=args.group_strategy,
         weight_decay=args.weight_decay,
-        lr=learning_rate,
+        lr=lr,
     )
     loss_scaler_ae = create_loss_scaler(args.loss_scaler_type, args.init_loss_scale, args.loss_scale_factor, args.scale_window)
 
-    if args.use_discriminator:
+    if use_discriminator:
         # TODO: different LR for disc?
         optim_disc = create_optimizer(
                 disc_with_loss.discriminator.trainable_params(), 
                 betas=(0.5, 0.9),
                 name=args.optim,
-                lr=learning_rate, 
+                lr=lr,  # since lr is a shared list
                 group_strategy=args.group_strategy,
                 weight_decay=args.weight_decay,
                 )
-        # TODO; can we use two loss scalers?
         loss_scaler_disc = create_loss_scaler(args.loss_scaler_type, args.init_loss_scale, args.loss_scale_factor, args.scale_window)
+
+    ema = (
+        EMA(
+            ae_with_loss.autoencoder,  # TODO: check alignment
+            ema_decay=args.ema_decay,
+        )
+        if args.use_ema
+        else None
+    )
     
     # build training step
     training_step_ae = TrainOneStepWrapper(
@@ -160,21 +185,21 @@ def main(args):
         scale_sense=loss_scaler_ae,
         drop_overflow_update=args.drop_overflow_update,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
-        clip_grad=args.clip_grad,  # TODO: check
+        clip_grad=args.clip_grad,
         clip_norm=args.max_grad_norm,
-        ema=None,
+        ema=ema,
     )
 
-    if args.use_discriminator:
+    if use_discriminator:
         training_step_disc = TrainOneStepWrapper(
             disc_with_loss,
             optimizer=optim_disc,
             scale_sense=loss_scaler_disc,
             drop_overflow_update=args.drop_overflow_update,
             gradient_accumulation_steps=args.gradient_accumulation_steps,
-            clip_grad=args.clip_grad,  # TODO: check
+            clip_grad=args.clip_grad,
             clip_norm=args.max_grad_norm,
-            ema=None,
+            ema=None, # No ema for disriminator
         )
 
     if rank_id == 0:
@@ -208,7 +233,7 @@ def main(args):
         os.makedirs(ckpt_dir, exist_ok=True)
 
     ## Phase 1: only train ae. build training pipeline with model.train
-    if not args.use_discriminator:
+    if not use_discriminator:
         model = Model(training_step_ae)
 
         # callbacks
@@ -221,7 +246,7 @@ def main(args):
                 network=ae_with_loss.autoencoder,
                 rank_id=rank_id,
                 ckpt_save_dir=ckpt_dir,
-                ema=None,
+                ema=ema,
                 ckpt_save_policy="latest_k",
                 ckpt_max_keep=args.ckpt_max_keep,
                 ckpt_save_interval=args.ckpt_save_interval,
@@ -327,10 +352,10 @@ def parse_args():
         "--model_config",
         default="configs/train/autoencoder_kl_f8.yaml",
         type=str,
-        help="base train config path to load a yaml file that override the default arguments",
+        help="model arch config",
     )
     parser.add_argument("--use_parallel", default=False, type=str2bool, help="use parallel")
-    parser.add_argument("--output_path", default="output/", type=str, help="output directory to save training results")
+    parser.add_argument("--output_path", default="outputs/vae_train", type=str, help="output directory to save training results")
     parser.add_argument(
         "--resume",
         default=False,
@@ -357,6 +382,12 @@ def parse_args():
     parser.add_argument("--use_discriminator", default=False, type=str2bool, help="Phase 1 training does not use discriminator, set False to reduce memory cost in graph mode.")
     parser.add_argument("--dtype", default="fp32", type=str, choices=['fp32', 'fp16', 'bf16'], help="data type for mixed precision")
     parser.add_argument("--optim", default="adam", type=str, help="optimizer")
+    parser.add_argument(
+        "--betas",
+        type=float,
+        default=[0.9, 0.999],
+        help="Specify the [beta1, beta2] parameter for the AdamW optimizer.",
+    )
     parser.add_argument("--weight_decay", default=0., type=float, help="Weight decay.")
     parser.add_argument(
         "--group_strategy",
@@ -370,6 +401,7 @@ def parse_args():
     parser.add_argument("--batch_size", default=4, type=int, help="batch size")
     parser.add_argument("--log_interval", default=1, type=int, help="log interval")
     parser.add_argument("--base_learning_rate", default=4.5e-06, type=float, help="base learning rate, can be scaled by global batch size")
+    parser.add_argument("--end_learning_rate", default=1e-8, type=float, help="The end learning rate for Adam.")
     parser.add_argument("--scale_lr", default=True, type=str2bool, help="scale base-lr by ngpu * batch_size * n_accumulate")
     parser.add_argument("--decay_steps", default=0, type=int, help="lr decay steps.")
     parser.add_argument("--scheduler", default="cosine_decay", type=str, help="scheduler. option: constant, cosine_decay, ")
@@ -380,6 +412,7 @@ def parse_args():
     parser.add_argument("--scale_window", default=1000, type=float, help="scale window")
     parser.add_argument("--gradient_accumulation_steps", default=1, type=int, help="gradient accumulation steps")
     parser.add_argument("--use_ema", default=False, type=str2bool, help="whether use EMA")
+    parser.add_argument("--ema_decay", default=0.9999, type=float, help="EMA decay")
     parser.add_argument("--clip_grad", default=False, type=str2bool, help="whether apply gradient clipping")
     parser.add_argument("--drop_overflow_update", default=True, type=str2bool, help="drop overflow update")
     parser.add_argument(
