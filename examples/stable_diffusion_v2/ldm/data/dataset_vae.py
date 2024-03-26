@@ -3,6 +3,7 @@ import csv
 import logging
 import os
 import random
+import glob
 
 import albumentations
 import cv2
@@ -31,21 +32,35 @@ def create_image_transforms(size=384, crop_size=256, interpolation="bicubic", ba
 
     return pixel_transforms
 
+def get_image_path_list(folder):
+    # TODO: find recursively
+    fmts = ['jpg', 'png', 'jpeg', 'JPEG']
+    out = []
+    for fmt in fmts: 
+        out += glob.glob(os.path.join(folder, f"*.{fmt}"))
+    return sorted(out)
+
 
 class ImageDataset:
     def __init__(
         self,
-        csv_path,
-        image_folder,
+        csv_path=None,
+        image_folder=None,
         size=384,
         crop_size=256,
         random_crop=False,
         flip=False,
         image_column='file_name',
     ):
-        with open(csv_path, "r") as csvfile:
-            self.dataset = list(csv.DictReader(csvfile))
+        if csv_path is not None:
+            with open(csv_path, "r") as csvfile:
+                self.dataset = list(csv.DictReader(csvfile))
+            self.read_from_csv = True
+        else:
+            self.dataset = get_image_path_list(image_folder)
+            self.read_from_csv = False
         self.length = len(self.dataset)
+
         logger.info(f"Num data samples: {self.length}")
 
         self.image_folder = image_folder
@@ -79,10 +94,13 @@ class ImageDataset:
         return replace_data
 
     def read_sample(self, idx):
-        image_dict = self.dataset[idx]
-        # first column is image path
-        image_fn = image_dict[list(image_dict.keys())[0]]
-        image_path = os.path.join(self.image_folder, image_fn)
+        if self.read_from_csv:
+            image_dict = self.dataset[idx]
+            # first column is image path
+            image_fn = image_dict[list(image_dict.keys())[0]]
+            image_path = os.path.join(self.image_folder, image_fn)
+        else:
+            image_path = self.dataset[idx]
 
         image = Image.open(image_path).convert("RGB")
         image = np.array(image)

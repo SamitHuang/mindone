@@ -67,30 +67,29 @@ def main(args):
 
     # 2. build models
     ##  autoencoder (G)
-    config = OmegaConf.load(args.base_config)
+    model_config = OmegaConf.load(args.model_config)
     # TODO: allow set bf16
     if args.dtype == 'fp32': 
-        config.generator.params.use_fp16=False
+        model_config.generator.params.use_fp16=False
     else:
-        config.generator.params.use_fp16=True
-    ae = instantiate_from_config(config.generator) 
+        model_config.generator.params.use_fp16=True
+    ae = instantiate_from_config(model_config.generator) 
     # TODO: allow loading pretrained weights
 
     ## discriminator (D)
     if args.use_discriminator:
-        disc = instantiate_from_config(config.discriminator) 
+        disc = instantiate_from_config(model_config.discriminator) 
     else:
         disc = None
     # TODO: allow loading pretrained weights for D
     
     # 3. build net with loss (core)
     ## G with loss
-    ae_with_loss = GeneratorWithLoss(ae, discriminator=disc, **config.lossconfig)
-    disc_start = config.lossconfig.disc_start
+    ae_with_loss = GeneratorWithLoss(ae, discriminator=disc, **model_config.lossconfig)
+    disc_start = model_config.lossconfig.disc_start
     
-    train_discriminator = True  # FIXME: temp. False for debug
     ## D with loss
-    if args.use_discriminator and train_discriminator:
+    if args.use_discriminator:
         disc_with_loss = DiscriminatorWithLoss(ae, disc, disc_start)
 
     tot_params, trainable_params = count_params(ae_with_loss)
@@ -141,7 +140,7 @@ def main(args):
     )
     loss_scaler_ae = create_loss_scaler(args.loss_scaler_type, args.init_loss_scale, args.loss_scale_factor, args.scale_window)
 
-    if args.use_discriminator and train_discriminator:
+    if args.use_discriminator:
         # TODO: different LR for disc?
         optim_disc = create_optimizer(
                 disc_with_loss.discriminator.trainable_params(), 
@@ -166,7 +165,7 @@ def main(args):
         ema=None,
     )
 
-    if args.use_discriminator and train_discriminator:
+    if args.use_discriminator:
         training_step_disc = TrainOneStepWrapper(
             disc_with_loss,
             optimizer=optim_disc,
@@ -237,7 +236,7 @@ def main(args):
 
             logger.info("Start training...")
             # backup config files
-            shutil.copyfile(args.base_config, os.path.join(args.output_path, os.path.basename(args.base_config)))
+            shutil.copyfile(args.config, os.path.join(args.output_path, os.path.basename(args.config)))
 
             with open(os.path.join(args.output_path, "args.yaml"), "w") as f:
                 yaml.safe_dump(vars(args), stream=f, default_flow_style=False, sort_keys=False)
@@ -268,7 +267,9 @@ def main(args):
                 # TODO: get global step by optimizer.global_step() ?
                 global_step = epoch * dataset_size + step
                 global_step = ms.Tensor(global_step, dtype=ms.int64) 
-
+                
+                import pdb
+                pdb.set_trace()
                 # NOTE: inputs must match the order in GeneratorWithLoss.construct
                 loss_ae_t, overflow, scaling_sens =  training_step_ae(x, global_step)
                 # loss_ae_t, overflow, scaling_sens = ms.Tensor(0),  ms.Tensor(0), ms.Tensor(0)
@@ -309,7 +310,7 @@ def _check_cfgs_in_parser(cfgs: dict, parser: argparse.ArgumentParser):
     cfg_keys = list(cfgs.keys())
     for k in cfg_keys:
         if k not in actions_dest and k not in defaults_key:
-            # raise KeyError(f"{k} does not exist in ArgumentParser!")
+            raise KeyError(f"{k} does not exist in ArgumentParser!")
             cfgs.pop(k)
     return cfgs
 
@@ -317,7 +318,13 @@ def _check_cfgs_in_parser(cfgs: dict, parser: argparse.ArgumentParser):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--base_config",
+        "--config",
+        default="",
+        type=str,
+        help="path to load a config yaml file that describes the training recipes which will override the default arguments",
+    )
+    parser.add_argument(
+        "--model_config",
         default="configs/train/autoencoder_kl_f8.yaml",
         type=str,
         help="base train config path to load a yaml file that override the default arguments",
@@ -398,9 +405,9 @@ def parse_args():
 
     abs_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ""))
     default_args = parser.parse_args()
-    if default_args.base_config:
-        default_args.base_config = os.path.join(abs_path, default_args.base_config)
-        with open(default_args.base_config, "r") as f:
+    if default_args.config:
+        default_args.config = os.path.join(abs_path, default_args.config)
+        with open(default_args.config, "r") as f:
             cfg = yaml.safe_load(f)
             cfg = _check_cfgs_in_parser(cfg, parser)
             parser.set_defaults(**cfg)

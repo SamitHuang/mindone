@@ -26,6 +26,6 @@ discriminator:
     dtype: "fp32" # TODO: debugging
 
 lossconfig:
-  disc_start: 50001  # debugging or: 50001
+  disc_start: 1  # debugging or: 50001
   kl_weight: 1.0e-06
   disc_weight: 0.5
