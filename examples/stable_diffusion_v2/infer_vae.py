@@ -7,6 +7,7 @@ import numpy as np
 from omegaconf import OmegaConf
 from PIL import Image, ImageSequence
 import logging
+from math import log10, sqrt
 
 from utils import model_utils
 import mindspore as ms
@@ -40,15 +41,16 @@ def load_model_weights(model, ckpt, verbose=True, prefix_filter=["first_stage_mo
         if not is_vae_param:
             sd.pop(pname)
     vae_state_dict = sd
-    # print(list(sd.keys()))   
+    # logger.info(list(sd.keys()))   
     m, u = model_utils.load_param_into_net_with_filter(model, vae_state_dict)
+        
     
     if len(m) > 0 and verbose:
-        print("missing keys:")
-        print(m)
+        logger.info("missing keys:")
+        logger.info(m)
     if len(u) > 0 and verbose:
-        print("unexpected keys:")
-        print(u)
+        logger.info("unexpected keys:")
+        logger.info(u)
 
     model.set_train(False)
 
@@ -70,6 +72,27 @@ def visualize(recons, x=None, save_fn='tmp_vae_recons'):
             out = recons[i]
         Image.fromarray(out).save(f"{save_fn}-{i:02d}.png")
 
+def measure_psnr(original, compressed, return_mean=False): 
+    # input: (h w c) or (b h w c) in pixel range 0-255
+    if len(original.shape) == 3:
+        original = np.expand_dims(original, axis=0)
+        compressed = np.expand_dims(compressed, axis=0)
+    
+    sample_psnr = []
+    for i in range(original.shape[0]): 
+        mse = np.mean((original - compressed) ** 2) 
+        if(mse == 0):  # MSE is zero means no noise is present in the signal . 
+                      # Therefore PSNR have no importance. 
+            return 100
+        max_pixel = 255.0
+        psnr = 20 * log10(max_pixel / sqrt(mse)) 
+        sample_psnr.append(psnr)
+    
+    if return_mean:
+        return sum(sample_psnr) / len(sample_psnr)
+    else:
+        return sample_psnr
+
 def infer_vae(args):
     ms.set_context(mode=args.mode)
     set_logger(name="", output_dir=args.output_path, rank=0)
@@ -78,6 +101,8 @@ def infer_vae(args):
     model = instantiate_from_config(config.generator)
     model = load_model_weights(model, args.ckpt_path)
     # state_dict = ms.load_checkpoint(ckpt_path, model, specify_prefix=["first_stage_model", "autoencoder"])
+    logger.info(f"Loaded checkpoint from  {args.ckpt_path}")
+    
     if args.measure_loss:
         perc_loss_fn = LPIPS()
 
@@ -103,9 +128,9 @@ def infer_vae(args):
 
     ds_iter = dataset.create_dict_iterator(1)
 
-    metrics = []
     logger.info(f"Inferene begins")
     mean_infer_time = 0
+    psnr_res = []
     for step, data in tqdm(enumerate(ds_iter)):
         x = data['image']
         start_time = time.time()
@@ -119,19 +144,28 @@ def infer_vae(args):
         logger.info(f"Infer time: {infer_time}")
         
         if not args.encode_only:
+            recons_rgb = postprocess(recons.asnumpy())
+            x_rgb = postprocess(x.asnumpy())
+            # eval psnr
+            psnr_cur = measure_psnr(x_rgb, recons_rgb)
+            psnr_res.extend(psnr_cur)
+            # logger.info(f"mean psnr:{mean_psnr:.4f}")
+ 
+            if args.save_images:
+                save_fn = os.path.join(args.output_path, '{}-{}'.format(os.path.basename(args.data_path), f'step{step:03d}'))
+                visualize(recons_rgb, x_rgb, save_fn=save_fn)
+
             if args.measure_loss:
                 rec_loss = np.abs((x - recons).asnumpy()).mean()
                 perc_loss = perc_loss_fn(x, recons)
-            
-            if args.save_images:
-                recons_rgb = postprocess(recons.asnumpy())
-                x_rgb = postprocess(x.asnumpy())
-                save_fn = os.path.join(args.output_path, '{}-{}'.format(os.path.basename(args.data_path), f'step{step:03d}'))
-                visualize(recons_rgb, x_rgb, save_fn=save_fn)
 
     mean_infer_time /= dataset_size
     logger.info(f"Mean infer time: {mean_infer_time}")
     logger.info(f"Done. Results saved in {args.output_path}")
+
+    if not args.encode_only:
+        mean_psnr = sum(psnr_res) / len(psnr_res)
+        logger.info(f"mean psnr:{mean_psnr:.4f}")
 
 
 def parse_args():

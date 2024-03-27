@@ -177,8 +177,27 @@ def main(args):
         if args.use_ema
         else None
     )
+
+    # resume training states
+    ckpt_dir = os.path.join(args.output_path, "ckpt")
+    os.makedirs(ckpt_dir, exist_ok=True)
+    start_epoch = 0
+    if args.resume:
+        resume_ckpt = os.path.join(ckpt_dir, "train_resume.ckpt") if isinstance(args.resume, bool) else args.resume
+
+        start_epoch, loss_scale, cur_iter, last_overflow_iter = resume_train_network(
+            ae_with_loss, optim_ae, resume_ckpt
+        )
+        loss_scaler.loss_scale_value = loss_scale
+        loss_scaler.cur_iter = cur_iter
+        loss_scaler.last_overflow_iter = last_overflow_iter
+        logger.info(f"Resume training from {resume_ckpt}")
+
+        loss_scaler_ae = loss_scaler
+        
+        # TODO: resume for Discriminator if used
     
-    # build training step
+    # training step
     training_step_ae = TrainOneStepWrapper(
         ae_with_loss,
         optimizer=optim_ae,
@@ -226,13 +245,7 @@ def main(args):
         key_info += "\n" + "=" * 50
         logger.info(key_info)
 
-    # 6. training pipeline 
-    start_epoch = 0
-    if rank_id == 0:
-        ckpt_dir = os.path.join(args.output_path, "ckpt")
-        os.makedirs(ckpt_dir, exist_ok=True)
-
-    ## Phase 1: only train ae. build training pipeline with model.train
+    # 6. training process
     if not use_discriminator:
         model = Model(training_step_ae)
 
@@ -275,16 +288,15 @@ def main(args):
             initial_epoch=start_epoch,
         )
     else:
-        # self-define train pipeline
         # TODO: support data sink, refer to mindspore/train/dataset_helper.py and mindspore.train.model
         # TODO: support step mode, resume train in step unit, dat
         if rank_id == 0:
             ckpt_manager = CheckpointManager(ckpt_dir, "latest_k", k=args.ckpt_max_keep)
+        # output_numpy=True ?
         ds_iter = dataset.create_dict_iterator(args.epochs - start_epoch)
 
         for epoch in range(start_epoch, args.epochs):
             start_time_e = time.time()
-            # output_numpy=True ?
             for step, data in enumerate(ds_iter):
                 start_time_s = time.time()
                 x = data['image']
@@ -293,11 +305,9 @@ def main(args):
                 global_step = epoch * dataset_size + step
                 global_step = ms.Tensor(global_step, dtype=ms.int64) 
                 
-                import pdb
-                pdb.set_trace()
                 # NOTE: inputs must match the order in GeneratorWithLoss.construct
                 loss_ae_t, overflow, scaling_sens =  training_step_ae(x, global_step)
-                # loss_ae_t, overflow, scaling_sens = ms.Tensor(0),  ms.Tensor(0), ms.Tensor(0)
+
                 # TODO: use F.depend() to make sure Disc update after G ?
                 # skip D pass and update to save time in phase 1
                 if train_discriminator and (global_step >= disc_start):
@@ -325,8 +335,17 @@ def main(args):
             if rank_id  == 0:
                 if (cur_epoch % args.ckpt_save_interval == 0) or (cur_epoch == args.epochs):
                     ckpt_name = f"vae_kl_f8-e{cur_epoch}.ckpt"
+                    if ema is not None:
+                        # swap ema weight and network weight
+                        ema.swap_before_eval()
+
                     ckpt_manager.save(ae, None, ckpt_name=ckpt_name, append_dict=None)
-                    # TODO: save optimizer ckpt and other states for resume training (loss scale, data visited) via append_dict
+                    # TODO: save optimizer and other states for resume training (loss scale, data visited) via append_dict
+                    # swap back network weight and ema weight. MUST execute after model saving and before next-step training
+                    if ema is not None:
+                        ema.swap_after_eval()
+
+            # TODO: eval while training
 
 
 def _check_cfgs_in_parser(cfgs: dict, parser: argparse.ArgumentParser):
