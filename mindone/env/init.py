@@ -56,7 +56,7 @@ def init_train_env(
         mode = ms.PYNATIVE_MODE
 
     if distributed:
-        if device_target == 'Ascend':
+        if device_target == "Ascend":
             device_id = int(os.getenv("DEVICE_ID"))
             ms.set_context(mode=mode, device_target=device_target, device_id=device_id)
         else:

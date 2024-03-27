@@ -13,11 +13,11 @@
 # limitations under the License.
 # ============================================================================
 import functools
-import mindspore as ms
-from mindspore import nn
-from mindspore import ops
 
-from .modules  import Decoder, Encoder
+import mindspore as ms
+from mindspore import nn, ops
+
+from .modules import Decoder, Encoder
 
 
 class AutoencoderKL(nn.Cell):
@@ -69,7 +69,7 @@ class AutoencoderKL(nn.Cell):
                     del sd[k]
 
         for pname in keys:
-            is_vae_param  = False
+            is_vae_param = False
             for pf in remove_prefix:
                 if pname.startswith(pf):
                     sd[pname.replace(pf, "")] = sd.pop(pname)
@@ -92,7 +92,7 @@ class AutoencoderKL(nn.Cell):
         logvar = ops.clip_by_value(logvar, -30.0, 20.0)
         std = self.exp(0.5 * logvar)
         z = mean + std * self.stdnormal(mean.shape)
-        
+
         return z
 
     def encode(self, x):
@@ -106,7 +106,7 @@ class AutoencoderKL(nn.Cell):
         z = self.post_quant_conv(z)
         dec = self.decoder(z)
         return dec
- 
+
     def construct(self, input):
         # overall pass, mostly for training
         posterior_mean, posterior_logvar = self._encode(input)

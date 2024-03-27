@@ -1,22 +1,22 @@
 import mindspore as ms
-from mindspore import nn
-from mindspore import ops
+from mindspore import nn, ops
 
 from .lpips import LPIPS
 
 
-class GeneratorWithLoss(nn.Cell):  
-    def __init__(self, 
-            autoencoder,
-            disc_start=50001,
-            kl_weight=1.0e-06,
-            disc_weight=0.5,
-            disc_factor=1.0,
-            perceptual_weight=1.0,
-            logvar_init=0.0,
-            discriminator=None,
-            dtype=ms.float32,
-            ):
+class GeneratorWithLoss(nn.Cell):
+    def __init__(
+        self,
+        autoencoder,
+        disc_start=50001,
+        kl_weight=1.0e-06,
+        disc_weight=0.5,
+        disc_factor=1.0,
+        perceptual_weight=1.0,
+        logvar_init=0.0,
+        discriminator=None,
+        dtype=ms.float32,
+    ):
         super().__init__()
 
         # build perceptual models for loss compute
@@ -24,7 +24,7 @@ class GeneratorWithLoss(nn.Cell):
         # TODO: set dtype for LPIPS ?
         self.perceptual_loss = LPIPS()  # freeze params inside
 
-        self.l1 = nn.L1Loss(reduction='none')
+        self.l1 = nn.L1Loss(reduction="none")
         # TODO: is self.logvar trainable?
         self.logvar = ms.Parameter(ms.Tensor([logvar_init], dtype=dtype))
 
@@ -33,23 +33,23 @@ class GeneratorWithLoss(nn.Cell):
         self.disc_weight = disc_weight
         self.disc_factor = disc_factor
         self.perceptual_weight = perceptual_weight
-        
+
         self.discriminator = discriminator
         # assert discriminator is None, "Discriminator is not supported yet"
 
     def kl(self, mean, logvar):
         var = ops.exp(logvar)
         kl_loss = 0.5 * ops.sum(
-                                ops.pow(mean, 2) + var - 1.0 - logvar,
-                                dim=[1, 2, 3],
-                                )
+            ops.pow(mean, 2) + var - 1.0 - logvar,
+            dim=[1, 2, 3],
+        )
         return kl_loss
-    
-    def loss_function(self, x, recons, mean, logvar, global_step: ms.Tensor=-1, weights: ms.Tensor=None, cond=None):
-        bs = x.shape[0] 
+
+    def loss_function(self, x, recons, mean, logvar, global_step: ms.Tensor = -1, weights: ms.Tensor = None, cond=None):
+        bs = x.shape[0]
 
         # 2.1 reconstruction loss in pixels
-        rec_loss = self.l1(x, recons) 
+        rec_loss = self.l1(x, recons)
 
         # 2.2 perceptual loss
         if self.perceptual_weight > 0:
@@ -63,7 +63,7 @@ class GeneratorWithLoss(nn.Cell):
             # mean_nll_loss = nll_loss.sum() / bs
         else:
             mean_weighted_nll_loss = nll_loss.sum() / bs
-            # mean_nll_loss = mean_weighted_nll_loss 
+            # mean_nll_loss = mean_weighted_nll_loss
 
         # 2.3 kl loss
         kl_loss = self.kl(mean, logvar)
@@ -75,7 +75,7 @@ class GeneratorWithLoss(nn.Cell):
         # g_loss = ms.Tensor(0., dtype=ms.float32)
         # TODO: how to get global_step?
         if global_step >= self.disc_start:
-            if (self.discriminator is not None) and (self.disc_factor > 0.):
+            if (self.discriminator is not None) and (self.disc_factor > 0.0):
                 # calc gan loss
                 if cond is None:
                     logits_fake = self.discriminator(recons)
@@ -88,11 +88,11 @@ class GeneratorWithLoss(nn.Cell):
                 loss += d_weight * self.disc_factor * g_loss
         # print(f"nll_loss: {mean_weighted_nll_loss.asnumpy():.4f}, kl_loss: {kl_loss.asnumpy():.4f}")
 
-        '''
+        """
         split = "train"
-        log = {"{}/total_loss".format(split): loss.asnumpy().mean(), 
+        log = {"{}/total_loss".format(split): loss.asnumpy().mean(),
            "{}/logvar".format(split): self.logvar.value().asnumpy(),
-           "{}/kl_loss".format(split): kl_loss.asnumpy().mean(), 
+           "{}/kl_loss".format(split): kl_loss.asnumpy().mean(),
            "{}/nll_loss".format(split): nll_loss.asnumpy().mean(),
            "{}/rec_loss".format(split): rec_loss.asnumpy().mean(),
            # "{}/d_weight".format(split): d_weight.detach(),
@@ -101,18 +101,18 @@ class GeneratorWithLoss(nn.Cell):
            }
         for k in log:
             print(k.split("/")[1], log[k])
-        '''
+        """
         # TODO: return more losses
 
         return loss
 
     # in graph mode, construct code will run in graph. TODO: in pynative mode, need to add ms.jit decorator
-    def construct(self, x: ms.Tensor, global_step: ms.Tensor=-1, weights: ms.Tensor=None, cond=None):
-        '''
+    def construct(self, x: ms.Tensor, global_step: ms.Tensor = -1, weights: ms.Tensor = None, cond=None):
+        """
         x: input image/video, (bs c h w)
         weights: sample weights
-        global_step: global training step  
-        '''
+        global_step: global training step
+        """
 
         # 1. AE forward, get posterior (mean, logvar) and recons
         recons, mean, logvar = self.autoencoder(x)
@@ -123,24 +123,26 @@ class GeneratorWithLoss(nn.Cell):
         return loss
 
 
-class DiscriminatorWithLoss(nn.Cell):  
-    '''
+class DiscriminatorWithLoss(nn.Cell):
+    """
     Training logic:
         For training step i, input data x:
-            1. AE generator takes input x, feedforward to get posterior/latent and reconstructed data, and compute ae loss 
+            1. AE generator takes input x, feedforward to get posterior/latent and reconstructed data, and compute ae loss
             2. AE optimizer updates AE trainable params
-            3. D takes the same input x, feed x to AE again **again** to get the new posterior and reconstructions (since AE params has updated), feed x and recons to D, and compute D loss 
-            4. D optimizer updates D trainable params 
+            3. D takes the same input x, feed x to AE again **again** to get the new posterior and reconstructions (since AE params has updated), feed x and recons to D, and compute D loss
+            4. D optimizer updates D trainable params
             --> Go to next training step
         Ref: sd-vae training
-    '''
-    def __init__(self,
-            autoencoder,
-            discriminator,
-            disc_start=50001,
-            disc_factor=1.0,
-            disc_loss="hinge",
-            ):
+    """
+
+    def __init__(
+        self,
+        autoencoder,
+        discriminator,
+        disc_start=50001,
+        disc_factor=1.0,
+        disc_loss="hinge",
+    ):
         super().__init__()
         self.autoencoder = autoencoder
         self.discriminator = discriminator
@@ -148,37 +150,35 @@ class DiscriminatorWithLoss(nn.Cell):
         self.disc_factor = disc_factor
 
         assert disc_loss in ["hinge", "vanilla"]
-        if disc_loss == 'hinge':
+        if disc_loss == "hinge":
             self.disc_loss = self.hinge_loss
         else:
             self.softplus = ops.Softplus()
             self.disc_loss = self.vanilla_d_loss
 
     def hinge_loss(self, logits_real, logits_fake):
-        loss_real = ops.mean(ops.relu(1. - logits_real))
-        loss_fake = ops.mean(ops.relu(1. + logits_fake))
+        loss_real = ops.mean(ops.relu(1.0 - logits_real))
+        loss_fake = ops.mean(ops.relu(1.0 + logits_fake))
         d_loss = 0.5 * (loss_real + loss_fake)
-        return d_loss 
-
-    def vanilla_d_loss(self, logits_real, logits_fake):
-        d_loss = 0.5 * (ops.mean(self.softplus(-logits_real)) + 
-                ops.mean(self.softplus(logits_fake)))
         return d_loss
 
+    def vanilla_d_loss(self, logits_real, logits_fake):
+        d_loss = 0.5 * (ops.mean(self.softplus(-logits_real)) + ops.mean(self.softplus(logits_fake)))
+        return d_loss
 
     def construct(self, x: ms.Tensor, global_step=-1, cond=None):
-        '''
+        """
         Second pass
         Args:
             x: input image/video, (bs c h w)
             weights: sample weights
-        '''
+        """
 
-        bs = x.shape[0] 
+        bs = x.shape[0]
 
         # 1. AE forward, get posterior (mean, logvar) and recons
         recons, mean, logvar = ops.stop_gradient(self.autoencoder(x))
-        
+
         # 2. Disc forward to get class prediction on real input and reconstrucions
         if cond is None:
             logits_real = self.discriminator(x)
@@ -186,14 +186,14 @@ class DiscriminatorWithLoss(nn.Cell):
         else:
             logits_real = self.discriminator(ops.concat((x, cond), dim=1))
             logits_fake = self.discriminator(ops.concat((recons, cond), dim=1))
-        
+
         # TODO: skip previous computation if global step < self.disc_start, to save time
         if global_step >= self.disc_start:
-            disc_factor = self.disc_factor 
+            disc_factor = self.disc_factor
         else:
-            disc_factor = 0.
+            disc_factor = 0.0
 
-        d_loss = disc_factor * self.disc_loss(logits_real, logits_fake) 
+        d_loss = disc_factor * self.disc_loss(logits_real, logits_fake)
 
         # log = {"{}/disc_loss".format(split): d_loss.clone().detach().mean(),
         #        "{}/logits_real".format(split): logits_real.detach().mean(),
@@ -201,5 +201,3 @@ class DiscriminatorWithLoss(nn.Cell):
         #       }
 
         return d_loss
-
-

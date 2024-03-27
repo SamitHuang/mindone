@@ -1,12 +1,14 @@
-import os
 import logging
+import os
+
+import mindcv
 
 import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
-import mindcv
 
 _logger = logging.getLogger(__name__)
+
 
 class LPIPS(nn.Cell):
     # Learned perceptual metric
@@ -24,20 +26,22 @@ class LPIPS(nn.Cell):
 
         self.lins = [self.lin0, self.lin1, self.lin2, self.lin3, self.lin4]
         self.lins = nn.CellList(self.lins)
-        
+
         # create vision backbone and load pretrained weights
         self.net = vgg16(pretrained=True, requires_grad=False)
 
         self.set_train(False)
         for param in self.trainable_params():
             param.requires_grad = False
-    
+
     def load_from_pretrained(self, ckpt_path="models/lpips_vgg.ckpt"):
         # TODO: just load ms ckpt
         if not os.path.exists(ckpt_path):
-            raise ValueError(f"{ckpt_path} not exists. Please use `tools/convert_weights_lpips.py` to convert torch lpips checkpoint to ms format")
-    
-        state_dict = ms.load_checkpoint(ckpt_path) 
+            raise ValueError(
+                f"{ckpt_path} not exists. Please use `tools/convert_weights_lpips.py` to convert torch lpips checkpoint to ms format"
+            )
+
+        state_dict = ms.load_checkpoint(ckpt_path)
         m, u = ms.load_param_into_net(self, state_dict)
         if len(m) > 0:
             print("missing keys:")
@@ -51,32 +55,41 @@ class LPIPS(nn.Cell):
     def construct(self, input, target):
         in0_input, in1_input = (self.scaling_layer(input), self.scaling_layer(target))
         outs0, outs1 = self.net(in0_input), self.net(in1_input)
-        val = 0 # ms.Tensor(0, dtype=input.dtype)
+        val = 0  # ms.Tensor(0, dtype=input.dtype)
         for kk in range(len(self.chns)):
             diff = (normalize_tensor(outs0[kk]) - normalize_tensor(outs1[kk])) ** 2
             # res += spatial_average(lins[kk](diff), keepdim=True)
             # lin_layer = lins[kk]
-            val += ops.mean(self.lins[kk](diff), axis=[2,3], keep_dims=True)
+            val += ops.mean(self.lins[kk](diff), axis=[2, 3], keep_dims=True)
         return val
 
 
 class ScalingLayer(nn.Cell):
     def __init__(self):
         super(ScalingLayer, self).__init__()
-        self.shift = ms.Tensor([-.030, -.088, -.188])[None, :, None, None]
-        self.scale = ms.Tensor([.458, .448, .450])[None, :, None, None]
+        self.shift = ms.Tensor([-0.030, -0.088, -0.188])[None, :, None, None]
+        self.scale = ms.Tensor([0.458, 0.448, 0.450])[None, :, None, None]
 
     def construct(self, inp):
         return (inp - self.shift) / self.scale
 
 
 class NetLinLayer(nn.Cell):
-    """ A single linear layer which does a 1x1 conv """
+    """A single linear layer which does a 1x1 conv"""
+
     def __init__(self, chn_in, chn_out=1, use_dropout=False, dtype=ms.float32):
         super(NetLinLayer, self).__init__()
         # TODO: can parse dtype=dtype in ms2.3
-        layers = [nn.Dropout(p=0.5).to_float(dtype), ] if (use_dropout) else []
-        layers += [nn.Conv2d(chn_in, chn_out, 1, stride=1, padding=0, has_bias=False).to_float(dtype), ]
+        layers = (
+            [
+                nn.Dropout(p=0.5).to_float(dtype),
+            ]
+            if (use_dropout)
+            else []
+        )
+        layers += [
+            nn.Conv2d(chn_in, chn_out, 1, stride=1, padding=0, has_bias=False).to_float(dtype),
+        ]
         self.model = nn.SequentialCell(layers)
 
     def construct(self, x):
@@ -87,7 +100,7 @@ class vgg16(nn.Cell):
     def __init__(self, requires_grad=False, pretrained=True):
         super(vgg16, self).__init__()
         # FIXME: add bias in vgg. use the same model weights in PT.
-        model = mindcv.create_model('vgg16', pretrained=pretrained)
+        model = mindcv.create_model("vgg16", pretrained=pretrained)
         model.set_train(False)
         vgg_pretrained_features = model.features
         self.slice1 = nn.SequentialCell()
@@ -126,11 +139,11 @@ class vgg16(nn.Cell):
         out = (h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3, h_relu5_3)
         return out
 
+
 def normalize_tensor(x, eps=1e-10):
     norm_factor = ops.sqrt((x**2).sum(1, keepdims=True))
-    return x / (norm_factor+eps)
+    return x / (norm_factor + eps)
 
 
 def spatial_average(x, keepdim=True):
     return x.mean([2, 3], keep_dims=keepdim)
-

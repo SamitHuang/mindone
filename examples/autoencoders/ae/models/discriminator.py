@@ -1,13 +1,14 @@
 import functools
+
 import mindspore as ms
-from mindspore import nn
-from mindspore import ops
+from mindspore import nn, ops
 
 
 class NLayerDiscriminator(nn.Cell):
     """Defines a PatchGAN discriminator as in Pix2Pix
-        --> refer to: https://github.com/junyanz/pyms-CycleGAN-and-pix2pix/blob/master/models/networks.py
+    --> refer to: https://github.com/junyanz/pyms-CycleGAN-and-pix2pix/blob/master/models/networks.py
     """
+
     def __init__(self, input_nc=3, ndf=64, n_layers=3, use_actnorm=False, dtype=ms.float32):
         """Construct a PatchGAN discriminator
         Parameters:
@@ -32,34 +33,56 @@ class NLayerDiscriminator(nn.Cell):
         kw = 4
         padw = 1
         # Fixed
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, pad_mode='pad', padding=padw, has_bias=True).to_float(self.dtype),
-                    nn.LeakyReLU(0.2)]
+        sequence = [
+            nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, pad_mode="pad", padding=padw, has_bias=True).to_float(
+                self.dtype
+            ),
+            nn.LeakyReLU(0.2),
+        ]
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):  # gradually increase the number of filters
             nf_mult_prev = nf_mult
-            nf_mult = min(2 ** n, 8)
+            nf_mult = min(2**n, 8)
             sequence += [
-                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, pad_mode='pad', padding=padw, has_bias=use_bias).to_float(self.dtype),
+                nn.Conv2d(
+                    ndf * nf_mult_prev,
+                    ndf * nf_mult,
+                    kernel_size=kw,
+                    stride=2,
+                    pad_mode="pad",
+                    padding=padw,
+                    has_bias=use_bias,
+                ).to_float(self.dtype),
                 norm_layer(ndf * nf_mult),
-                nn.LeakyReLU(0.2)
+                nn.LeakyReLU(0.2),
             ]
 
         nf_mult_prev = nf_mult
-        nf_mult = min(2 ** n_layers, 8)
+        nf_mult = min(2**n_layers, 8)
         sequence += [
-            nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, pad_mode='pad', padding=padw, has_bias=use_bias).to_float(self.dtype),
+            nn.Conv2d(
+                ndf * nf_mult_prev,
+                ndf * nf_mult,
+                kernel_size=kw,
+                stride=1,
+                pad_mode="pad",
+                padding=padw,
+                has_bias=use_bias,
+            ).to_float(self.dtype),
             norm_layer(ndf * nf_mult),
-            nn.LeakyReLU(0.2)
+            nn.LeakyReLU(0.2),
         ]
 
         # output 1 channel prediction map
         sequence += [
-            nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, pad_mode='pad', padding=padw, has_bias=True).to_float(self.dtype)]
+            nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, pad_mode="pad", padding=padw, has_bias=True).to_float(
+                self.dtype
+            )
+        ]
         self.main = nn.SequentialCell(sequence)
         self.cast = ops.Cast()
 
     def construct(self, x):
-
         y = self.main(x)
         return y

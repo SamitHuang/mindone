@@ -1,14 +1,14 @@
-# Autoencoders based on MindSpore 
+# Autoencoders based on MindSpore
 
 This repository provides SoTA image and video autoencoders and their training and inference pipelines.
 
-## Features 
+## Features
 - VAE (Image Variational AutoEncoder)
     - [x] KL-reg with GAN loss (SD VAE)
     - [ ] VQ-reg with GAN loss (VQ-GAN)
-- Causal 3D Autoencoder 
+- Causal 3D Autoencoder
     - [ ] VQ-reg with GAN loss (MagViT)
-    - [ ] KL-reg with GAN loss 
+    - [ ] KL-reg with GAN loss
 
 ## Installation
 
@@ -20,7 +20,7 @@ pip install -r requirements.txt
 
 ### Training
 
-Please download the [lpips_vgg-426bf45c.ckpt](https://download-mindspore.osinfra.cn/toolkits/mindone/autoencoders/lpips_vgg-426bf45c.ckpt) checkpoint and put it in `models/.`. 
+Please download the [lpips_vgg-426bf45c.ckpt](https://download-mindspore.osinfra.cn/toolkits/mindone/autoencoders/lpips_vgg-426bf45c.ckpt) checkpoint and put it in `models/.`.
 
 To lauch training, run
 ```
@@ -40,9 +40,9 @@ Note that you can either set arguments by editing the yaml file, or parsing by C
 
 #### Key arguments
 
-- `use_discriminator`: default: False. If True, GAN adversarial training will be applied after `disc_start` steps (defined in model config). 
+- `use_discriminator`: default: False. If True, GAN adversarial training will be applied after `disc_start` steps (defined in model config).
 
-For more arguments, please run `python train.py -h`. 
+For more arguments, please run `python train.py -h`.
 
 ### Evaluation
 
@@ -55,7 +55,7 @@ python infer.py \
 ```
 By default, it will save the reconstruction results in `samples/vae_recons` and report the PSNR and SSIM evaluation metrics.
 
-For detailed arguments, please run `python infer.py -h`. 
+For detailed arguments, please run `python infer.py -h`.
 
 ### Results on CelebA-HQ
 
@@ -72,6 +72,6 @@ We split the CelebA-HQ dataset into 24,000 images for training and 6,000 images 
 Here are some visualization on the reconstruction results.
 -->
 
-## Causal 3D Autoencoder 
+## Causal 3D Autoencoder
 
 Coming soon...

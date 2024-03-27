@@ -1,46 +1,44 @@
 """
 Train AutoEncoder KL-reg with GAN loss
 """
-import os
-import sys
 import argparse
 import logging
-import yaml
-import time
+import os
 import shutil
+import sys
+import time
+
+import yaml
+from ldm.data.dataset_vae import create_dataloader
+from ldm.models.autoencoder import DiscriminatorWithLoss, GeneratorWithLoss
+from ldm.util import instantiate_from_config, str2bool
 from omegaconf import OmegaConf
 
 import mindspore as ms
-from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
 from mindspore import Model, load_checkpoint, load_param_into_net, nn
-from mindspore.train.callback import TimeMonitor
+from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
 from mindspore.ops import functional as F
-
-from ldm.util import str2bool
-from ldm.models.autoencoder import GeneratorWithLoss, DiscriminatorWithLoss
-from ldm.data.dataset_vae import create_dataloader 
-from ldm.util import instantiate_from_config
+from mindspore.train.callback import TimeMonitor
 
 __dir__ = os.path.dirname(os.path.abspath(__file__))
 mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../"))
 sys.path.insert(0, mindone_lib_path)
 from mindone.env import init_train_env
-from mindone.utils.logger import set_logger
 from mindone.trainers.callback import EvalSaveCallback, OverflowMonitor, ProfilerCallback
-from mindone.trainers.checkpoint import resume_train_network
+from mindone.trainers.checkpoint import CheckpointManager, resume_train_network
 from mindone.trainers.ema import EMA
 from mindone.trainers.lr_schedule import create_scheduler
 from mindone.trainers.optim import create_optimizer
 from mindone.trainers.train_step import TrainOneStepWrapper
+from mindone.utils.logger import set_logger
 from mindone.utils.params import count_params, load_param_into_net_with_filter
-from mindone.trainers.checkpoint import CheckpointManager
-
 
 os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
 # TODO: only for 910b
 os.environ["MS_ASCEND_CHECK_OVERFLOW_MODE"] = "INFNAN_MODE"
 
 logger = logging.getLogger(__name__)
+
 
 def create_loss_scaler(loss_scaler_type, init_loss_scale, loss_scale_factor=2, scale_window=1000):
     if args.loss_scaler_type == "dynamic":
@@ -52,7 +50,8 @@ def create_loss_scaler(loss_scaler_type, init_loss_scale, loss_scale_factor=2, s
     else:
         raise ValueError
 
-    return loss_scaler 
+    return loss_scaler
+
 
 def main(args):
     # 1. init
@@ -69,29 +68,29 @@ def main(args):
     ##  autoencoder (G)
     model_config = OmegaConf.load(args.model_config)
     # TODO: allow set bf16
-    if args.dtype == 'fp32': 
-        model_config.generator.params.use_fp16=False
+    if args.dtype == "fp32":
+        model_config.generator.params.use_fp16 = False
     else:
-        model_config.generator.params.use_fp16=True
-    ae = instantiate_from_config(model_config.generator) 
+        model_config.generator.params.use_fp16 = True
+    ae = instantiate_from_config(model_config.generator)
     # TODO: allow loading pretrained weights
 
     ## discriminator (D)
-    use_discriminator = args.use_discriminator and (model_config.lossconfig.disc_weight > 0.)
-    if args.use_discriminator and (model_config.lossconfig.disc_weight <= 0.):
+    use_discriminator = args.use_discriminator and (model_config.lossconfig.disc_weight > 0.0)
+    if args.use_discriminator and (model_config.lossconfig.disc_weight <= 0.0):
         logging.warning("use_discriminator is True but disc_weight is 0.")
-            
+
     if use_discriminator:
-        disc = instantiate_from_config(model_config.discriminator) 
+        disc = instantiate_from_config(model_config.discriminator)
     else:
         disc = None
     # TODO: allow loading pretrained weights for D
-    
+
     # 3. build net with loss (core)
     ## G with loss
     ae_with_loss = GeneratorWithLoss(ae, discriminator=disc, **model_config.lossconfig)
     disc_start = model_config.lossconfig.disc_start
-    
+
     ## D with loss
     if use_discriminator:
         disc_with_loss = DiscriminatorWithLoss(ae, disc, disc_start)
@@ -109,18 +108,19 @@ def main(args):
         crop_size=args.crop_size,
         random_crop=args.random_crop,
         flip=args.flip,
-        )
+    )
     dataset = create_dataloader(
-        ds_config=ds_config, 
-        batch_size=args.batch_size, 
+        ds_config=ds_config,
+        batch_size=args.batch_size,
         num_parallel_workers=args.num_parallel_workers,
-        shuffle=args.shuffle, 
-        device_num=device_num, 
-        rank_id=rank_id)
+        shuffle=args.shuffle,
+        device_num=device_num,
+        rank_id=rank_id,
+    )
     dataset_size = dataset.get_dataset_size()
 
     # 5. build training utils
-    # torch scale lr by: model.learning_rate = accumulate_grad_batches * ngpu * bs * base_lr 
+    # torch scale lr by: model.learning_rate = accumulate_grad_batches * ngpu * bs * base_lr
     if args.scale_lr:
         learning_rate = args.base_learning_rate * args.batch_size * args.gradient_accumulation_steps * device_num
     else:
@@ -142,11 +142,11 @@ def main(args):
     # build optimizer
     # TODO: Adam optimizer in MS is less reliable?
     # TODO: optim hyper-params like beta copied from torch may not be suitable for MS
-    update_logvar = False # in torch, ae_with_loss.logvar  is not updated.
+    update_logvar = False  # in torch, ae_with_loss.logvar  is not updated.
     if update_logvar:
-        ae_params_to_update =  [ae_with_loss.autoencoder.trainable_params(), ae_with_loss.logvar] 
+        ae_params_to_update = [ae_with_loss.autoencoder.trainable_params(), ae_with_loss.logvar]
     else:
-        ae_params_to_update =  ae_with_loss.autoencoder.trainable_params()
+        ae_params_to_update = ae_with_loss.autoencoder.trainable_params()
     optim_ae = create_optimizer(
         ae_params_to_update,
         name=args.optim,
@@ -155,19 +155,23 @@ def main(args):
         weight_decay=args.weight_decay,
         lr=lr,
     )
-    loss_scaler_ae = create_loss_scaler(args.loss_scaler_type, args.init_loss_scale, args.loss_scale_factor, args.scale_window)
+    loss_scaler_ae = create_loss_scaler(
+        args.loss_scaler_type, args.init_loss_scale, args.loss_scale_factor, args.scale_window
+    )
 
     if use_discriminator:
         # TODO: different LR for disc?
         optim_disc = create_optimizer(
-                disc_with_loss.discriminator.trainable_params(), 
-                betas=(0.5, 0.9),
-                name=args.optim,
-                lr=lr,  # since lr is a shared list
-                group_strategy=args.group_strategy,
-                weight_decay=args.weight_decay,
-                )
-        loss_scaler_disc = create_loss_scaler(args.loss_scaler_type, args.init_loss_scale, args.loss_scale_factor, args.scale_window)
+            disc_with_loss.discriminator.trainable_params(),
+            betas=(0.5, 0.9),
+            name=args.optim,
+            lr=lr,  # since lr is a shared list
+            group_strategy=args.group_strategy,
+            weight_decay=args.weight_decay,
+        )
+        loss_scaler_disc = create_loss_scaler(
+            args.loss_scaler_type, args.init_loss_scale, args.loss_scale_factor, args.scale_window
+        )
 
     ema = (
         EMA(
@@ -194,9 +198,9 @@ def main(args):
         logger.info(f"Resume training from {resume_ckpt}")
 
         loss_scaler_ae = loss_scaler
-        
+
         # TODO: resume for Discriminator if used
-    
+
     # training step
     training_step_ae = TrainOneStepWrapper(
         ae_with_loss,
@@ -218,7 +222,7 @@ def main(args):
             gradient_accumulation_steps=args.gradient_accumulation_steps,
             clip_grad=args.clip_grad,
             clip_norm=args.max_grad_norm,
-            ema=None, # No ema for disriminator
+            ema=None,  # No ema for disriminator
         )
 
     if rank_id == 0:
@@ -299,40 +303,42 @@ def main(args):
             start_time_e = time.time()
             for step, data in enumerate(ds_iter):
                 start_time_s = time.time()
-                x = data['image']
-                
+                x = data["image"]
+
                 # TODO: get global step by optimizer.global_step() ?
                 global_step = epoch * dataset_size + step
-                global_step = ms.Tensor(global_step, dtype=ms.int64) 
-                
+                global_step = ms.Tensor(global_step, dtype=ms.int64)
+
                 # NOTE: inputs must match the order in GeneratorWithLoss.construct
-                loss_ae_t, overflow, scaling_sens =  training_step_ae(x, global_step)
+                loss_ae_t, overflow, scaling_sens = training_step_ae(x, global_step)
 
                 # TODO: use F.depend() to make sure Disc update after G ?
                 # skip D pass and update to save time in phase 1
                 if global_step >= disc_start:
                     loss_disc_t, overflow_d, scaling_sens_d = training_step_disc(x, global_step)
-                
+
                 cur_global_step = epoch * dataset_size + step + 1  # starting from 1 for logging
                 if overflow:
                     logger.warning(f"Overflow occurs in step {cur_global_step}")
-                
+
                 # log
                 step_time = time.time() - start_time_s
                 if step % args.log_interval == 0:
                     loss_ae = float(loss_ae_t.asnumpy())
                     logger.info(f"Loss ae: {loss_ae:.4f}, Step time: {step_time*1000:.2f}ms")
-                    if global_step >= disc_start: 
+                    if global_step >= disc_start:
                         loss_disc = float(loss_disc_t.asnumpy())
                         logger.info(f"Loss disc: {loss_disc:.4f}")
 
             epoch_cost = time.time() - start_time_e
-            per_step_time = epoch_cost / dataset_size 
+            per_step_time = epoch_cost / dataset_size
             cur_epoch = epoch + 1
-            logger.info(f"Epoch:[{int(cur_epoch):>3d}/{int(args.epochs):>3d}], "
-                f"epoch time:{epoch_cost:.2f}s, per step time:{per_step_time*1000:.2f}ms, ")
+            logger.info(
+                f"Epoch:[{int(cur_epoch):>3d}/{int(args.epochs):>3d}], "
+                f"epoch time:{epoch_cost:.2f}s, per step time:{per_step_time*1000:.2f}ms, "
+            )
             # TODO: save checkpoint in each node? rank_id % 8 == 0
-            if rank_id  == 0:
+            if rank_id == 0:
                 if (cur_epoch % args.ckpt_save_interval == 0) or (cur_epoch == args.epochs):
                     ckpt_name = f"vae_kl_f8-e{cur_epoch}.ckpt"
                     if ema is not None:
@@ -374,7 +380,9 @@ def parse_args():
         help="model arch config",
     )
     parser.add_argument("--use_parallel", default=False, type=str2bool, help="use parallel")
-    parser.add_argument("--output_path", default="outputs/vae_train", type=str, help="output directory to save training results")
+    parser.add_argument(
+        "--output_path", default="outputs/vae_train", type=str, help="output directory to save training results"
+    )
     parser.add_argument(
         "--resume",
         default=False,
@@ -384,7 +392,7 @@ def parse_args():
     # ms
     parser.add_argument("--mode", default=0, type=int, help="Specify the mode: 0 for graph mode, 1 for pynative mode")
     parser.add_argument("--device_target", type=str, default="Ascend", help="Ascend or GPU")
-    
+
     parser.add_argument("--profile", default=False, type=str2bool, help="Profile or not")
     # data
     parser.add_argument("--data_path", default="dataset", type=str, help="data path")
@@ -398,8 +406,15 @@ def parse_args():
     parser.add_argument("--flip", default=False, type=str2bool, help="horizontal flip for data augmentation")
 
     # optim
-    parser.add_argument("--use_discriminator", default=False, type=str2bool, help="Phase 1 training does not use discriminator, set False to reduce memory cost in graph mode.")
-    parser.add_argument("--dtype", default="fp32", type=str, choices=['fp32', 'fp16', 'bf16'], help="data type for mixed precision")
+    parser.add_argument(
+        "--use_discriminator",
+        default=False,
+        type=str2bool,
+        help="Phase 1 training does not use discriminator, set False to reduce memory cost in graph mode.",
+    )
+    parser.add_argument(
+        "--dtype", default="fp32", type=str, choices=["fp32", "fp16", "bf16"], help="data type for mixed precision"
+    )
     parser.add_argument("--optim", default="adam", type=str, help="optimizer")
     parser.add_argument(
         "--betas",
@@ -407,7 +422,7 @@ def parse_args():
         default=[0.9, 0.999],
         help="Specify the [beta1, beta2] parameter for the AdamW optimizer.",
     )
-    parser.add_argument("--weight_decay", default=0., type=float, help="Weight decay.")
+    parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay.")
     parser.add_argument(
         "--group_strategy",
         type=str,
@@ -419,11 +434,20 @@ def parse_args():
     parser.add_argument("--warmup_steps", default=1000, type=int, help="warmup steps")
     parser.add_argument("--batch_size", default=4, type=int, help="batch size")
     parser.add_argument("--log_interval", default=1, type=int, help="log interval")
-    parser.add_argument("--base_learning_rate", default=4.5e-06, type=float, help="base learning rate, can be scaled by global batch size")
+    parser.add_argument(
+        "--base_learning_rate",
+        default=4.5e-06,
+        type=float,
+        help="base learning rate, can be scaled by global batch size",
+    )
     parser.add_argument("--end_learning_rate", default=1e-8, type=float, help="The end learning rate for Adam.")
-    parser.add_argument("--scale_lr", default=True, type=str2bool, help="scale base-lr by ngpu * batch_size * n_accumulate")
+    parser.add_argument(
+        "--scale_lr", default=True, type=str2bool, help="scale base-lr by ngpu * batch_size * n_accumulate"
+    )
     parser.add_argument("--decay_steps", default=0, type=int, help="lr decay steps.")
-    parser.add_argument("--scheduler", default="cosine_decay", type=str, help="scheduler. option: constant, cosine_decay, ")
+    parser.add_argument(
+        "--scheduler", default="cosine_decay", type=str, help="scheduler. option: constant, cosine_decay, "
+    )
     parser.add_argument("--epochs", default=10, type=int, help="epochs")
     parser.add_argument("--loss_scaler_type", default="static", type=str, help="dynamic or static")
     parser.add_argument("--init_loss_scale", default=1024, type=float, help="loss scale")
@@ -470,6 +494,6 @@ def parse_args():
     return args
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     args = parse_args()
     main(args)

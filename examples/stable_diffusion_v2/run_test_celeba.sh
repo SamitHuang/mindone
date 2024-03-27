@@ -10,4 +10,3 @@ python infer_vae.py \
     # --measure_loss=True \
 
     #--ckpt_path models/sd_v1.5-d0ab7146.ckpt \
-

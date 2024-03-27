@@ -1,9 +1,9 @@
 import copy
 import csv
+import glob
 import logging
 import os
 import random
-import glob
 
 import albumentations
 import cv2
@@ -16,15 +16,17 @@ import mindspore as ms
 logger = logging.getLogger()
 
 
-def create_image_transforms(size=384, crop_size=256, interpolation="bicubic", backend="al", random_crop=False, flip=False):
+def create_image_transforms(
+    size=384, crop_size=256, interpolation="bicubic", backend="al", random_crop=False, flip=False
+):
     # expect rgb image in range 0-255, shape (h w c)
-    from albumentations import CenterCrop, RandomCrop, HorizontalFlip, SmallestMaxSize
+    from albumentations import CenterCrop, HorizontalFlip, RandomCrop, SmallestMaxSize
 
     mapping = {"bilinear": cv2.INTER_LINEAR, "bicubic": cv2.INTER_CUBIC}
     transforms = [
-                SmallestMaxSize(max_size=size, interpolation=mapping[interpolation]),
-                CenterCrop(crop_size, crop_size) if not random_crop else RandomCrop(crop_size, crop_size),
-            ]
+        SmallestMaxSize(max_size=size, interpolation=mapping[interpolation]),
+        CenterCrop(crop_size, crop_size) if not random_crop else RandomCrop(crop_size, crop_size),
+    ]
     if flip:
         transforms += [HorizontalFlip(p=0.5)]
 
@@ -32,11 +34,12 @@ def create_image_transforms(size=384, crop_size=256, interpolation="bicubic", ba
 
     return pixel_transforms
 
+
 def get_image_path_list(folder):
     # TODO: find recursively
-    fmts = ['jpg', 'png', 'jpeg', 'JPEG']
+    fmts = ["jpg", "png", "jpeg", "JPEG"]
     out = []
-    for fmt in fmts: 
+    for fmt in fmts:
         out += glob.glob(os.path.join(folder, f"*.{fmt}"))
     return sorted(out)
 
@@ -50,7 +53,7 @@ class ImageDataset:
         crop_size=256,
         random_crop=False,
         flip=False,
-        image_column='file_name',
+        image_column="file_name",
     ):
         if csv_path is not None:
             with open(csv_path, "r") as csvfile:
@@ -105,7 +108,7 @@ class ImageDataset:
         image = Image.open(image_path).convert("RGB")
         image = np.array(image)
 
-        return image 
+        return image
 
     def __len__(self):
         return self.length
@@ -113,7 +116,7 @@ class ImageDataset:
     def __getitem__(self, idx):
         # try:
         image = self.read_sample(idx)
-        '''
+        """
         if (self.prev_ok_sample is None) or (self.require_update_prev):
             self.prev_ok_sample = copy.deepcopy(image)
             self.require_update_prev = False
@@ -126,32 +129,31 @@ class ImageDataset:
 
             if idx >= self.length:
                 raise IndexError  # needed for checking the end of dataset iteration
-        '''
-        
+        """
+
         # import pdb
         # pdb.set_trace()
-        trans_image = self.pixel_transforms(image=image)['image']
+        trans_image = self.pixel_transforms(image=image)["image"]
 
-        out_image = (trans_image/127.5 - 1.0).astype(np.float32) 
-        out_image = out_image.transpose((2, 0, 1))  # h w c -> c h w 
+        out_image = (trans_image / 127.5 - 1.0).astype(np.float32)
+        out_image = out_image.transpose((2, 0, 1))  # h w c -> c h w
 
         return out_image
 
 
 def create_dataloader(
-        ds_config, 
-        batch_size, 
-        num_parallel_workers=12,
-        max_rowsize=32,
-        shuffle=True, 
-        device_num=1, 
-        rank_id=0,
-        drop_remainder=True,
-        ):
-
+    ds_config,
+    batch_size,
+    num_parallel_workers=12,
+    max_rowsize=32,
+    shuffle=True,
+    device_num=1,
+    rank_id=0,
+    drop_remainder=True,
+):
     dataset = ImageDataset(
-            **ds_config,
-            )
+        **ds_config,
+    )
     print("Total number of samples: ", len(dataset))
 
     # Larger value leads to more memory consumption. Default: 16
@@ -188,20 +190,22 @@ def check_sanity(x, save_fp="./tmp.png"):
 
     x = (x + 1.0) / 2.0  # -1,1 -> 0,1
     x = (x * 255).astype(np.uint8)
-    
+
     if isinstance(x, ms.Tensor):
         x = x.asnumpy()
     Image.fromarray(x).save(save_fp)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    import math
+    import time
+
     from tqdm import tqdm
-    import time, math
 
     ds_config = dict(
-            csv_path='/home/mindocr/yx/datasets/chinese_art_blip/train/metadata.csv',
-            image_folder='/home/mindocr/yx/datasets/chinese_art_blip/train',
-            )
+        csv_path="/home/mindocr/yx/datasets/chinese_art_blip/train/metadata.csv",
+        image_folder="/home/mindocr/yx/datasets/chinese_art_blip/train",
+    )
     # test source dataset
     ds = ImageDataset(**ds_config)
     sample = ds.__getitem__(0)
@@ -215,7 +219,7 @@ if __name__ == '__main__':
     print(num_batches)
 
     steps = 50
-    iterator = dl.create_dict_iterator(100) # create 100 repeats
+    iterator = dl.create_dict_iterator(100)  # create 100 repeats
     tot = 0
 
     progress_bar = tqdm(range(steps))
@@ -224,7 +228,7 @@ if __name__ == '__main__':
     start = time.time()
     for epoch in range(math.ceil(steps / num_batches)):
         for i, batch in enumerate(iterator):
-            print('epoch', epoch, 'step', i)
+            print("epoch", epoch, "step", i)
             dur = time.time() - start
             tot += dur
 
@@ -241,5 +245,3 @@ if __name__ == '__main__':
 
     mean = tot / steps
     print("Avg batch loading time: ", mean)
-
-

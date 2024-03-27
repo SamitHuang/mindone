@@ -12,5 +12,5 @@ ckpt_save_interval: 1
 dtype: "fp32"
 init_loss_scale: 1.
 
-scheduler: "constant" 
+scheduler: "constant"
 use_ema: True
