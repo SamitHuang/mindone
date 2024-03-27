@@ -19,6 +19,10 @@ from ldm.data.dataset_vae import create_dataloader
 from ldm.models.lpips import LPIPS
 from ldm.models.autoencoder import GeneratorWithLoss
 
+from skimage.metrics import peak_signal_noise_ratio as calc_psnr
+from skimage.metrics import structural_similarity as calc_ssim
+
+
 __dir__ = os.path.dirname(os.path.abspath(__file__))
 mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../"))
 sys.path.insert(0, mindone_lib_path)
@@ -131,6 +135,8 @@ def infer_vae(args):
     logger.info(f"Inferene begins")
     mean_infer_time = 0
     psnr_res = []
+    ssim_res = []
+    lpips_res = []
     for step, data in tqdm(enumerate(ds_iter)):
         x = data['image']
         start_time = time.time()
@@ -147,9 +153,13 @@ def infer_vae(args):
             recons_rgb = postprocess(recons.asnumpy())
             x_rgb = postprocess(x.asnumpy())
             # eval psnr
-            psnr_cur = measure_psnr(x_rgb, recons_rgb)
+            psnr_cur = [calc_psnr(x_rgb[i], recons_rgb[i], data_range=255) for i in range(x_rgb.shape[0])]
+            ssim_cur = [calc_ssim(x_rgb[i], recons_rgb[i], data_range=255, channel_axis=-1) for i in range(x_rgb.shape[0])]
+            # print(psnr_cur)
             psnr_res.extend(psnr_cur)
-            # logger.info(f"mean psnr:{mean_psnr:.4f}")
+            ssim_res.extend(ssim_cur)
+            # logger.info(f"mean psnr:{np.mean(psnr_cur):.4f}")
+            # logger.info(f"mean ssim:{np.mean(ssim_cur):.4f}")
  
             if args.save_images:
                 save_fn = os.path.join(args.output_path, '{}-{}'.format(os.path.basename(args.data_path), f'step{step:03d}'))
@@ -158,14 +168,19 @@ def infer_vae(args):
             if args.measure_loss:
                 rec_loss = np.abs((x - recons).asnumpy()).mean()
                 perc_loss = perc_loss_fn(x, recons)
+                lpips_res.append(perc_loss.asnumpy().mean())
 
     mean_infer_time /= dataset_size
     logger.info(f"Mean infer time: {mean_infer_time}")
     logger.info(f"Done. Results saved in {args.output_path}")
+    
 
     if not args.encode_only:
         mean_psnr = sum(psnr_res) / len(psnr_res)
         logger.info(f"mean psnr:{mean_psnr:.4f}")
+        logger.info(f"mean ssim:{np.mean(ssim_res):.4f}")
+        if args.measure_loss:
+            logger.info(f"mean lpips:{np.mean(lpips_res):.4f}")
 
 
 def parse_args():

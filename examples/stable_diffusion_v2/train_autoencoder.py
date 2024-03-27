@@ -310,7 +310,7 @@ def main(args):
 
                 # TODO: use F.depend() to make sure Disc update after G ?
                 # skip D pass and update to save time in phase 1
-                if train_discriminator and (global_step >= disc_start):
+                if global_step >= disc_start:
                     loss_disc_t, overflow_d, scaling_sens_d = training_step_disc(x, global_step)
                 
                 cur_global_step = epoch * dataset_size + step + 1  # starting from 1 for logging
@@ -322,7 +322,7 @@ def main(args):
                 if step % args.log_interval == 0:
                     loss_ae = float(loss_ae_t.asnumpy())
                     logger.info(f"Loss ae: {loss_ae:.4f}, Step time: {step_time*1000:.2f}ms")
-                    if train_discriminator and (global_step >= disc_start): 
+                    if global_step >= disc_start: 
                         loss_disc = float(loss_disc_t.asnumpy())
                         logger.info(f"Loss disc: {loss_disc:.4f}")
 
