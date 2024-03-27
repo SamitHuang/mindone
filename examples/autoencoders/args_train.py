@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+
 import yaml
 
 from mindone.utils.config import str2bool
@@ -34,7 +35,9 @@ def parse_args():
         help="model arch config",
     )
     parser.add_argument("--use_parallel", default=False, type=str2bool, help="use parallel")
-    parser.add_argument("--output_path", default="outputs/vae_train", type=str, help="output directory to save training results")
+    parser.add_argument(
+        "--output_path", default="outputs/vae_train", type=str, help="output directory to save training results"
+    )
     parser.add_argument(
         "--resume",
         default=False,
@@ -44,7 +47,7 @@ def parse_args():
     # ms
     parser.add_argument("--mode", default=0, type=int, help="Specify the mode: 0 for graph mode, 1 for pynative mode")
     parser.add_argument("--device_target", type=str, default="Ascend", help="Ascend or GPU")
-    
+
     parser.add_argument("--profile", default=False, type=str2bool, help="Profile or not")
     # data
     parser.add_argument("--data_path", default="dataset", type=str, help="data path")
@@ -58,8 +61,15 @@ def parse_args():
     parser.add_argument("--flip", default=False, type=str2bool, help="horizontal flip for data augmentation")
 
     # optim
-    parser.add_argument("--use_discriminator", default=False, type=str2bool, help="Phase 1 training does not use discriminator, set False to reduce memory cost in graph mode.")
-    parser.add_argument("--dtype", default="fp32", type=str, choices=['fp32', 'fp16', 'bf16'], help="data type for mixed precision")
+    parser.add_argument(
+        "--use_discriminator",
+        default=False,
+        type=str2bool,
+        help="Phase 1 training does not use discriminator, set False to reduce memory cost in graph mode.",
+    )
+    parser.add_argument(
+        "--dtype", default="fp32", type=str, choices=["fp32", "fp16", "bf16"], help="data type for mixed precision"
+    )
     parser.add_argument("--optim", default="adam", type=str, help="optimizer")
     parser.add_argument(
         "--betas",
@@ -67,7 +77,7 @@ def parse_args():
         default=[0.9, 0.999],
         help="Specify the [beta1, beta2] parameter for the AdamW optimizer.",
     )
-    parser.add_argument("--weight_decay", default=0., type=float, help="Weight decay.")
+    parser.add_argument("--weight_decay", default=0.0, type=float, help="Weight decay.")
     parser.add_argument(
         "--group_strategy",
         type=str,
@@ -79,11 +89,20 @@ def parse_args():
     parser.add_argument("--warmup_steps", default=1000, type=int, help="warmup steps")
     parser.add_argument("--batch_size", default=4, type=int, help="batch size")
     parser.add_argument("--log_interval", default=1, type=int, help="log interval")
-    parser.add_argument("--base_learning_rate", default=4.5e-06, type=float, help="base learning rate, can be scaled by global batch size")
+    parser.add_argument(
+        "--base_learning_rate",
+        default=4.5e-06,
+        type=float,
+        help="base learning rate, can be scaled by global batch size",
+    )
     parser.add_argument("--end_learning_rate", default=1e-8, type=float, help="The end learning rate for Adam.")
-    parser.add_argument("--scale_lr", default=True, type=str2bool, help="scale base-lr by ngpu * batch_size * n_accumulate")
+    parser.add_argument(
+        "--scale_lr", default=True, type=str2bool, help="scale base-lr by ngpu * batch_size * n_accumulate"
+    )
     parser.add_argument("--decay_steps", default=0, type=int, help="lr decay steps.")
-    parser.add_argument("--scheduler", default="cosine_decay", type=str, help="scheduler. option: constant, cosine_decay, ")
+    parser.add_argument(
+        "--scheduler", default="cosine_decay", type=str, help="scheduler. option: constant, cosine_decay, "
+    )
     parser.add_argument("--epochs", default=10, type=int, help="epochs")
     parser.add_argument("--loss_scaler_type", default="static", type=str, help="dynamic or static")
     parser.add_argument("--init_loss_scale", default=1024, type=float, help="loss scale")
@@ -128,5 +147,3 @@ def parse_args():
 
     logger.info(args)
     return args
-
-
