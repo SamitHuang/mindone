@@ -141,6 +141,7 @@ class vgg16(nn.Cell):
 
 
 def normalize_tensor(x, eps=1e-10):
+    # FIXME: may need to enlarge eps in mixed precision, x is fp16 or bf16.
     norm_factor = ops.sqrt((x**2).sum(1, keepdims=True))
     return x / (norm_factor + eps)
 

@@ -31,10 +31,12 @@ class AutoencoderKL(nn.Cell):
         colorize_nlabels=None,
         monitor=None,
         use_fp16=False,
+        use_bf16=False,
         upcast_sigmoid=False,
     ):
         super().__init__()
         self.dtype = ms.float16 if use_fp16 else ms.float32
+        self.dtype = ms.bfloat16 if use_bf16 else self.dtype
         print("D--: ae dtype: ", self.dtype)
         print("D--: ae upcast sigmoid: ", upcast_sigmoid)
         self.image_key = image_key

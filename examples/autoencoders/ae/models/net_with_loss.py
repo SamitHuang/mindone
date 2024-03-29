@@ -16,8 +16,15 @@ class GeneratorWithLoss(nn.Cell):
         logvar_init=0.0,
         discriminator=None,
         dtype=ms.float32,
+        loss_type='sample_mean',
     ):
+        '''
+        AE forward and loss compute
+        Args:
+            loss_type: sample_mean - original vae generator loss, where the loss value is very large , pixel_mean - 
+        '''
         super().__init__()
+        assert loss_type in ['sample_mean', 'pixel_mean']
 
         # build perceptual models for loss compute
         self.autoencoder = autoencoder
@@ -35,9 +42,20 @@ class GeneratorWithLoss(nn.Cell):
         self.perceptual_weight = perceptual_weight
 
         self.discriminator = discriminator
+
+        print("D--: loss_type: ", loss_type)
+        if loss_type == 'pixel_mean':
+            self.loss_func = self.mean_loss_function
+        else:
+            self.loss_func = self.loss_function
+
         # assert discriminator is None, "Discriminator is not supported yet"
 
     def kl(self, mean, logvar):
+        # FIXME: KL involve exp and pow ops, easy to incure loss inf or overflow in mixed precision mode with FP16.
+        mean = mean.astype(ms.float32)
+        logvar = logvar.astype(ms.float32)
+
         var = ops.exp(logvar)
         kl_loss = 0.5 * ops.sum(
             ops.pow(mean, 2) + var - 1.0 - logvar,
@@ -45,7 +63,35 @@ class GeneratorWithLoss(nn.Cell):
         )
         return kl_loss
 
+
+    def mean_loss_function(self, x, recons, mean, logvar, global_step: ms.Tensor = -1, weights: ms.Tensor = None, cond=None):
+        # 2.1 reconstruction loss in pixels
+        rec_loss = self.l1(x, recons).mean()
+
+        # 2.2 perceptual loss
+        p_loss = self.perceptual_loss(x, recons).mean()
+        # rec_loss = rec_loss + self.perceptual_weight * p_loss
+
+        # 2.3 kl loss
+        kl_loss = self.kl(mean, logvar).mean()
+
+        loss = rec_loss + self.perceptual_weight * p_loss + self.kl_weight * kl_loss
+
+        # 2.4 discriminator loss if enabled
+        if global_step >= self.disc_start:
+            if (self.discriminator is not None) and (self.disc_factor > 0.0):
+                if cond is None:
+                    logits_fake = self.discriminator(recons)
+                else:
+                    logits_fake = self.discriminator(ops.concat((recons, cond), dim=1))
+                g_loss = -ops.reduce_mean(logits_fake)
+                d_weight = self.disc_weight
+                loss += d_weight * self.disc_factor * g_loss
+
+        return loss
+
     def loss_function(self, x, recons, mean, logvar, global_step: ms.Tensor = -1, weights: ms.Tensor = None, cond=None):
+        # original vae loss
         bs = x.shape[0]
 
         # 2.1 reconstruction loss in pixels
@@ -56,7 +102,7 @@ class GeneratorWithLoss(nn.Cell):
             p_loss = self.perceptual_loss(x, recons)
             rec_loss = rec_loss + self.perceptual_weight * p_loss
 
-        nll_loss = rec_loss / ops.exp(self.logvar) + self.logvar
+        nll_loss = rec_loss  / ops.exp(self.logvar) + self.logvar
         if weights is not None:
             weighted_nll_loss = weights * nll_loss
             mean_weighted_nll_loss = weighted_nll_loss.sum() / bs
@@ -118,7 +164,7 @@ class GeneratorWithLoss(nn.Cell):
         recons, mean, logvar = self.autoencoder(x)
 
         # 2. compuate loss
-        loss = self.loss_function(x, recons, mean, logvar, global_step, weights, cond)
+        loss = self.loss_func(x, recons, mean, logvar, global_step, weights, cond)
 
         return loss
 

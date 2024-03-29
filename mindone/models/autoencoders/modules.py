@@ -191,10 +191,13 @@ class ResnetBlock(nn.Cell):
 
 
 class AttnBlock(nn.Cell):
-    def __init__(self, in_channels, dtype=ms.float32):
+    def __init__(self, in_channels, dtype=ms.float32, upcast_softmax=True):
         super().__init__()
         self.in_channels = in_channels
         self.dtype = dtype
+        self.upcast_softmax = upcast_softmax
+        print("D--: upcast softmax: ", upcast_softmax)
+
         self.bmm = ops.BatchMatMul()
         self.norm = Normalize(in_channels)
         self.q = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, pad_mode="valid", has_bias=True).to_float(
@@ -225,7 +228,10 @@ class AttnBlock(nn.Cell):
         w_ = self.bmm(q, k)  # b,hw,hw    w[b,i,j]=sum_c q[b,i,c]k[b,c,j]
 
         w_ = w_ * (int(c) ** (-0.5))
-        w_ = ops.Softmax(axis=2)(w_)
+        if self.upcast_softmax:
+            w_ = (ops.Softmax(axis=2)(w_.astype(ms.float32))).astype(v.dtype)
+        else:
+            w_ = ops.Softmax(axis=2)(w_)
 
         # attend to values
         v = ops.reshape(v, (b, c, h * w))

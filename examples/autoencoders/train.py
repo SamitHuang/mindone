@@ -67,7 +67,9 @@ def main(args):
     # 2. build models
     #  autoencoder (G)
     model_config = OmegaConf.load(args.model_config)
+    # FIXME: debugging
     model_config.generator.params.use_fp16 = (args.dtype == "fp16")
+    model_config.generator.params.use_bf16 = (args.dtype == "bf16")
     model_config.generator.params.upcast_sigmoid = True
     ae = instantiate_from_config(model_config.generator)
 
