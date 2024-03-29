@@ -1,0 +1,27 @@
+model_config: "configs/autoencoder_kl_f8.yaml"
+
+data_path:  "datasets/celeba_hq_256/train"
+size: 256
+crop_size: 256
+flip: True
+
+output_path: "outputs/vae_celeba_fp16"
+
+use_discriminator: False
+batch_size: 4
+
+epochs: 60
+ckpt_save_interval: 1
+
+dtype: "fp16"
+loss_scaler_type: "static"
+init_loss_scale: 1.
+
+scheduler: "cosine_decay"
+warmup_steps: 100
+optim: "adamw" 
+betas: [0.9, 0.999]
+use_ema: False
+
+# base_learning_rate: 1.e-6
+clip_grad: True
