@@ -23,9 +23,10 @@ def auto_mixed_precision(network, amp_level="O0", dtype=ms.float16):
         amp_level (str): Supports ["O0", "O1", "O2", "O3"]. Default: "O0".
 
             - "O0": Do not change.
-            - "O1": Cast the operators in white_list to float16, the remaining operators are kept in float32.
-            - "O2": Cast network to float16, keep operators in black_list run in float32,
-            - "O3": Cast network to float16.
+            - "O1": Cast the operators in white_list to dtype, the remaining operators are kept in float32.
+            - "O2": Cast network to dtype, keep operators in black_list run in float32,
+            - "O3": Cast network to dtype.
+        dtype: ms.float16, ms.bfloat16
 
     Raises:
         ValueError: If amp level is not supported.

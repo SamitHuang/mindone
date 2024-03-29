@@ -35,6 +35,8 @@ class AutoencoderKL(nn.Cell):
     ):
         super().__init__()
         self.dtype = ms.float16 if use_fp16 else ms.float32
+        print("D--: ae dtype: ", self.dtype)
+        print("D--: ae upcast sigmoid: ", upcast_sigmoid)
         self.image_key = image_key
         self.encoder = Encoder(dtype=self.dtype, upcast_sigmoid=upcast_sigmoid, **ddconfig)
         self.decoder = Decoder(dtype=self.dtype, upcast_sigmoid=upcast_sigmoid, **ddconfig)

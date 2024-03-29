@@ -32,6 +32,7 @@ from mindone.trainers.train_step import TrainOneStepWrapper
 from mindone.utils.config import instantiate_from_config
 from mindone.utils.logger import set_logger
 from mindone.utils.params import count_params
+from mindone.utils.amp import auto_mixed_precision
 
 os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
 os.environ["MS_ASCEND_CHECK_OVERFLOW_MODE"] = "INFNAN_MODE"
@@ -66,13 +67,9 @@ def main(args):
     # 2. build models
     #  autoencoder (G)
     model_config = OmegaConf.load(args.model_config)
-    # TODO: allow set bf16
-    if args.dtype == "fp32":
-        model_config.generator.params.use_fp16 = False
-    else:
-        model_config.generator.params.use_fp16 = True
+    model_config.generator.params.use_fp16 = (args.dtype == "fp16")
+    model_config.generator.params.upcast_sigmoid = True
     ae = instantiate_from_config(model_config.generator)
-    # TODO: allow loading pretrained weights
 
     # discriminator (D)
     use_discriminator = args.use_discriminator and (model_config.lossconfig.disc_weight > 0.0)
@@ -84,6 +81,19 @@ def main(args):
         disc = instantiate_from_config(model_config.discriminator)
     else:
         disc = None
+
+    # mixed precision
+    '''
+    dtype = {"fp16": ms.float16, "bf16": ms.bfloat16, "fp32": ms.float32}[args.dtype]
+    if args.dtype != 'fp32':
+        # ae_with_loss = auto_mixed_precision(ae_with_loss, amp_level="O2", dtype=dtype)
+        ae = auto_mixed_precision(ae, amp_level="O2", dtype=dtype)
+        if use_discriminator:
+            # disc_with_loss = auto_mixed_precision(disc_with_loss, "O2", dtype=dtype)
+            disc_with_loss = auto_mixed_precision(disc, "O2", dtype=dtype)
+        logger.info(f"Set mixed precision (O2) with dtype {args.dtype}")
+    '''
+
     # TODO: allow loading pretrained weights for D
 
     # 3. build net with loss (core)
@@ -91,14 +101,13 @@ def main(args):
     ae_with_loss = GeneratorWithLoss(ae, discriminator=disc, **model_config.lossconfig)
     disc_start = model_config.lossconfig.disc_start
 
+
     # D with loss
     if use_discriminator:
         disc_with_loss = DiscriminatorWithLoss(ae, disc, disc_start)
-
+    
     tot_params, trainable_params = count_params(ae_with_loss)
     logger.info("Total params {:,}; Trainable params {:,}".format(tot_params, trainable_params))
-    # trainable_ae = count_params(ae)[1]
-    # assert trainable_params <= trainable_ae+1, f"ae trainable: {trainable_ae}"
 
     # 4. build dataset
     ds_config = dict(
