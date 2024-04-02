@@ -45,9 +45,9 @@ class GeneratorWithLoss(nn.Cell):
 
         print("D--: loss_type: ", loss_type)
         if loss_type == 'pixel_mean':
-            self.loss_func = self.mean_loss_function
+            self.loss_func = self.pixelwise_mean_loss
         else:
-            self.loss_func = self.loss_function
+            self.loss_func = self.samplewise_mean_loss
 
         # assert discriminator is None, "Discriminator is not supported yet"
 
@@ -64,7 +64,7 @@ class GeneratorWithLoss(nn.Cell):
         return kl_loss
 
 
-    def mean_loss_function(self, x, recons, mean, logvar, global_step: ms.Tensor = -1, weights: ms.Tensor = None, cond=None):
+    def pixelwise_mean_loss(self, x, recons, mean, logvar, global_step: ms.Tensor = -1, weights: ms.Tensor = None, cond=None):
         # 2.1 reconstruction loss in pixels
         rec_loss = self.l1(x, recons).mean()
 
@@ -90,11 +90,11 @@ class GeneratorWithLoss(nn.Cell):
 
         return loss
 
-    def loss_function(self, x, recons, mean, logvar, global_step: ms.Tensor = -1, weights: ms.Tensor = None, cond=None):
+    def samplewise_mean_loss(self, x, recons, mean, logvar, global_step: ms.Tensor = -1, weights: ms.Tensor = None, cond=None):
         # original vae loss
         bs = x.shape[0]
 
-        # 2.1 reconstruction loss in pixels
+        # 2.1 reconstruction loss
         rec_loss = self.l1(x, recons)
 
         # 2.2 perceptual loss
