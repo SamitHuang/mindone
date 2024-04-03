@@ -1,13 +1,17 @@
+# TODO: use trained checkpoint and real data to check.
+
 import sys
+import torch
 sys.path.append(".")
 import mindspore as ms
 import numpy as np
-from ae.models.modules import  CausalConv3d, ResnetBlock3D
+from ae.models.modules import  CausalConv3d, ResnetBlock3D, AttnBlock3D
 
 
 bs, cin, T, H, W = 1, 3, 8, 256, 256
-cout = 4  # hidden size, actually 128
+cout = 16  # hidden size, actually 128
 x = np.random.normal(size=(bs, cin, T, H, W ))
+
 
 def test_cconv3d():
     ms.set_context(mode=0)
@@ -90,6 +94,30 @@ def my_gn(x, gamma, beta, groups=32, eps=1e-6):
 
     return output
 
+
+def _convert_ckpt(net, name):
+    torch.save({'model_state_dict': net.state_dict(),
+                }, f"tests/{name}.pth")
+
+    target_data = []
+    for k in net.state_dict():
+
+        if '.' not in k:
+            # only for GroupNorm
+            ms_name = k.replace("weight", "gamma").replace("bias", "beta")
+        else:
+            if 'norm' in k:
+                ms_name = k.replace(".weight", ".gamma").replace(".bias", ".beta")
+            else:
+                ms_name = k
+        target_data.append({"name": ms_name, "data": ms.Tensor(net.state_dict()[k].detach().numpy())})
+
+
+    save_fn = f"tests/{name}.ckpt"
+    ms.save_checkpoint(target_data, save_fn)
+    return save_fn
+
+
 def compare_gn(npy_fp=None):
     from ae.models.modules import  nonlinearity, Normalize
     cout = hidden_size = 128
@@ -100,23 +128,11 @@ def compare_gn(npy_fp=None):
     pt_code_path = "/home/mindocr/yx/Open-Sora-Plan/opensora/models/ae/videobase" 
     sys.path.append(pt_code_path)
     from modules.resnet_block import Normalize as Norm_pt 
-
+    
     npt = Norm_pt(hidden_size)
     npt.eval()
     outpt = npt(torch.Tensor(x))
     print(outpt.sum().detach().numpy())
-
-    def _convert_ckpt(net=npt, name='gn'):
-        torch.save({'model_state_dict': net.state_dict(),
-                    }, f"tests/{name}.pth")
-
-        target_data = []
-        for k in net.state_dict():
-            ms_name = k.replace("weight", "gamma").replace("bias", "beta")
-            target_data.append({"name": ms_name, "data": ms.Tensor(net.state_dict()[k].detach().numpy())})
-        save_fn = f"tests/{name}.ckpt"
-        ms.save_checkpoint(target_data, save_fn)
-        return save_fn
 
     ms_ckpt = _convert_ckpt(npt, 'gn')
     # ms 
@@ -184,7 +200,7 @@ def compare_res3d():
     rb3_pt.eval()
 
     out_pt = rb3_pt(torch.Tensor(x)) 
-    # out_pt = out_pt.detach().numpy()
+    out_pt = out_pt.detach().numpy()
     # print("PT: ", out_pt.shape, out_pt.mean(), out_pt.sum())
 
     torch.save({'model_state_dict': rb3_pt.state_dict(),
@@ -206,13 +222,37 @@ def compare_res3d():
     ms.load_checkpoint("tests/rb3.ckpt", net=rb3_ms)
 
     out_ms = rb3_ms(ms.Tensor(x, dtype=ms.float32))
-    # out_ms = out_ms.asnumpy()
+    out_ms = out_ms.asnumpy()
     # print("MS: ", out_ms.shape, out_ms.mean(), out_ms.sum())
 
-    print("PT: ", out_pt.shape, out_pt.sum().detach().numpy())
-    print("MS: ", out_ms.shape, out_ms.sum().asnumpy())
-    # print("Diff: ", _diff_res(out_pt, out_ms))
+    # print("PT: ", out_pt.shape, out_pt.sum().detach().numpy())
+    # print("MS: ", out_ms.shape, out_ms.sum().asnumpy())
+    print("Diff: ", _diff_res(out_pt, out_ms))
 
+
+def test_attn3d():
+    pt_code_path = "/home/mindocr/yx/Open-Sora-Plan/" 
+    sys.path.append(pt_code_path)
+    from opensora.models.ae.videobase.modules.attention import AttnBlock3D as A3D_PT 
+
+    bs, cin, T, H, W = 1, 512, 1, 16, 16
+    x = np.random.normal(size=(bs, cin, T, H, W )) 
+
+    attn3d_pt = A3D_PT(cin)
+    res_pt = attn3d_pt(torch.Tensor(x)) 
+
+    res_pt = res_pt.detach().numpy()
+    
+    ms_ckpt = _convert_ckpt(attn3d_pt, name='attn3d')
+
+    # ms.set_context(mode=0)
+    a3d_ms = AttnBlock3D(cin)
+    sd = ms.load_checkpoint(ms_ckpt, a3d_ms)
+
+    res_ms = a3d_ms(ms.Tensor(x, dtype=ms.float32))
+    res_ms = res_ms.asnumpy()
+
+    print("Diff: ", _diff_res(res_ms, res_pt))
 
 if __name__=='__main__':
     # test_ccov3d()
@@ -222,7 +262,8 @@ if __name__=='__main__':
     #compare_cconv3d(copy_weights=False)
     # compare_nonlinear()
     # compare_res3d()
-    compare_gn()
+    # compare_gn()
+    test_attn3d()
 
     # inp = 'tests/resblock_inp.npy'
     # test_res3d(inp, "tests/rb3.pth", "pt")
