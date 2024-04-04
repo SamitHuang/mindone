@@ -180,6 +180,9 @@ def test_res3d(npy_fp=None, ckpt_fp=None, backend='ms'):
 
         rb3_pt = RB3D_PT(in_channels=hidden_size, out_channels=hidden_size, dropout=0.)
         rb3_pt.eval()
+        if ckpt_fp is not None:
+            checkpoint = torch.load(ckpt_fp)
+            rb3_pt.load_state_dict(checkpoint['model_state_dict'])
 
         out_pt = rb3_pt(torch.Tensor(x)) 
         out = out_pt.detach().numpy()

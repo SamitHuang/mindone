@@ -125,31 +125,32 @@ class CausalConv3d(nn.Cell):
 
 
 class ResnetBlock3D(nn.Cell):
-    def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False, dropout):
+    def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False, dropout, dtype=ms.float32, upcast_sigmoid=False):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = in_channels if out_channels is None else out_channels
         self.use_conv_shortcut = conv_shortcut
+        self.upcast_sigmoid = upcast_sigmoid
 
         # FIXME: GroupNorm precision mismatch with PT.
         self.norm1 = Normalize(in_channels, extend=True)
-        self.conv1 = CausalConv3d(in_channels, out_channels, 3, padding=1)
+        self.conv1 = CausalConv3d(in_channels, out_channels, 3, padding=1).to_float(dtype)
         self.norm2 = Normalize(out_channels, extend=True)
         self.dropout = nn.Dropout(p=dropout)
-        self.conv2 = CausalConv3d(out_channels, out_channels, 3, padding=1)
+        self.conv2 = CausalConv3d(out_channels, out_channels, 3, padding=1).to_float(dtype)
         if self.in_channels != self.out_channels:
             if self.use_conv_shortcut:
-                self.conv_shortcut = CausalConv3d(in_channels, out_channels, 3, padding=1)
+                self.conv_shortcut = CausalConv3d(in_channels, out_channels, 3, padding=1).to_float(dtype)
             else:
-                self.nin_shortcut = CausalConv3d(in_channels, out_channels, 1, padding=0)
+                self.nin_shortcut = CausalConv3d(in_channels, out_channels, 1, padding=0).to_float(dtype)
 
     def construct(self, x):
         h = x
         h = self.norm1(h)
-        h = nonlinearity(h)
+        h = nonlinearity(h, self.upcast_sigmoid)
         h = self.conv1(h)
         h = self.norm2(h)
-        h = nonlinearity(h)
+        h = nonlinearity(h, self.upcast_sigmoid)
         h = self.dropout(h)
         h = self.conv2(h)
         if self.in_channels != self.out_channels:
@@ -280,6 +281,7 @@ class SpatialDownsample2x(nn.Cell):
         chan_out,
         kernel_size: Union[int, Tuple[int]] = (3, 3),
         stride: Union[int, Tuple[int]] = (2, 2),
+        dtype=ms.float32,
     ):
         super().__init__()
         kernel_size = cast_tuple(kernel_size, 2)
@@ -294,7 +296,7 @@ class SpatialDownsample2x(nn.Cell):
             (1,) + self.kernel_size,
             stride=(1, ) + stride,
             padding=0,
-        )
+        ).to_float(ms.float32)
         
         # TODO: check
         # no asymmetric padding, must do it ourselves
@@ -315,6 +317,7 @@ class SpatialUpsample2x(nn.Cell):
         chan_out,
         kernel_size: Union[int, Tuple[int]] = (3, 3),
         stride: Union[int, Tuple[int]] = (1, 1),
+        dtype=ms.float32,
     ):
         super().__init__()
         self.chan_in = chan_in
@@ -326,18 +329,22 @@ class SpatialUpsample2x(nn.Cell):
             (1,) + self.kernel_size,
             stride=(1, ) + stride,
             padding=1,
-        )
+        ).to_float(ms.float32)
     
     def construct(self, x):
         b, c, t, h, w = x.shape
 
         # x = rearrange(x, "b c t h w -> b (c t) h w")
-        # TODO: same as (b*t, c, h, w)?
         x = ops.reshape(x, (b, c*t, h, w))
 
-        x = ops.interpolate(x, scale_factor=(2,2), mode="nearest")
+        hw_in = x.shape[-2:]
+        scale_factor = 2
+        hw_out = tuple(scale_factor * s_ for s_ in hw_in)
+        x = ops.ResizeNearestNeighbor(hw_out)(x)
+
+        # x = ops.interpolate(x, scale_factor=(2.,2.), mode="nearest") # 4D not supported
         # x = rearrange(x, "b (c t) h w -> b c t h w", t=t)
-        x = ops.reshape(x, (b, c, t, h, w))
+        x = ops.reshape(x, (b, c, t, h*scale_factor, w*scale_factor))
 
         x = self.conv(x)
         return x
@@ -359,19 +366,26 @@ class TimeDownsample2x(nn.Cell):
 
         return self.conv(x)
 
-
+# TODO: magvit-v2 use conv 1x1 rather than interpolation
 class TimeUpsample2x(nn.Cell):
     def __init__(
         self,
+        exclude_first_frame=True
     ):
         super().__init__()
+        self.exclude_first_frame = exclude_first_frame
 
     def construct(self, x):
         # TODO: will it cause dynamic shape issue?
         if x.shape[2] > 1:
-            x, x_= x[:,:,:1], x[:,:,1:]
-            x_= ops.interpolate(x_, scale_factor=(2,1,1), mode='trilinear')
-            x = ops.concat([x, x_], axis=2)
+            if self.exclude_first_frame:
+                # TODO: tensor slicing here can be slow.
+                x, x_= x[:,:,:1], x[:,:,1:]
+                x_= ops.interpolate(x_, scale_factor=(2.,1.,1.), mode='trilinear')
+                x = ops.concat([x, x_], axis=2)
+            else:
+                x = ops.interpolate(x, scale_factor=(2.,1.,1.), mode='trilinear')
+
         return x
 
 # used in vae
@@ -474,6 +488,7 @@ class AttnBlock(nn.Cell):
         w_ = self.bmm(q, k)  # b,hw,hw    w[b,i,j]=sum_c q[b,i,c]k[b,c,j]
 
         w_ = w_ * (int(c) ** (-0.5))
+        # FIXME: cast w_ to FP32 in amp 
         w_ = ops.Softmax(axis=2)(w_)
 
         # attend to values
@@ -525,6 +540,7 @@ class AttnBlock3D(nn.Cell):
         # TODO: support Flash Attention
         w_ = self.bmm(q, k)  # b,hw,hw    w[b,i,j]=sum_c q[b,i,c]k[b,c,j]
         w_ = w_ * (int(c) ** (-0.5))
+        # FIXME: cast w_ to FP32 in amp
         w_ = ops.Softmax(axis=2)(w_)
 
         # attend to values
