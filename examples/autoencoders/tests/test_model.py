@@ -5,7 +5,9 @@ import torch
 sys.path.append(".")
 import mindspore as ms
 import numpy as np
-from ae.models.causal_vae_3d import Encoder, Decoder
+from ae.models.causal_vae_3d import Encoder, Decoder, CausalVAEModel
+
+z_channels = 4
 
 args = dict(
     ch=128,
@@ -17,19 +19,23 @@ args = dict(
     resamp_with_conv=True,
     in_channels=3,
     resolution=256,
-    z_channels=16,
+    z_channels=z_channels,
     double_z=True,
     use_linear_attn=False,
     attn_type="vanilla3D", # diff 3d
-    dtype=ms.float32,
     time_compress=2,  # diff 3d
-    upcast_sigmoid=False,
+    split_time_upsample=True,
     )
 
-bs, cin, T, H, W = 1, 3, 8, 256, 256
+ae_args = dict(
+        ddconfig=args,
+        embed_dim=z_channels,
+        )
+
+bs, cin, T, H, W = 1, 3, 9, 256, 256
 x = np.random.normal(size=(bs, cin, T, H, W ))
 
-def test_net_ms(x, ckpt=None, net_class=Encoder):
+def test_net_ms(x, ckpt=None, net_class=Encoder, args=None):
     net_ms = net_class(**args)
     net_ms.set_train(False)
     if ckpt:
@@ -43,9 +49,9 @@ def test_net_ms(x, ckpt=None, net_class=Encoder):
     print("ms total params: ", total_params)
 
     print(res_ms.shape)
-    return res_ms.asnumpy(), net_ms 
+    return res_ms.asnumpy(), net_ms
 
-def test_net_pt(x, ckpt=None, save_ckpt_fn=None, net_class=None):
+def test_net_pt(x, ckpt=None, save_ckpt_fn=None, net_class=None, args=None):
     net_pt = net_class(**args)
     net_pt.eval()
     if ckpt is not None:
@@ -65,8 +71,8 @@ def test_net_pt(x, ckpt=None, save_ckpt_fn=None, net_class=None):
     return res_pt.detach().numpy(), net_pt
 
 def _convert_ckpt(pt_ckpt):
-    # sd = torch.load(pt_ckpt, map_location="CPU")['model_state_dict'] 
-    sd = torch.load(pt_ckpt)['model_state_dict'] 
+    # sd = torch.load(pt_ckpt, map_location="CPU")['model_state_dict']
+    sd = torch.load(pt_ckpt)['model_state_dict']
     target_data = []
 
     # import pdb
@@ -94,40 +100,70 @@ def _diff_res(ms_val, pt_val):
     max_ae = abs_diff.max()
     return mae, max_ae
 
+def test_encoder():
+    ms_res, net_ms = test_net_ms(x, ckpt=None, net_class=Encoder, args=args)
+    print(ms_res.shape)
+
+def test_decoder():
+    z_shape = (1, z_channels, 3, 32, 32)  # b c t h w
+    # z_shape = (1, z_channels, 2, 32, 32)  # b c t h w
+    z = np.random.normal(size=z_shape)
+    ms_res, net_ms = test_net_ms(z, ckpt=None, net_class=Decoder, args=args)
+    print(ms_res.shape)
+
 def compare_encoder():
-    pt_code_path = "/home/mindocr/yx/Open-Sora-Plan/" 
+    pt_code_path = "/home/mindocr/yx/Open-Sora-Plan/"
     sys.path.append(pt_code_path)
-    from opensora.models.ae.videobase.causal_vae.modeling_causalvae import Encoder as Encoder_PT 
+    from opensora.models.ae.videobase.causal_vae.modeling_causalvae import Encoder as Encoder_PT
     ckpt_fn = 'encoder'
-    pt_res, net_pt = test_net_pt(x, save_ckpt_fn=ckpt_fn, net_class=Encoder_PT)
+    pt_res, net_pt = test_net_pt(x, save_ckpt_fn=ckpt_fn, net_class=Encoder_PT, args=args)
     print("pt out range: ", pt_res.min(), pt_res.max())
 
-    ckpt = _convert_ckpt(f"tests/{ckpt_fn}.pth")    
+    ckpt = _convert_ckpt(f"tests/{ckpt_fn}.pth")
 
-    ms_res, net_ms = test_net_ms(x, ckpt=ckpt, net_class=Encoder)
+    ms_res, net_ms = test_net_ms(x, ckpt=ckpt, net_class=Encoder, args=args)
     print(_diff_res(ms_res, pt_res))
     # (0.0001554184, 0.0014244393)
 
 def compare_decoder():
-    z_shape = (1, 16, 2, 32, 32)  # b c t h w
+    z_shape = (1, z_channels, 2, 32, 32)  # b c t h w
     z = np.random.normal(size=z_shape)
 
-    pt_code_path = "/home/mindocr/yx/Open-Sora-Plan/" 
+    pt_code_path = "/home/mindocr/yx/Open-Sora-Plan/"
     sys.path.append(pt_code_path)
-    from opensora.models.ae.videobase.causal_vae.modeling_causalvae import Decoder as Decoder_PT 
+    from opensora.models.ae.videobase.causal_vae.modeling_causalvae import Decoder as Decoder_PT
     ckpt_fn = 'decoder'
-    pt_res, net_pt = test_net_pt(z, save_ckpt_fn=ckpt_fn, net_class=Decoder_PT)
+    pt_res, net_pt = test_net_pt(z, save_ckpt_fn=ckpt_fn, net_class=Decoder_PT, args=args)
     print("pt out range: ", pt_res.min(), pt_res.max())
 
-    ckpt = _convert_ckpt(f"tests/{ckpt_fn}.pth")    
+    ckpt = _convert_ckpt(f"tests/{ckpt_fn}.pth")
 
-    ms_res, net_ms = test_net_ms(z, ckpt=ckpt, net_class=Decoder)
+    ms_res, net_ms = test_net_ms(z, ckpt=ckpt, net_class=Decoder, args=args)
     print(_diff_res(ms_res, pt_res))
     # (0.0001554184, 0.0014244393)
 
+def test_vae3d():
 
+    bs, cin, T, H, W = 1, 3, 9, 256, 256
+    x = np.random.normal(size=(bs, cin, T, H, W ))
+
+    # ms_res, net_ms = test_net_ms(x, ckpt=None, net_class=CausalVAEModel, args=ae_args)
+    ae = CausalVAEModel(ddconfig=args, embed_dim=4)
+    ae.set_train(False)
+    # res_ms = net(ms.Tensor(x, dtype=ms.float32))
+
+    z = ae.encode(ms.Tensor(x, dtype=ms.float32))
+    print("z shape: ", z.shape)
+
+    recon = ae.decode(z)
+    print("recon shape: ", recon.shape)
 
 if __name__ == "__main__":
-    # test_encoder(x)
+    ms.set_context(mode=0)
+
+    # test_encoder()
+    # test_decoder()
     # compare_encoder()
     compare_decoder()
+    # test_vae3d()
+
