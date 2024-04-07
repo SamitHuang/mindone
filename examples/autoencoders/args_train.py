@@ -50,6 +50,7 @@ def parse_args():
 
     parser.add_argument("--profile", default=False, type=str2bool, help="Profile or not")
     # data
+    parser.add_argument("--dataset_name", default="image", type=str, choices=['image', 'video'], help="dataset name, image or video")
     parser.add_argument("--data_path", default="dataset", type=str, help="data path")
     parser.add_argument("--csv_path", default=None, type=str, help="path to csv annotation file")
     parser.add_argument("--dataset_sink_mode", default=False, type=str2bool, help="sink mode")
@@ -59,6 +60,9 @@ def parse_args():
     parser.add_argument("--crop_size", default=256, type=int, help="image crop size")
     parser.add_argument("--random_crop", default=False, type=str2bool, help="random crop for data augmentation")
     parser.add_argument("--flip", default=False, type=str2bool, help="horizontal flip for data augmentation")
+    parser.add_argument("--expand_dim_t", default=False, type=str2bool, help="expand temporal axis for image data, used for vae 3d training with image data")
+    parser.add_argument("--num_frames", default=17, type=int, help="num frames")
+    parser.add_argument("--frame_stride", default=4, type=int, help="frame sampling stride")
 
     # optim
     parser.add_argument(

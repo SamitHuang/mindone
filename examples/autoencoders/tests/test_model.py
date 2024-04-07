@@ -13,7 +13,7 @@ args = dict(
     ch=128,
     out_ch=3,
     ch_mult=(1, 2, 4, 4),
-    num_res_blocks=2,
+    num_res_blocks=1,
     attn_resolutions=[16],
     dropout=0.0,
     resamp_with_conv=True,
@@ -164,6 +164,6 @@ if __name__ == "__main__":
     # test_encoder()
     # test_decoder()
     # compare_encoder()
-    compare_decoder()
-    # test_vae3d()
+    # compare_decoder()
+    test_vae3d()
 

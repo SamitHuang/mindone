@@ -8,7 +8,7 @@ import sys
 import time
 
 import yaml
-from ae.data.image_dataset import create_dataloader
+from ae.data.loader import create_dataloader
 from ae.models.net_with_loss import DiscriminatorWithLoss, GeneratorWithLoss
 from omegaconf import OmegaConf
 
@@ -105,15 +105,25 @@ def main(args):
     # 4. build dataset
     ds_config = dict(
         csv_path=args.csv_path,
-        image_folder=args.data_path,
+        data_folder=args.data_path,
         size=args.size,
         crop_size=args.crop_size,
         random_crop=args.random_crop,
         flip=args.flip,
     )
+    if args.dataset_name == 'video':
+        ds_config.update(dict(
+            sample_stride=args.frame_stride,
+            sample_n_frames=args.num_frames,
+            return_image=False,
+            ))
+        assert not (args.num_frames %  2 == 0 and model_config.generator.params.ddconfig.split_time_upsample), 'num of frames must be odd if split_time_upsample is True' 
+    else:
+        ds_config.update(dict(expand_dim_t=args.expand_dim_t))
     dataset = create_dataloader(
         ds_config=ds_config,
         batch_size=args.batch_size,
+        ds_name=args.dataset_name,
         num_parallel_workers=args.num_parallel_workers,
         shuffle=args.shuffle,
         device_num=device_num,

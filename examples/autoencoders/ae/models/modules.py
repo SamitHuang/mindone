@@ -99,7 +99,6 @@ class CausalConv3d(nn.Cell):
             padding[0] = 0
             padding[1] = 0
             padding = tuple(padding)
-
             self.conv = nn.Conv3d(
                 chan_in,
                 chan_out,
@@ -219,7 +218,7 @@ class GroupNormExtend(nn.GroupNorm):
     # GroupNorm supporting tensors with more than 4 dim
     def construct(self, x):
         x_shape = x.shape
-        if x.ndim >= 3:
+        if x.ndim >= 5:
             x = x.view(x_shape[0], x_shape[1], x_shape[2], -1)
         y = super().construct(x)
         return y.view(x_shape)

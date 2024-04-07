@@ -46,25 +46,26 @@ class ImageDataset:
     def __init__(
         self,
         csv_path=None,
-        image_folder=None,
+        data_folder=None,
         size=384,
         crop_size=256,
         random_crop=False,
         flip=False,
         image_column="file_name",
+        expand_dim_t=False,
     ):
         if csv_path is not None:
             with open(csv_path, "r") as csvfile:
                 self.dataset = list(csv.DictReader(csvfile))
             self.read_from_csv = True
         else:
-            self.dataset = get_image_path_list(image_folder)
+            self.dataset = get_image_path_list(data_folder)
             self.read_from_csv = False
         self.length = len(self.dataset)
 
         logger.info(f"Num data samples: {self.length}")
 
-        self.image_folder = image_folder
+        self.data_folder = data_folder
 
         self.pixel_transforms = create_image_transforms(
             size,
@@ -73,6 +74,7 @@ class ImageDataset:
             flip=flip,
         )
         self.image_column = image_column
+        self.expand_dim_t = expand_dim_t
 
         # prepare replacement data
         # max_attempts = 100
@@ -99,7 +101,7 @@ class ImageDataset:
             image_dict = self.dataset[idx]
             # first column is image path
             image_fn = image_dict[list(image_dict.keys())[0]]
-            image_path = os.path.join(self.image_folder, image_fn)
+            image_path = os.path.join(self.data_folder, image_fn)
         else:
             image_path = self.dataset[idx]
 
@@ -136,47 +138,11 @@ class ImageDataset:
         out_image = (trans_image / 127.5 - 1.0).astype(np.float32)
         out_image = out_image.transpose((2, 0, 1))  # h w c -> c h w
 
+        if self.expand_dim_t:
+            # c h w -> c t h w
+            out_image = np.expand_dims(out_image, axis=1)
+
         return out_image
-
-
-def create_dataloader(
-    ds_config,
-    batch_size,
-    num_parallel_workers=12,
-    max_rowsize=32,
-    shuffle=True,
-    device_num=1,
-    rank_id=0,
-    drop_remainder=True,
-):
-    dataset = ImageDataset(
-        **ds_config,
-    )
-    print("Total number of samples: ", len(dataset))
-
-    # Larger value leads to more memory consumption. Default: 16
-    # prefetch_size = config.get("prefetch_size", 16)
-    # ms.dataset.config.set_prefetch_size(prefetch_size)
-
-    dataloader = ms.dataset.GeneratorDataset(
-        source=dataset,
-        column_names=["image"],
-        num_shards=device_num,
-        shard_id=rank_id,
-        python_multiprocessing=True,
-        shuffle=shuffle,
-        num_parallel_workers=num_parallel_workers,
-        max_rowsize=max_rowsize,
-    )
-
-    dl = dataloader.batch(
-        batch_size,
-        drop_remainder=drop_remainder,
-    )
-
-    # TODO: add repeat for for-loop trainer?
-
-    return dl
 
 
 def check_sanity(x, save_fp="./tmp.png"):
@@ -195,51 +161,12 @@ def check_sanity(x, save_fp="./tmp.png"):
 
 
 if __name__ == "__main__":
-    import math
-    import time
-
-    from tqdm import tqdm
-
     ds_config = dict(
         csv_path="/home/mindocr/yx/datasets/chinese_art_blip/train/metadata.csv",
-        image_folder="/home/mindocr/yx/datasets/chinese_art_blip/train",
+        data_folder="/home/mindocr/yx/datasets/chinese_art_blip/train",
     )
     # test source dataset
     ds = ImageDataset(**ds_config)
     sample = ds.__getitem__(0)
     print(sample.shape)
 
-    # test loader
-    dl = create_dataloader(ds_config, 4)
-
-    num_batches = dl.get_dataset_size()
-    # ms.set_context(mode=0)
-    print(num_batches)
-
-    steps = 50
-    iterator = dl.create_dict_iterator(100)  # create 100 repeats
-    tot = 0
-
-    progress_bar = tqdm(range(steps))
-    progress_bar.set_description("Steps")
-
-    start = time.time()
-    for epoch in range(math.ceil(steps / num_batches)):
-        for i, batch in enumerate(iterator):
-            print("epoch", epoch, "step", i)
-            dur = time.time() - start
-            tot += dur
-
-            if epoch * num_batches + i < 2:
-                for k in batch:
-                    print(k, batch[k].shape, batch[k].dtype)  # , batch[k].min(), batch[k].max())
-                    check_sanity(batch[k])
-                print(f"time cost: {dur * 1000} ms")
-
-            progress_bar.update(1)
-            if i + 1 > steps:  # in case the data size is too large
-                break
-            start = time.time()
-
-    mean = tot / steps
-    print("Avg batch loading time: ", mean)

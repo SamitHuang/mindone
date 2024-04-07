@@ -1,0 +1,24 @@
+model_config: "configs/causal_vae_f8_t4.yaml"
+
+dataset_name: "video"
+data_path:  "../videocomposer/datasets/webvid5"
+num_frames: 5  # set odd when split_time_upsample True. should be 1+N, N=multiple of time compression rate.
+size: 256
+crop_size: 256
+flip: True
+
+output_path: "outputs/causal_vae_tmp"
+
+use_discriminator: False
+batch_size: 1
+# base_learning_rate: 1.e-5
+# gradient_accumulation_steps: 4
+
+epochs: 60000
+ckpt_save_interval: 10000
+
+dtype: "fp32"
+init_loss_scale: 1.
+
+scheduler: "constant"
+use_ema: False

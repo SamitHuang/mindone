@@ -4,6 +4,14 @@ from mindspore import nn, ops
 from .lpips import LPIPS
 
 
+def _rearrange_in(x):
+
+    b, c, t, h, w = x.shape 
+    x = x.permute(0, 2, 1, 3, 4) 
+    x = ops.reshape(x, (b*t, c, h, w))
+
+    return x
+
 class GeneratorWithLoss(nn.Cell):
     def __init__(
         self,
@@ -113,13 +121,21 @@ class GeneratorWithLoss(nn.Cell):
     # in graph mode, construct code will run in graph. TODO: in pynative mode, need to add ms.jit decorator
     def construct(self, x: ms.Tensor, global_step: ms.Tensor = -1, weights: ms.Tensor = None, cond=None):
         """
-        x: input image/video, (bs c h w)
+        x: input images or videos, images: (b c h w), videos: (b c t h w)
         weights: sample weights
         global_step: global training step
         """
 
         # 1. AE forward, get posterior (mean, logvar) and recons
         recons, mean, logvar = self.autoencoder(x)
+        
+        # For videos, treat them as independent frame images
+        # TODO: regularize on temporal consistency 
+        if x.ndim >= 5:
+            # x: b c t h w -> (b*t c h w), shape for image perceptual loss
+            x = _rearrange_in(x)       
+            recons = _rearrange_in(recons)       
+            # mean and var kl loss 
 
         # 2. compuate loss
         loss = self.loss_function(x, recons, mean, logvar, global_step, weights, cond)
@@ -182,6 +198,12 @@ class DiscriminatorWithLoss(nn.Cell):
         # 1. AE forward, get posterior (mean, logvar) and recons
         recons, mean, logvar = ops.stop_gradient(self.autoencoder(x))
 
+        if x.ndim >= 5:
+            # TODO: use 3D discriminator
+            # x: b c t h w -> (b*t c h w), shape for image perceptual loss
+            x = _rearrange_in(x)       
+            recons = _rearrange_in(recons)       
+
         # 2. Disc forward to get class prediction on real input and reconstrucions
         if cond is None:
             logits_real = self.discriminator(x)
@@ -190,7 +212,6 @@ class DiscriminatorWithLoss(nn.Cell):
             logits_real = self.discriminator(ops.concat((x, cond), dim=1))
             logits_fake = self.discriminator(ops.concat((recons, cond), dim=1))
 
-        # TODO: skip previous computation if global step < self.disc_start, to save time
         if global_step >= self.disc_start:
             disc_factor = self.disc_factor
         else:

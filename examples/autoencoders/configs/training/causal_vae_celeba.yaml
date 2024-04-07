@@ -1,0 +1,22 @@
+model_config: "configs/causal_vae_f8_t4.yaml"
+
+dataset_name: "image"
+data_path:  "datasets/celeba_hq_256/train"
+expand_dim_t: True  # to allow training vae 3d
+size: 256
+crop_size: 256
+flip: True
+
+output_path: "outputs/causal_vae_tmp"
+
+use_discriminator: False
+batch_size: 2
+
+epochs: 60
+ckpt_save_interval: 1
+
+dtype: "fp32"
+init_loss_scale: 1.
+
+scheduler: "constant"
+use_ema: False
