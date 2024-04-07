@@ -34,6 +34,7 @@ def parse_args():
         type=str,
         help="model arch config",
     )
+    parser.add_argument("--pretrained", default=None, type=str, help="path to pretrained autoencoder checkpoint")
     parser.add_argument("--use_parallel", default=False, type=str2bool, help="use parallel")
     parser.add_argument(
         "--output_path", default="outputs/vae_train", type=str, help="output directory to save training results"
@@ -62,7 +63,7 @@ def parse_args():
     parser.add_argument("--flip", default=False, type=str2bool, help="horizontal flip for data augmentation")
     parser.add_argument("--expand_dim_t", default=False, type=str2bool, help="expand temporal axis for image data, used for vae 3d training with image data")
     parser.add_argument("--num_frames", default=17, type=int, help="num frames")
-    parser.add_argument("--frame_stride", default=4, type=int, help="frame sampling stride")
+    parser.add_argument("--frame_stride", default=1, type=int, help="frame sampling stride")
 
     # optim
     parser.add_argument(

@@ -6,9 +6,10 @@ import logging
 import os
 import sys
 import time
+import imageio
 
 import numpy as np
-from ae.data.image_dataset import create_dataloader
+from ae.data.loader import create_dataloader
 from ae.models.lpips import LPIPS
 from omegaconf import OmegaConf
 from PIL import Image
@@ -23,25 +24,44 @@ mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../"))
 sys.path.insert(0, mindone_lib_path)
 from mindone.utils.config import instantiate_from_config, str2bool
 from mindone.utils.logger import set_logger
+from mindone.visualize.videos import save_videos
 
 logger = logging.getLogger(__name__)
 
 
 def postprocess(x, trim=True):
+    # postprocess for computing metrics
     pixels = (x + 1) * 127.5
     pixels = np.clip(pixels, 0, 255).astype(np.uint8)
-    # b, c, h, w -> b h w c
-    return np.transpose(pixels, (0, 2, 3, 1))
+  
+    if len(pixels.shape) == 4:
+        # b, c, h, w -> b h w c
+        return np.transpose(pixels, (0, 2, 3, 1))
+    else:
+        # b c t h w -> b t h w c -> b*t h w c
+        b, c, t, h, w = pixels.shape
+        pixels = np.transpose(pixels, (0, 2, 3, 4, 1))
+        pixels = np.reshape(pixels, (b*t, h, w, c))
+        return pixels
 
-
-def visualize(recons, x=None, save_fn="tmp_vae_recons"):
-    # x: (b h w c), np array
+def visualize_image(recons, x=None, save_fn="tmp_vae_recons"):
+    # x: (b h w c)
     for i in range(recons.shape[0]):
         if x is not None:
             out = np.concatenate((x[i], recons[i]), axis=-2)
         else:
             out = recons[i]
         Image.fromarray(out).save(f"{save_fn}-{i:02d}.png")
+        
+def visualize_video(recons, x=None, save_fn="tmp_vae3d_recons", fps=8):
+    # x: (b t h w c)
+    for i in range(recons.shape[0]):
+        if x is not None:
+            out = np.concatenate((x[i], recons[i]), axis=-2)
+        else:
+            out = recons[i]
+        save_fp = f"{save_fn}-{i:02d}.gif"
+        imageio.mimsave(save_fp, out, duration=1/fps, loop=0)
 
 
 def main(args):
@@ -60,16 +80,27 @@ def main(args):
 
     ds_config = dict(
         csv_path=args.csv_path,
-        image_folder=args.data_path,
+        data_folder=args.data_path,
         size=args.size,
         crop_size=args.crop_size,
         flip=False,
         random_crop=False,
     )
+    if args.dataset_name == 'video':
+        ds_config.update(dict(
+            sample_stride=args.frame_stride,
+            sample_n_frames=args.num_frames,
+            return_image=False,
+            ))
+        assert not (args.num_frames %  2 == 0 and model_config.generator.params.ddconfig.split_time_upsample), 'num of frames must be odd if split_time_upsample is True' 
+    else:
+        ds_config.update(dict(expand_dim_t=args.expand_dim_t))
+
 
     dataset = create_dataloader(
         ds_config=ds_config,
         batch_size=args.batch_size,
+        ds_name=args.dataset_name,
         num_parallel_workers=args.num_parallel_workers,
         shuffle=False,
         drop_remainder=False,
@@ -86,7 +117,10 @@ def main(args):
     mean_recon = 0
     num_samples = 0
     for step, data in tqdm(enumerate(ds_iter)):
-        x = data["image"]
+        if args.dataset_name == 'image':
+            x = data['image']
+        else:
+            x = data['video']
         start_time = time.time()
 
         z = model.encode(x)
@@ -98,6 +132,13 @@ def main(args):
         logger.info(f"Infer time: {infer_time}")
 
         if not args.encode_only:
+            # if args.dataset_name == 'image' and args.expand_dim_t:
+            #    # b c t h w -> b c h w
+            #    x = x[:,:,0,:,:] 
+            #    recons= recons[:,:,0,:,:]
+            is_video = (len(recons.shape) == 5 and (recons.shape[-3]>1))
+            t = recons.shape[-3] if is_video else 1
+            
             recons_rgb = postprocess(recons.asnumpy())
             x_rgb = postprocess(x.asnumpy())
 
@@ -110,17 +151,23 @@ def main(args):
             mean_ssim += sum(ssim_cur)
             num_samples += x_rgb.shape[0]
 
-            if args.save_images:
-                save_fn = os.path.join(
-                    args.output_path, "{}-{}".format(os.path.basename(args.data_path), f"step{step:03d}")
-                )
-                visualize(recons_rgb, x_rgb, save_fn=save_fn)
-
             if args.eval_loss:
                 recon_loss = np.abs((x - recons).asnumpy())
                 lpips_loss = lpips_loss_fn(x, recons).asnumpy()
                 mean_recon += recon_loss.mean()
                 mean_lpips += lpips_loss.mean()
+                
+            if args.save_vis:
+                save_fn = os.path.join(
+                    args.output_path, "{}-{}".format(os.path.basename(args.data_path), f"step{step:03d}")
+                )
+                if not is_video:
+                    visualize_image(recons_rgb, x_rgb, save_fn=save_fn)
+                else:
+                    bt, h, w, c = recons_rgb.shape
+                    recons_rgb_vis = np.reshape(recons_rgb, (bt//t, t, h, w, c))
+                    x_rgb_vis = np.reshape(x_rgb, (bt//t, t, h, w, c))
+                    visualize_video(recons_rgb_vis, x_rgb_vis, save_fn=save_fn)
 
     mean_infer_time /= num_batches
     logger.info(f"Mean infer time: {mean_infer_time}")
@@ -157,10 +204,14 @@ def parse_args():
         help="path to csv annotation file. If None, will get images from the folder of `data_path`",
     )
     parser.add_argument("--data_path", default="dataset", type=str, help="data path")
+    parser.add_argument("--dataset_name", default="image", type=str, choices=['image', 'video'], help="dataset name, image or video")
     parser.add_argument(
         "--output_path", default="samples/vae_recons", type=str, help="output directory to save inference results"
     )
-    parser.add_argument("--size", default=384, type=int, help="image rescale size")
+    parser.add_argument("--num_frames", default=17, type=int, help="num frames")
+    parser.add_argument("--frame_stride", default=1, type=int, help="frame sampling stride")
+    parser.add_argument("--expand_dim_t", default=False, type=str2bool, help="expand temporal axis for image data, used for vae 3d inference with image data")
+    parser.add_argument("--size", default=256, type=int, help="image rescale size")
     parser.add_argument("--crop_size", default=256, type=int, help="image crop size")
 
     parser.add_argument("--mode", default=0, type=int, help="Specify the mode: 0 for graph mode, 1 for pynative mode")
@@ -173,7 +224,7 @@ def parse_args():
         type=str2bool,
         help="whether measure loss including reconstruction, kl, perceptual loss",
     )
-    parser.add_argument("--save_images", default=True, type=str2bool, help="whether save reconstructed images")
+    parser.add_argument("--save_vis", default=True, type=str2bool, help="whether save reconstructed images")
     parser.add_argument("--encode_only", default=False, type=str2bool, help="only encode to save z or distribution")
     parser.add_argument(
         "--save_z_dist",

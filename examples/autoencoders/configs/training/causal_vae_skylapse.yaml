@@ -7,6 +7,7 @@ size: 256
 crop_size: 256
 flip: True
 
+pretrained: "models/causal_vae_3d_f8_t4_init.ckpt"
 output_path: "outputs/causal_vae_tmp"
 
 use_discriminator: False

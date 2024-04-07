@@ -68,6 +68,9 @@ def main(args):
     #  autoencoder (G)
     model_config = OmegaConf.load(args.model_config)
     ae = instantiate_from_config(model_config.generator)
+    if args.pretrained is not None:
+        logger.info(f"Loading autoencoder from {args.pretrained}")
+        ms.load_checkpoint(args.pretrained, ae, filter_prefix=None)
 
     # discriminator (D)
     use_discriminator = args.use_discriminator and (model_config.lossconfig.disc_weight > 0.0)
