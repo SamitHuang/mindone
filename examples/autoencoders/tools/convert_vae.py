@@ -2,6 +2,7 @@ import argparse
 import mindspore as ms
 from safetensors import safe_open
 import torch
+import numpy as np
 
 def convert(pt_ckpt, target_fp):
     if pt_ckpt.endswith('.pth'):
@@ -12,9 +13,9 @@ def convert(pt_ckpt, target_fp):
         with safe_open(pt_ckpt, framework="pt", device="cpu") as f:
             for key in f.keys():
                 state_dict[key] = f.get_tensor(key)
-
     target_data = []
     for k in state_dict:
+        print(k)
         if '.' not in k:
             # only for GroupNorm
             ms_name = k.replace("weight", "gamma").replace("bias", "beta")
@@ -23,12 +24,13 @@ def convert(pt_ckpt, target_fp):
                 ms_name = k.replace(".weight", ".gamma").replace(".bias", ".beta")
             else:
                 ms_name = k
-        target_data.append({"name": ms_name, "data": ms.Tensor(state_dict[k].detach().numpy())})
+        # import pdb
+        # pdb.set_trace()
+        val = state_dict[k].detach().numpy().astype(np.float32)
+        # print(type(val), val.dtype, val.shape) 
+        target_data.append({"name": ms_name, "data": ms.Tensor(val, dtype=ms.float32)})
 
-    save_fn = pt_ckpt.replace(".pth", ".ckpt")
     ms.save_checkpoint(target_data, target_fp)
-
-    return save_fn
 
 
 if __name__ == "__main__":
