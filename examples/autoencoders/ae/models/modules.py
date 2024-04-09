@@ -47,6 +47,8 @@ class CausalConv3d(nn.Cell):
         kernel_size = cast_tuple(kernel_size, 3)
         time_kernel_size, height_kernel_size, width_kernel_size = kernel_size
 
+        print("D--: conv3d dtype: ", dtype)
+
         assert is_odd(height_kernel_size) and is_odd(width_kernel_size)
 
         dilation = kwargs.pop("dilation", 1)
