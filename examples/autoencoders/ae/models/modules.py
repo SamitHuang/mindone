@@ -363,7 +363,7 @@ class TimeDownsample2x(nn.Cell):
             self.conv = nn.AvgPool3d((kernel_size,1,1), stride=(2,1,1))
         else:
             self.conv = nn.AvgPool2d((kernel_size,1), stride=(2,1))
-
+        print('D--: replace avgpool3d', replace_avgpool3d)
         self.time_pad = self.kernel_size - 1 
         
     def construct(self, x):
