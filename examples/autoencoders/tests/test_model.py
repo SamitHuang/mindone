@@ -6,6 +6,7 @@ sys.path.append(".")
 import mindspore as ms
 import numpy as np
 from ae.models.causal_vae_3d import Encoder, Decoder, CausalVAEModel
+from ae.models.modules import TimeDownsample2x  
 
 z_channels = 4
 
@@ -111,25 +112,57 @@ def test_decoder():
     ms_res, net_ms = test_net_ms(z, ckpt=None, net_class=Decoder, args=args)
     print(ms_res.shape)
 
-def compare_encoder():
-    pt_code_path = "/home/mindocr/yx/Open-Sora-Plan/"
+def compare_time_down2x(ckpt_fn='timedown2x'):
+    pt_code_path = "/data3/hyx/Open-Sora-Plan-cc41/"
     sys.path.append(pt_code_path)
-    from opensora.models.ae.videobase.causal_vae.modeling_causalvae import Encoder as Encoder_PT
-    ckpt_fn = 'encoder'
-    pt_res, net_pt = test_net_pt(x, save_ckpt_fn=ckpt_fn, net_class=Encoder_PT, args=args)
-    print("pt out range: ", pt_res.min(), pt_res.max())
+    from opensora.models.ae.videobase.modules.updownsample import TimeDownsample2x  as TD_PT 
+    
+    args = dict(kernel_size=3)
+    pt_res, net_pt = test_net_pt(x, save_ckpt_fn=None, net_class=TD_PT, args=args)
+    # ckpt = _convert_ckpt(f"tests/{ckpt_fn}.pth")
 
-    ckpt = _convert_ckpt(f"tests/{ckpt_fn}.pth")
-
-    ms_res, net_ms = test_net_ms(x, ckpt=ckpt, net_class=Encoder, args=args)
+    ms_res, net_ms = test_net_ms(x, ckpt=None, net_class=TimeDownsample2x, args=args)
     print(_diff_res(ms_res, pt_res))
-    # (0.0001554184, 0.0014244393)
+
+
+def compare_encoder(x, ckpt_fn = 'encoder', backend='ms+pt'):
+    if isinstance(x, str):
+        x = np.load(x)
+    else:
+        save_fn = "tests/encoder_inp.npy"
+        np.save(save_fn, x)
+        print("saved random data in ", save_fn)
+
+    if 'pt' in backend: 
+        pt_code_path = "/data3/hyx/Open-Sora-Plan-cc41/"
+        sys.path.append(pt_code_path)
+        from opensora.models.ae.videobase.causal_vae.modeling_causalvae import Encoder as Encoder_PT
+        
+        # import pdb
+        # pdb.set_trace() 
+
+        pt_res, net_pt = test_net_pt(x, save_ckpt_fn=ckpt_fn, net_class=Encoder_PT, args=args)
+        print("pt out range: ", pt_res.min(), pt_res.max())
+         
+        ckpt = _convert_ckpt(f"tests/{ckpt_fn}.pth")
+    else:
+        ckpt = f"tests/{ckpt_fn}.ckpt"
+
+    if 'ms' in backend:
+        # import pdb
+        # pdb.set_trace() 
+
+        ms_res, net_ms = test_net_ms(x, ckpt=ckpt, net_class=Encoder, args=args)
+
+    if 'pt' in backend and 'ms' in backend:
+        print(_diff_res(ms_res, pt_res))
+        # (0.0001554184, 0.0014244393)
 
 def compare_decoder():
     z_shape = (1, z_channels, 2, 32, 32)  # b c t h w
     z = np.random.normal(size=z_shape)
 
-    pt_code_path = "/home/mindocr/yx/Open-Sora-Plan/"
+    pt_code_path = "/data3/hyx/Open-Sora-Plan-cc41/"
     sys.path.append(pt_code_path)
     from opensora.models.ae.videobase.causal_vae.modeling_causalvae import Decoder as Decoder_PT
     ckpt_fn = 'decoder'
@@ -165,5 +198,9 @@ if __name__ == "__main__":
     # test_decoder()
     # compare_encoder()
     # compare_decoder()
-    test_vae3d()
+    # test_vae3d()
 
+    # compare_encoder("tests/encoder_inp.npy", backend='pt')
+    # compare_encoder("tests/encoder_inp.npy", backend='ms')
+
+    compare_time_down2x()

@@ -353,11 +353,17 @@ class SpatialUpsample2x(nn.Cell):
 class TimeDownsample2x(nn.Cell):
     def __init__(
         self,
-        kernel_size: int = 3
+        kernel_size: int = 3,
+        replace_avgpool3d: bool = True,  # FIXME: currently, ms+910b does not support avg pool 3d
     ):
         super().__init__()
         self.kernel_size = kernel_size
-        self.conv = nn.AvgPool3d((kernel_size,1,1), stride=(2,1,1))
+        self.replace_avgpool3d = replace_avgpool3d
+        if not replace_avgpool3d:
+            self.conv = nn.AvgPool3d((kernel_size,1,1), stride=(2,1,1))
+        else:
+            self.conv = nn.AvgPool2d((kernel_size,1), stride=(2,1))
+
         self.time_pad = self.kernel_size - 1 
         
     def construct(self, x):
@@ -365,7 +371,16 @@ class TimeDownsample2x(nn.Cell):
         first_frame_pad = ops.repeat_interleave(first_frame, self.time_pad, axis=2)
         x = ops.concat((first_frame_pad, x), axis=2)
 
-        return self.conv(x)
+        if not self.replace_avgpool3d:
+            return self.conv(x)
+        else:
+            # FIXME: only work when h, w stride is 1
+            b, c, t, h, w = x.shape
+            x = ops.reshape(x, (b, c, t, h*w))
+            x = self.conv(x)
+            x = ops.reshape(x, (b, c, -1, h, w))
+            return x
+
 
 # TODO: magvit-v2 use conv 1x1 rather than interpolation
 class TimeUpsample2x(nn.Cell):

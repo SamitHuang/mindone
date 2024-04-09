@@ -156,7 +156,7 @@ def compare_gn(npy_fp=None):
     print('np out: ', my_out.sum())
     
 
-def test_res3d(npy_fp=None, ckpt_fp=None, backend='ms'):
+def compare_res3d(npy_fp=None, ckpt_fp=None, backend='ms'):
     if npy_fp is None:
         cout = hidden_size = 128
         x = np.random.normal(size=(bs, hidden_size, T, H, W ))
@@ -195,9 +195,9 @@ def test_res3d(npy_fp=None, ckpt_fp=None, backend='ms'):
 
 def compare_res3d():
     import torch
-    pt_code_path = "/home/mindocr/yx/Open-Sora-Plan/opensora/models/ae/videobase" 
+    pt_code_path = "/data3/hyx/Open-Sora-Plan-cc41/"
     sys.path.append(pt_code_path)
-    from modules.resnet_block import ResnetBlock3D as RB3D_PT 
+    from  opensora.models.ae.videobase.modules.resnet_block import ResnetBlock3D as RB3D_PT 
     
     cout = hidden_size = 128
     x = np.random.normal(size=(bs, hidden_size, T, H, W ))
@@ -236,8 +236,8 @@ def compare_res3d():
     print("Diff: ", _diff_res(out_pt, out_ms))
 
 
-def test_attn3d():
-    pt_code_path = "/home/mindocr/yx/Open-Sora-Plan/" 
+def compare_attn3d():
+    pt_code_path = "/data3/hyx/Open-Sora-Plan-cc41/"
     sys.path.append(pt_code_path)
     from opensora.models.ae.videobase.modules.attention import AttnBlock3D as A3D_PT 
 
@@ -260,17 +260,18 @@ def test_attn3d():
 
     print("Diff: ", _diff_res(res_ms, res_pt))
 
+
 if __name__=='__main__':
     # test_cconv3d()
     #print("Checking forward with same weight...")
-    #compare_cconv3d(copy_weights=True)
+    # compare_cconv3d(copy_weights=True)
     #print("Checking init...")
     #compare_cconv3d(copy_weights=False)
     # compare_nonlinear()
     # compare_res3d()
     # compare_gn()
-    # test_attn3d()
+    # compare_attn3d()
 
     # inp = 'tests/resblock_inp.npy'
     # test_res3d(inp, "tests/rb3.pth", "pt")
-    test_res3d(None, None, "ms")
+    # test_res3d(None, None, "ms")
