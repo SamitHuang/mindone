@@ -25,6 +25,7 @@ sys.path.insert(0, mindone_lib_path)
 from mindone.utils.config import instantiate_from_config, str2bool
 from mindone.utils.logger import set_logger
 from mindone.visualize.videos import save_videos
+from mindone.utils.amp import auto_mixed_precision
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,12 @@ def main(args):
         lpips_loss_fn = LPIPS()
 
     model.set_train(False)
+    
+    if args.amp_level != 'O0':
+        assert args.dtype in ['fp16', 'bf16']
+        dtype = {'fp16': ms.float16, 'bf16': ms.bfloat16}[args.dtype]
+        model = auto_mixed_precision(model, args.amp_level, dtype=dtype)
+    logger.info(f"AMP level: {args.amp_level}, dtype: {args.dtype}")
 
     ds_config = dict(
         csv_path=args.csv_path,
@@ -215,8 +222,6 @@ def parse_args():
     parser.add_argument("--size", default=256, type=int, help="image rescale size")
     parser.add_argument("--crop_size", default=256, type=int, help="image crop size")
 
-    parser.add_argument("--mode", default=0, type=int, help="Specify the mode: 0 for graph mode, 1 for pynative mode")
-    parser.add_argument("--device_target", type=str, default="Ascend", help="Ascend or GPU")
     parser.add_argument("--batch_size", default=4, type=int, help="batch size")
     parser.add_argument("--num_parallel_workers", default=8, type=int, help="num workers for data loading")
     parser.add_argument(
@@ -233,6 +238,11 @@ def parse_args():
         type=str2bool,
         help="If True, save z distribution, mean and logvar. Otherwise, save z after sampling.",
     )
+    # ms related
+    parser.add_argument("--mode", default=0, type=int, help="Specify the mode: 0 for graph mode, 1 for pynative mode")
+    parser.add_argument("--amp_level", default="O0", type=str, choices=["O0", "O2"], help="auto-mixed precision level, O0 - all fp32, O2 - part fp32 (e.g. norm layers), allowing increasing max frames")
+    parser.add_argument("--dtype", default="bf16", type=str, choices=["bf16", "fp16"], help="precision type of partial layers for under mixed-precision mode, such as dense and conv layers")
+    parser.add_argument("--device_target", type=str, default="Ascend", help="Ascend or GPU")
 
     args = parser.parse_args()
 

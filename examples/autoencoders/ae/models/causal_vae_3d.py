@@ -30,12 +30,13 @@ class CausalVAEModel(nn.Cell):
     ):
         super().__init__()
         self.dtype = ms.float16 if use_fp16 else ms.float32
-        print("D--: ddconfig: ", ddconfig)
+        # print("D--: ddconfig: ", ddconfig)
 
         self.encoder = Encoder(dtype=self.dtype, upcast_sigmoid=upcast_sigmoid, **ddconfig)
         self.decoder = Decoder(dtype=self.dtype, upcast_sigmoid=upcast_sigmoid, **ddconfig)
         assert ddconfig["double_z"]
-        print("D--: exclude first frame from time upsample: ", ddconfig['split_time_upsample'])
+        if ddconfig['split_time_upsample']:
+            print("Exclude first frame from time upsample")
         self.quant_conv = CausalConv3d(
             2 * ddconfig["z_channels"], 2 * embed_dim, 1,
             )

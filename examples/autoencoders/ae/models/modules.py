@@ -39,15 +39,13 @@ class CausalConv3d(nn.Cell):
         chan_out,
         kernel_size: Union[int, Tuple[int, int, int]],
         padding: int = 0,
-        dtype=ms.float32,  # FIXME: debug for 910b
+        dtype=ms.float32,
         **kwargs,
     ):
         super().__init__()
         assert isinstance(padding, int)
         kernel_size = cast_tuple(kernel_size, 3)
         time_kernel_size, height_kernel_size, width_kernel_size = kernel_size
-
-        print("D--: conv3d dtype: ", dtype)
 
         assert is_odd(height_kernel_size) and is_odd(width_kernel_size)
 
@@ -355,7 +353,7 @@ class TimeDownsample2x(nn.Cell):
     def __init__(
         self,
         kernel_size: int = 3,
-        replace_avgpool3d: bool = True,  # FIXME: currently, ms+910b does not support avg pool 3d
+        replace_avgpool3d: bool = True,  # FIXME: currently, ms+910b does not support nn.AvgPool3d
     ):
         super().__init__()
         self.kernel_size = kernel_size
@@ -364,7 +362,7 @@ class TimeDownsample2x(nn.Cell):
             self.conv = nn.AvgPool3d((kernel_size,1,1), stride=(2,1,1))
         else:
             self.conv = nn.AvgPool2d((kernel_size,1), stride=(2,1))
-        print('D--: replace avgpool3d', replace_avgpool3d)
+        # print('D--: replace avgpool3d', replace_avgpool3d)
         self.time_pad = self.kernel_size - 1 
         
     def construct(self, x):
