@@ -113,7 +113,8 @@ def test_decoder():
     print(ms_res.shape)
 
 def compare_time_down2x(ckpt_fn='timedown2x'):
-    pt_code_path = "/data3/hyx/Open-Sora-Plan-cc41/"
+    # pt_code_path = "/data3/hyx/Open-Sora-Plan-cc41/"
+    pt_code_path = "/home/mindocr/yx/Open-Sora-Plan/"
     sys.path.append(pt_code_path)
     from opensora.models.ae.videobase.modules.updownsample import TimeDownsample2x  as TD_PT 
     
@@ -134,7 +135,8 @@ def compare_encoder(x, ckpt_fn = 'encoder', backend='ms+pt'):
         print("saved random data in ", save_fn)
 
     if 'pt' in backend: 
-        pt_code_path = "/data3/hyx/Open-Sora-Plan-cc41/"
+        # pt_code_path = "/data3/hyx/Open-Sora-Plan-cc41/"
+        pt_code_path = "/home/mindocr/yx/Open-Sora-Plan/"
         sys.path.append(pt_code_path)
         from opensora.models.ae.videobase.causal_vae.modeling_causalvae import Encoder as Encoder_PT
         
@@ -196,11 +198,11 @@ if __name__ == "__main__":
 
     # test_encoder()
     # test_decoder()
-    # compare_encoder()
+    compare_encoder(x)
     # compare_decoder()
     # test_vae3d()
 
     # compare_encoder("tests/encoder_inp.npy", backend='pt')
     # compare_encoder("tests/encoder_inp.npy", backend='ms')
 
-    compare_time_down2x()
+    # compare_time_down2x()

@@ -354,7 +354,7 @@ class TimeDownsample2x(nn.Cell):
     def __init__(
         self,
         kernel_size: int = 3,
-        replace_avgpool3d: bool = True,  # FIXME: currently, ms+910b does not support avg pool 3d
+        replace_avgpool3d: bool = False,  # FIXME: currently, ms+910b does not support avg pool 3d
     ):
         super().__init__()
         self.kernel_size = kernel_size

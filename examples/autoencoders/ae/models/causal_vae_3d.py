@@ -287,9 +287,6 @@ class Encoder(nn.Cell):
         )
 
     def construct(self, x):
-        import pdb
-        pdb.set_trace()
-
         # downsampling
         hs = [self.conv_in(x)]
         for i_level in range(self.num_resolutions):
