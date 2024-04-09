@@ -53,7 +53,7 @@ def visualize_image(recons, x=None, save_fn="tmp_vae_recons"):
             out = recons[i]
         Image.fromarray(out).save(f"{save_fn}-{i:02d}.png")
         
-def visualize_video(recons, x=None, save_fn="tmp_vae3d_recons", fps=8):
+def visualize_video(recons, x=None, save_fn="tmp_vae3d_recons", fps=15):
     # x: (b t h w c)
     for i in range(recons.shape[0]):
         if x is not None:
@@ -65,7 +65,8 @@ def visualize_video(recons, x=None, save_fn="tmp_vae3d_recons", fps=8):
 
 
 def main(args):
-    ms.set_context(mode=args.mode)
+    ascend_config={"precision_mode": "must_keep_origin_dtype"}
+    ms.set_context(mode=args.mode, ascend_config=ascend_config)
     set_logger(name="", output_dir=args.output_path, rank=0)
 
     config = OmegaConf.load(args.model_config)

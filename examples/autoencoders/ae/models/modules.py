@@ -299,14 +299,15 @@ class SpatialDownsample2x(nn.Cell):
             padding=0,
         )
         
-        # TODO: check
         # no asymmetric padding, must do it ourselves
         # order (width_pad, width_pad, height_pad, height_pad, time_pad, 0)
-        self.padding = (0,1,0,1,0,0)
+        # self.padding = (0,1,0,1,0,0) # not compatible for ms2.2
+        self.pad = ops.Pad(paddings=((0,0), (0,0), (0,0), (0,1), (0, 1)))
 
     def construct(self, x):
         # x shape: (b c t h w)
-        x = ops.pad(x, self.padding, mode="constant", value=0)
+        # x = ops.pad(x, self.padding, mode="constant", value=0)
+        x = self.pad(x) 
         x = self.conv(x)
         return x
 
@@ -381,8 +382,6 @@ class TimeDownsample2x(nn.Cell):
             x = ops.reshape(x, (b, c, -1, h, w))
             return x
 
-
-# TODO: magvit-v2 use conv 1x1 rather than interpolation
 class TimeUpsample2x(nn.Cell):
     def __init__(
         self,
@@ -392,17 +391,17 @@ class TimeUpsample2x(nn.Cell):
         self.exclude_first_frame = exclude_first_frame
 
     def construct(self, x):
-        # TODO: will it cause dynamic shape issue?
         if x.shape[2] > 1:
             if self.exclude_first_frame:
-                # TODO: tensor slicing here can be slow.
                 x, x_= x[:,:,:1], x[:,:,1:]
+                # FIXME: ms2.2.10 cannot support trilinear on 910b
                 x_= ops.interpolate(x_, scale_factor=(2.,1.,1.), mode='trilinear')
                 x = ops.concat([x, x_], axis=2)
             else:
                 x = ops.interpolate(x, scale_factor=(2.,1.,1.), mode='trilinear')
 
         return x
+
 
 # used in vae
 class ResnetBlock(nn.Cell):

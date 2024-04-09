@@ -6,7 +6,7 @@ sys.path.append(".")
 import mindspore as ms
 import numpy as np
 from ae.models.causal_vae_3d import Encoder, Decoder, CausalVAEModel
-from ae.models.modules import TimeDownsample2x  
+from ae.models.modules import TimeDownsample2x, SpatialDownsample2x, SpatialUpsample2x, TimeUpsample2x
 
 z_channels = 4
 
@@ -125,6 +125,30 @@ def compare_time_down2x(ckpt_fn='timedown2x'):
     print(_diff_res(ms_res, pt_res))
 
 
+def compare_space_down(ckpt_fn='spacedown'):
+    d = 64
+    x = np.random.normal(size=(bs, d, T, H, W ))
+
+    args = dict(chan_in=d, chan_out=d)
+    ms_res, net_ms = test_net_ms(x, ckpt=None, net_class=SpatialDownsample2x, args=args)
+
+def compare_space_up(ckpt_fn='spaceup'):
+    d = 64
+    x = np.random.normal(size=(bs, d, T, H, W ))
+
+    args = dict(chan_in=d, chan_out=d)
+    ms_res, net_ms = test_net_ms(x, ckpt=None, net_class=SpatialUpsample2x, args=args)
+
+def compare_time_up(ckpt_fn='timeup'):
+    d = 64
+    x = np.random.normal(size=(bs, d, T, H, W ))
+
+    args = dict(
+        exclude_first_frame=True
+    )
+    ms_res, net_ms = test_net_ms(x, ckpt=None, net_class=TimeUpsample2x, args=args)
+
+
 def compare_encoder(x, ckpt_fn = 'encoder', backend='ms+pt'):
     if isinstance(x, str):
         x = np.load(x)
@@ -196,11 +220,14 @@ if __name__ == "__main__":
 
     # test_encoder()
     # test_decoder()
-    # compare_encoder()
+    compare_encoder(x)
     # compare_decoder()
     # test_vae3d()
 
     # compare_encoder("tests/encoder_inp.npy", backend='pt')
     # compare_encoder("tests/encoder_inp.npy", backend='ms')
 
-    compare_time_down2x()
+    # compare_time_down2x()
+    # compare_space_down()
+    # compare_space_up()
+    # compare_time_up()
