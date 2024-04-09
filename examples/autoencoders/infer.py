@@ -53,7 +53,7 @@ def visualize_image(recons, x=None, save_fn="tmp_vae_recons"):
             out = recons[i]
         Image.fromarray(out).save(f"{save_fn}-{i:02d}.png")
         
-def visualize_video(recons, x=None, save_fn="tmp_vae3d_recons", fps=8):
+def visualize_video(recons, x=None, save_fn="tmp_vae3d_recons", fps=15):
     # x: (b t h w c)
     for i in range(recons.shape[0]):
         if x is not None:

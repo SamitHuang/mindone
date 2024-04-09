@@ -39,7 +39,7 @@ class CausalConv3d(nn.Cell):
         chan_out,
         kernel_size: Union[int, Tuple[int, int, int]],
         padding: int = 0,
-        dtype=ms.float16,  # FIXME: debug for 910b
+        dtype=ms.float32,  # FIXME: debug for 910b
         **kwargs,
     ):
         super().__init__()
@@ -354,7 +354,7 @@ class TimeDownsample2x(nn.Cell):
     def __init__(
         self,
         kernel_size: int = 3,
-        replace_avgpool3d: bool = False,  # FIXME: currently, ms+910b does not support avg pool 3d
+        replace_avgpool3d: bool = True,  # FIXME: currently, ms+910b does not support avg pool 3d
     ):
         super().__init__()
         self.kernel_size = kernel_size

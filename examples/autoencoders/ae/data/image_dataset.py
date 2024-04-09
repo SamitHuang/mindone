@@ -17,18 +17,31 @@ logger = logging.getLogger()
 def create_image_transforms(
     size=384, crop_size=256, interpolation="bicubic", backend="al", random_crop=False, flip=False
 ):
-    # expect rgb image in range 0-255, shape (h w c)
-    from albumentations import CenterCrop, HorizontalFlip, RandomCrop, SmallestMaxSize
+    if backend == "pt":
+        from torchvision import transforms
+        from torchvision.transforms.functional import InterpolationMode
 
-    mapping = {"bilinear": cv2.INTER_LINEAR, "bicubic": cv2.INTER_CUBIC}
-    transforms = [
-        SmallestMaxSize(max_size=size, interpolation=mapping[interpolation]),
-        CenterCrop(crop_size, crop_size) if not random_crop else RandomCrop(crop_size, crop_size),
-    ]
-    if flip:
-        transforms += [HorizontalFlip(p=0.5)]
+        mapping = {"bilinear": InterpolationMode.BILINEAR, "bicubic": InterpolationMode.BICUBIC}
 
-    pixel_transforms = albumentations.Compose(transforms)
+        pixel_transforms = transforms.Compose(
+            [
+                transforms.Resize(size, interpolation=mapping[interpolation]),
+                transforms.CenterCrop((crop_size, crop_size)),
+            ]
+        )
+    else:
+        # expect rgb image in range 0-255, shape (h w c)
+        from albumentations import CenterCrop, HorizontalFlip, RandomCrop, SmallestMaxSize
+
+        mapping = {"bilinear": cv2.INTER_LINEAR, "bicubic": cv2.INTER_CUBIC}
+        transforms = [
+            SmallestMaxSize(max_size=size, interpolation=mapping[interpolation]),
+            CenterCrop(crop_size, crop_size) if not random_crop else RandomCrop(crop_size, crop_size),
+        ]
+        if flip:
+            transforms += [HorizontalFlip(p=0.5)]
+
+        pixel_transforms = albumentations.Compose(transforms)
 
     return pixel_transforms
 
@@ -67,14 +80,17 @@ class ImageDataset:
 
         self.data_folder = data_folder
 
+        self.transform_backend="al"  # pt, al
         self.pixel_transforms = create_image_transforms(
             size,
             crop_size,
             random_crop=random_crop,
             flip=flip,
+            backend=self.transform_backend,
         )
         self.image_column = image_column
         self.expand_dim_t = expand_dim_t
+
 
         # prepare replacement data
         # max_attempts = 100
@@ -133,10 +149,17 @@ class ImageDataset:
 
         # import pdb
         # pdb.set_trace()
-        trans_image = self.pixel_transforms(image=image)["image"]
 
-        out_image = (trans_image / 127.5 - 1.0).astype(np.float32)
-        out_image = out_image.transpose((2, 0, 1))  # h w c -> c h w
+        if self.transform_backend == "pt":
+            import torch
+            pixel_values = torch.from_numpy(image).permute(2, 0, 1).contiguous()
+            pixel_values = self.pixel_transforms(pixel_values)
+            trans_image= pixel_values.numpy()
+            out_image = (trans_image / 127.5 - 1.0).astype(np.float32)
+        elif self.transform_backend == "al":
+            trans_image = self.pixel_transforms(image=image)["image"]
+            out_image = (trans_image / 127.5 - 1.0).astype(np.float32)
+            out_image = out_image.transpose((2, 0, 1))  # h w c -> c h w
 
         if self.expand_dim_t:
             # c h w -> c t h w
