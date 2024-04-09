@@ -4,5 +4,5 @@ python infer.py \
     --size 256 \
     --crop_size 256 \
     --mode 1 \
-    --ckpt_path outputs/vae_celeba_train/ckpt/vae_kl_f8-e22.ckpt \
+    --ckpt_path outputs/vae_celeba_meanloss/ckpt/vae_kl_f8-e51.ckpt \
     --eval_loss=True \

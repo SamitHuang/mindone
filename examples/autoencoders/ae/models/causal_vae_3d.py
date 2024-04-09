@@ -300,6 +300,8 @@ class Encoder(nn.Cell):
             if i_level < self.time_compress:
                 hs.append(self.down[i_level].time_downsample(hs[-1]))
 
+        # import pdb
+        # pdb.set_trace()
         # middle
         h = hs[-1]
         h = self.mid.block_1(h)

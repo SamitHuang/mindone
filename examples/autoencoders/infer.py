@@ -65,7 +65,8 @@ def visualize_video(recons, x=None, save_fn="tmp_vae3d_recons", fps=15):
 
 
 def main(args):
-    ms.set_context(mode=args.mode)
+    ascend_config={"precision_mode": "must_keep_origin_dtype"}
+    ms.set_context(mode=args.mode, ascend_config=ascend_config)
     set_logger(name="", output_dir=args.output_path, rank=0)
 
     config = OmegaConf.load(args.model_config)

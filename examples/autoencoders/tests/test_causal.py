@@ -270,7 +270,7 @@ if __name__=='__main__':
     # compare_nonlinear()
     # compare_res3d()
     # compare_gn()
-    # compare_attn3d()
+    compare_attn3d()
 
     # inp = 'tests/resblock_inp.npy'
     # test_res3d(inp, "tests/rb3.pth", "pt")
