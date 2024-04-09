@@ -39,7 +39,7 @@ class CausalConv3d(nn.Cell):
         chan_out,
         kernel_size: Union[int, Tuple[int, int, int]],
         padding: int = 0,
-        dtype=ms.float32,
+        dtype=ms.float16,  # FIXME: debug for 910b
         **kwargs,
     ):
         super().__init__()
@@ -133,15 +133,15 @@ class ResnetBlock3D(nn.Cell):
 
         # FIXME: GroupNorm precision mismatch with PT.
         self.norm1 = Normalize(in_channels, extend=True)
-        self.conv1 = CausalConv3d(in_channels, out_channels, 3, padding=1).to_float(dtype)
+        self.conv1 = CausalConv3d(in_channels, out_channels, 3, padding=1)
         self.norm2 = Normalize(out_channels, extend=True)
         self.dropout = nn.Dropout(p=dropout)
-        self.conv2 = CausalConv3d(out_channels, out_channels, 3, padding=1).to_float(dtype)
+        self.conv2 = CausalConv3d(out_channels, out_channels, 3, padding=1)
         if self.in_channels != self.out_channels:
             if self.use_conv_shortcut:
-                self.conv_shortcut = CausalConv3d(in_channels, out_channels, 3, padding=1).to_float(dtype)
+                self.conv_shortcut = CausalConv3d(in_channels, out_channels, 3, padding=1)
             else:
-                self.nin_shortcut = CausalConv3d(in_channels, out_channels, 1, padding=0).to_float(dtype)
+                self.nin_shortcut = CausalConv3d(in_channels, out_channels, 1, padding=0)
 
     def construct(self, x):
         h = x
@@ -295,7 +295,7 @@ class SpatialDownsample2x(nn.Cell):
             (1,) + self.kernel_size,
             stride=(1, ) + stride,
             padding=0,
-        ).to_float(ms.float32)
+        )
         
         # TODO: check
         # no asymmetric padding, must do it ourselves
@@ -328,7 +328,7 @@ class SpatialUpsample2x(nn.Cell):
             (1,) + self.kernel_size,
             stride=(1, ) + stride,
             padding=1,
-        ).to_float(ms.float32)
+        )
     
     def construct(self, x):
         b, c, t, h, w = x.shape
@@ -511,10 +511,10 @@ class AttnBlock3D(nn.Cell):
         self.norm = Normalize(in_channels, extend=True)
 
         # TODO: 1x1 conv3d can be replaced with flatten and Linear
-        self.q = CausalConv3d(in_channels, in_channels, kernel_size=1, stride=1).to_float(dtype)
-        self.k = CausalConv3d(in_channels, in_channels, kernel_size=1, stride=1).to_float(dtype)
-        self.v = CausalConv3d(in_channels, in_channels, kernel_size=1, stride=1).to_float(dtype)
-        self.proj_out = CausalConv3d(in_channels, in_channels, kernel_size=1, stride=1).to_float(dtype)
+        self.q = CausalConv3d(in_channels, in_channels, kernel_size=1, stride=1)
+        self.k = CausalConv3d(in_channels, in_channels, kernel_size=1, stride=1)
+        self.v = CausalConv3d(in_channels, in_channels, kernel_size=1, stride=1)
+        self.proj_out = CausalConv3d(in_channels, in_channels, kernel_size=1, stride=1)
 
     def construct(self, x):
         # q shape: (b c t h w)

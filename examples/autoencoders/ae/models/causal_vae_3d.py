@@ -38,10 +38,10 @@ class CausalVAEModel(nn.Cell):
         print("D--: exclude first frame from time upsample: ", ddconfig['split_time_upsample'])
         self.quant_conv = CausalConv3d(
             2 * ddconfig["z_channels"], 2 * embed_dim, 1,
-            ).to_float(self.dtype)
+            )
         self.post_quant_conv = CausalConv3d(
             embed_dim, ddconfig["z_channels"], 1,
-        ).to_float(self.dtype)
+        )
         self.embed_dim = embed_dim
 
         if colorize_nlabels is not None:
@@ -215,7 +215,7 @@ class Encoder(nn.Cell):
         # diff 3d
         self.conv_in = CausalConv3d(
             in_channels, self.ch, kernel_size=3, stride=1, padding=1,
-        ).to_float(self.dtype)
+        )
 
         curr_res = resolution
         in_ch_mult = (1,) + tuple(ch_mult)
@@ -284,7 +284,7 @@ class Encoder(nn.Cell):
             kernel_size=3,
             stride=1,
             padding=1,
-        ).to_float(self.dtype)
+        )
 
     def construct(self, x):
         # downsampling
@@ -360,7 +360,7 @@ class Decoder(nn.Cell):
 
         # z to block_in
         self.conv_in = CausalConv3d(
-            z_channels, block_in, kernel_size=3, padding=1).to_float(self.dtype)
+            z_channels, block_in, kernel_size=3, padding=1)
 
         # middle
         self.mid = nn.Cell()
@@ -418,7 +418,7 @@ class Decoder(nn.Cell):
 
         self.conv_out = CausalConv3d(
             block_in, out_ch, kernel_size=3, padding=1
-        ).to_float(self.dtype)
+        )
 
     def construct(self, z):
         # timestep embedding

@@ -1,7 +1,10 @@
 # TODO: use trained checkpoint and real data to check.
 
 import sys
-import torch
+try:
+    import torch
+except:
+    pass
 sys.path.append(".")
 import mindspore as ms
 import numpy as np
@@ -258,7 +261,7 @@ def test_attn3d():
     print("Diff: ", _diff_res(res_ms, res_pt))
 
 if __name__=='__main__':
-    # test_ccov3d()
+    # test_cconv3d()
     #print("Checking forward with same weight...")
     #compare_cconv3d(copy_weights=True)
     #print("Checking init...")
@@ -266,8 +269,8 @@ if __name__=='__main__':
     # compare_nonlinear()
     # compare_res3d()
     # compare_gn()
-    test_attn3d()
+    # test_attn3d()
 
     # inp = 'tests/resblock_inp.npy'
     # test_res3d(inp, "tests/rb3.pth", "pt")
-    # test_res3d(inp, "tests/rb3.ckpt", "ms")
+    test_res3d(None, None, "ms")
