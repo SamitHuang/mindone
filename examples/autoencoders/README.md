@@ -86,4 +86,68 @@ Here are some reconstruction results (left is ground-truth, right is the reconst
 
 ## Causal 3D AutoEncoder
 
-Coming soon...
+**NOTE:** To run on Ascend 910b, mindspore 2.3.0rc1+20240409 or later version is required. 
+
+### Inference
+
+1. Download the causal vae 3d model checkpoint from HF [Open-Sora-Plan-v1.0.0](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/vae)
+
+
+2. Convert checkpoint to mindspore format by running: 
+
+```shell
+python tools/convert_vae.py --src /path/to/diffusion_pytorch_model.safetensors  --target models/causal_vae_488.ckpt
+```
+
+3. Run inference script
+
+```shell
+python infer.py --model_config configs/causal_vae_488.yaml \
+    --ckpt_path models/causal_vae_488.ckpt \
+    --data_path datasets/mixkit \
+    --dataset_name video \
+    --dtype fp16  \
+    --size 512 \
+    --crop_size 512 \
+    --frame_stride 1 \
+    --num_frames 33 \
+    --batch_size 1 \
+    --output_path samples/causal_vae_recons \
+```
+
+After running, it will save the reconstruction results in `samples/causal_vae_recons` and report the PSNR and SSIM evaluation metrics by default.
+
+For detailed arguments, please run `python infer.py -h`.
+
+NOTE: for `dtype`, only fp16 is supported on 910b+MS currently due to Conv3d. Conv3d bf16 precision will be supported later.
+
+Here are some results.
+
+
+### Training 
+
+1. Inflate the 2D vae (e.g. from stable-diffusion) for causal vae 3d
+
+```
+python tools/inflate_vae2d_to_vae3d.py --src /path/to/vae_2d.ckpt  --target models/causal_vae_488_init.ckpt 
+```
+
+2. Run training by
+```
+python train.py --config configs/training/causal_vae_video.yaml
+```
+
+For detailed arguments, please run `python train.py -h`.
+
+It's easy to config the model architecture in `configs/causal_vae_488.yaml` and the training strategy in `configs/training/causal_vae_video.yaml`.
+
+### Results
+
+The training task is under progress. The initial training performance without further optimization tuning is as follows. 
+
+| Model          |   Context   |  Precision         | Local BS x Grad. Accu.  |   Resolution  |  Train T. (ms/step)  |  
+|:---------------|:---------------|:--------------|:-----------------------:|:----------:|:------------:|
+| causal_vae_488 |    D910\*x1-MS2.3(20240409)       |      FP16   |      1x1    |    256x256x17  |    3280      
+> Context: {G:GPU, D:Ascend}{chip type}-{number of NPUs}-{mindspore version}.
+
+

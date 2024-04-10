@@ -13,7 +13,8 @@ output_path: "outputs/causal_vae"
 
 use_discriminator: False
 batch_size: 1
-# base_learning_rate: 1.e-5
+base_learning_rate: 1.e-5
+scale_lr: False
 # gradient_accumulation_steps: 4
 
 epochs: 1000

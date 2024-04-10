@@ -1,4 +1,4 @@
-python infer.py --model_config configs/causal_vae_f8_t4.yaml \
+python infer.py --model_config configs/causal_vae_488.yaml \
     --ckpt_path models/causal_vae_488.ckpt \
     --data_path datasets/mixkit \
     --dataset_name video \
