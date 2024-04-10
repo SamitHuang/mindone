@@ -80,7 +80,7 @@ class ImageDataset:
 
         self.data_folder = data_folder
 
-        self.transform_backend="al"  # pt, al
+        self.transform_backend = "al"  # pt, al
         self.pixel_transforms = create_image_transforms(
             size,
             crop_size,
@@ -90,7 +90,6 @@ class ImageDataset:
         )
         self.image_column = image_column
         self.expand_dim_t = expand_dim_t
-
 
         # prepare replacement data
         # max_attempts = 100
@@ -152,9 +151,10 @@ class ImageDataset:
 
         if self.transform_backend == "pt":
             import torch
+
             pixel_values = torch.from_numpy(image).permute(2, 0, 1).contiguous()
             pixel_values = self.pixel_transforms(pixel_values)
-            trans_image= pixel_values.numpy()
+            trans_image = pixel_values.numpy()
             out_image = (trans_image / 127.5 - 1.0).astype(np.float32)
         elif self.transform_backend == "al":
             trans_image = self.pixel_transforms(image=image)["image"]
@@ -192,4 +192,3 @@ if __name__ == "__main__":
     ds = ImageDataset(**ds_config)
     sample = ds.__getitem__(0)
     print(sample.shape)
-

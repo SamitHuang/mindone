@@ -1,4 +1,5 @@
 import mindspore as ms
+
 from .image_dataset import ImageDataset
 from .video_dataset import VideoDataset
 
@@ -6,7 +7,7 @@ from .video_dataset import VideoDataset
 def create_dataloader(
     ds_config,
     batch_size,
-    ds_name='image',
+    ds_name="image",
     num_parallel_workers=12,
     max_rowsize=32,
     shuffle=True,
@@ -14,14 +15,14 @@ def create_dataloader(
     rank_id=0,
     drop_remainder=True,
 ):
-    '''
+    """
     Args:
         ds_config, dataset config, args for ImageDataset or VideoDataset
         ds_name: dataset name, image or video
-    '''
-    if ds_name == 'image':
+    """
+    if ds_name == "image":
         dataset = ImageDataset(**ds_config)
-    elif ds_name == 'video':
+    elif ds_name == "video":
         dataset = VideoDataset(**ds_config)
     print("Total number of samples: ", len(dataset))
 
@@ -48,7 +49,7 @@ def create_dataloader(
     return dl
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import math
     import time
 
@@ -83,7 +84,6 @@ if __name__ == '__main__':
             if epoch * num_batches + i < 2:
                 for k in batch:
                     print(k, batch[k].shape, batch[k].dtype)  # , batch[k].min(), batch[k].max())
-                    check_sanity(batch[k])
                 print(f"time cost: {dur * 1000} ms")
 
             progress_bar.update(1)

@@ -2,7 +2,7 @@ python infer.py --model_config configs/causal_vae_f8_t4.yaml \
     --ckpt_path models/causal_vae_488.ckpt \
     --data_path datasets/mixkit \
     --dataset_name video \
-    --amp_level O0 \
+    --dtype fp32 \
     --size 256 \
     --crop_size 256 \
     --frame_stride 1 \

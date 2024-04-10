@@ -5,12 +5,12 @@ from .lpips import LPIPS
 
 
 def _rearrange_in(x):
-
-    b, c, t, h, w = x.shape 
-    x = x.permute(0, 2, 1, 3, 4) 
-    x = ops.reshape(x, (b*t, c, h, w))
+    b, c, t, h, w = x.shape
+    x = x.permute(0, 2, 1, 3, 4)
+    x = ops.reshape(x, (b * t, c, h, w))
 
     return x
+
 
 class GeneratorWithLoss(nn.Cell):
     def __init__(
@@ -128,14 +128,14 @@ class GeneratorWithLoss(nn.Cell):
 
         # 1. AE forward, get posterior (mean, logvar) and recons
         recons, mean, logvar = self.autoencoder(x)
-        
+
         # For videos, treat them as independent frame images
-        # TODO: regularize on temporal consistency 
+        # TODO: regularize on temporal consistency
         if x.ndim >= 5:
             # x: b c t h w -> (b*t c h w), shape for image perceptual loss
-            x = _rearrange_in(x)       
-            recons = _rearrange_in(recons)       
-            # mean and var kl loss 
+            x = _rearrange_in(x)
+            recons = _rearrange_in(recons)
+            # mean and var kl loss
 
         # 2. compuate loss
         loss = self.loss_function(x, recons, mean, logvar, global_step, weights, cond)
@@ -201,8 +201,8 @@ class DiscriminatorWithLoss(nn.Cell):
         if x.ndim >= 5:
             # TODO: use 3D discriminator
             # x: b c t h w -> (b*t c h w), shape for image perceptual loss
-            x = _rearrange_in(x)       
-            recons = _rearrange_in(recons)       
+            x = _rearrange_in(x)
+            recons = _rearrange_in(recons)
 
         # 2. Disc forward to get class prediction on real input and reconstrucions
         if cond is None:

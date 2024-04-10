@@ -1,8 +1,8 @@
 import mindspore as ms
 
-path = '../stable_diffusion_v2/models/sd_v1.5-d0ab7146.ckpt'
-ignore_keys=list()
-remove_prefix=["first_stage_model.", "autoencoder."]
+path = "../stable_diffusion_v2/models/sd_v1.5-d0ab7146.ckpt"
+ignore_keys = list()
+remove_prefix = ["first_stage_model.", "autoencoder."]
 
 sd = ms.load_checkpoint(path)
 keys = list(sd.keys())
@@ -21,4 +21,4 @@ for pname in keys:
     if not is_vae_param:
         sd.pop(pname)
 
-ms.save_checkpoint(sd, 'models/sd1.5_vae.ckpt')
+ms.save_checkpoint(sd, "models/sd1.5_vae.ckpt")

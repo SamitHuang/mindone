@@ -53,7 +53,7 @@ class AutoencoderKL(nn.Cell):
                 if k.startswith(ik):
                     print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
-        vae_prefix = ['encoder.', 'decoder.', 'quant_conv.', 'post_quant_conv.']
+        vae_prefix = ["encoder.", "decoder.", "quant_conv.", "post_quant_conv."]
         for pname in keys:
             is_vae_param = False
             for pf in remove_prefix:

@@ -6,8 +6,8 @@ import logging
 import os
 import sys
 import time
-import imageio
 
+import imageio
 import numpy as np
 from ae.data.loader import create_dataloader
 from ae.models.lpips import LPIPS
@@ -22,10 +22,9 @@ import mindspore as ms
 __dir__ = os.path.dirname(os.path.abspath(__file__))
 mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../"))
 sys.path.insert(0, mindone_lib_path)
+from mindone.utils.amp import auto_mixed_precision
 from mindone.utils.config import instantiate_from_config, str2bool
 from mindone.utils.logger import set_logger
-from mindone.visualize.videos import save_videos
-from mindone.utils.amp import auto_mixed_precision
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ def postprocess(x, trim=True):
     # postprocess for computing metrics
     pixels = (x + 1) * 127.5
     pixels = np.clip(pixels, 0, 255).astype(np.uint8)
-  
+
     if len(pixels.shape) == 4:
         # b, c, h, w -> b h w c
         return np.transpose(pixels, (0, 2, 3, 1))
@@ -42,8 +41,9 @@ def postprocess(x, trim=True):
         # b c t h w -> b t h w c -> b*t h w c
         b, c, t, h, w = pixels.shape
         pixels = np.transpose(pixels, (0, 2, 3, 4, 1))
-        pixels = np.reshape(pixels, (b*t, h, w, c))
+        pixels = np.reshape(pixels, (b * t, h, w, c))
         return pixels
+
 
 def visualize_image(recons, x=None, save_fn="tmp_vae_recons"):
     # x: (b h w c)
@@ -53,7 +53,8 @@ def visualize_image(recons, x=None, save_fn="tmp_vae_recons"):
         else:
             out = recons[i]
         Image.fromarray(out).save(f"{save_fn}-{i:02d}.png")
-        
+
+
 def visualize_video(recons, x=None, save_fn="tmp_vae3d_recons", fps=15):
     # x: (b t h w c)
     for i in range(recons.shape[0]):
@@ -62,29 +63,30 @@ def visualize_video(recons, x=None, save_fn="tmp_vae3d_recons", fps=15):
         else:
             out = recons[i]
         save_fp = f"{save_fn}-{i:02d}.gif"
-        imageio.mimsave(save_fp, out, duration=1/fps, loop=0)
+        imageio.mimsave(save_fp, out, duration=1 / fps, loop=0)
 
 
 def main(args):
-    ascend_config={"precision_mode": "must_keep_origin_dtype"}
+    ascend_config = {"precision_mode": "must_keep_origin_dtype"}
     ms.set_context(mode=args.mode, ascend_config=ascend_config)
     set_logger(name="", output_dir=args.output_path, rank=0)
 
     config = OmegaConf.load(args.model_config)
     model = instantiate_from_config(config.generator)
     model.init_from_ckpt(args.ckpt_path)
+    model.set_train(False)
     logger.info(f"Loaded checkpoint from  {args.ckpt_path}")
 
     if args.eval_loss:
         lpips_loss_fn = LPIPS()
 
-    model.set_train(False)
-    
-    if args.amp_level != 'O0':
-        assert args.dtype in ['fp16', 'bf16']
-        dtype = {'fp16': ms.float16, 'bf16': ms.bfloat16}[args.dtype]
-        model = auto_mixed_precision(model, args.amp_level, dtype=dtype)
-    logger.info(f"AMP level: {args.amp_level}, dtype: {args.dtype}")
+    if args.dtype != "fp32":
+        amp_level = "O2"
+        dtype = {"fp16": ms.float16, "bf16": ms.bfloat16}[args.dtype]
+        model = auto_mixed_precision(model, amp_level, dtype)
+        logger.info(f"Set mixed precision to O2 with dtype={args.dtype}")
+    else:
+        amp_level = "O0"
 
     ds_config = dict(
         csv_path=args.csv_path,
@@ -94,16 +96,19 @@ def main(args):
         flip=False,
         random_crop=False,
     )
-    if args.dataset_name == 'video':
-        ds_config.update(dict(
-            sample_stride=args.frame_stride,
-            sample_n_frames=args.num_frames,
-            return_image=False,
-            ))
-        assert not (args.num_frames %  2 == 0 and model_config.generator.params.ddconfig.split_time_upsample), 'num of frames must be odd if split_time_upsample is True' 
+    if args.dataset_name == "video":
+        ds_config.update(
+            dict(
+                sample_stride=args.frame_stride,
+                sample_n_frames=args.num_frames,
+                return_image=False,
+            )
+        )
+        assert not (
+            args.num_frames % 2 == 0 and config.generator.params.ddconfig.split_time_upsample
+        ), "num of frames must be odd if split_time_upsample is True"
     else:
         ds_config.update(dict(expand_dim_t=args.expand_dim_t))
-
 
     dataset = create_dataloader(
         ds_config=ds_config,
@@ -125,10 +130,10 @@ def main(args):
     mean_recon = 0
     num_samples = 0
     for step, data in tqdm(enumerate(ds_iter)):
-        if args.dataset_name == 'image':
-            x = data['image']
+        if args.dataset_name == "image":
+            x = data["image"]
         else:
-            x = data['video']
+            x = data["video"]
         start_time = time.time()
 
         z = model.encode(x)
@@ -142,11 +147,11 @@ def main(args):
         if not args.encode_only:
             # if args.dataset_name == 'image' and args.expand_dim_t:
             #    # b c t h w -> b c h w
-            #    x = x[:,:,0,:,:] 
+            #    x = x[:,:,0,:,:]
             #    recons= recons[:,:,0,:,:]
-            is_video = (len(recons.shape) == 5 and (recons.shape[-3]>1))
+            is_video = len(recons.shape) == 5 and (recons.shape[-3] > 1)
             t = recons.shape[-3] if is_video else 1
-            
+
             recons_rgb = postprocess(recons.asnumpy())
             x_rgb = postprocess(x.asnumpy())
 
@@ -164,7 +169,7 @@ def main(args):
                 lpips_loss = lpips_loss_fn(x, recons).asnumpy()
                 mean_recon += recon_loss.mean()
                 mean_lpips += lpips_loss.mean()
-                
+
             if args.save_vis:
                 save_fn = os.path.join(
                     args.output_path, "{}-{}".format(os.path.basename(args.data_path), f"step{step:03d}")
@@ -173,8 +178,8 @@ def main(args):
                     visualize_image(recons_rgb, x_rgb, save_fn=save_fn)
                 else:
                     bt, h, w, c = recons_rgb.shape
-                    recons_rgb_vis = np.reshape(recons_rgb, (bt//t, t, h, w, c))
-                    x_rgb_vis = np.reshape(x_rgb, (bt//t, t, h, w, c))
+                    recons_rgb_vis = np.reshape(recons_rgb, (bt // t, t, h, w, c))
+                    x_rgb_vis = np.reshape(x_rgb, (bt // t, t, h, w, c))
                     visualize_video(recons_rgb_vis, x_rgb_vis, save_fn=save_fn)
 
     mean_infer_time /= num_batches
@@ -212,13 +217,20 @@ def parse_args():
         help="path to csv annotation file. If None, will get images from the folder of `data_path`",
     )
     parser.add_argument("--data_path", default="dataset", type=str, help="data path")
-    parser.add_argument("--dataset_name", default="image", type=str, choices=['image', 'video'], help="dataset name, image or video")
+    parser.add_argument(
+        "--dataset_name", default="image", type=str, choices=["image", "video"], help="dataset name, image or video"
+    )
     parser.add_argument(
         "--output_path", default="samples/vae_recons", type=str, help="output directory to save inference results"
     )
     parser.add_argument("--num_frames", default=17, type=int, help="num frames")
     parser.add_argument("--frame_stride", default=1, type=int, help="frame sampling stride")
-    parser.add_argument("--expand_dim_t", default=False, type=str2bool, help="expand temporal axis for image data, used for vae 3d inference with image data")
+    parser.add_argument(
+        "--expand_dim_t",
+        default=False,
+        type=str2bool,
+        help="expand temporal axis for image data, used for vae 3d inference with image data",
+    )
     parser.add_argument("--size", default=256, type=int, help="image rescale size")
     parser.add_argument("--crop_size", default=256, type=int, help="image crop size")
 
@@ -240,8 +252,14 @@ def parse_args():
     )
     # ms related
     parser.add_argument("--mode", default=0, type=int, help="Specify the mode: 0 for graph mode, 1 for pynative mode")
-    parser.add_argument("--amp_level", default="O0", type=str, choices=["O0", "O2"], help="auto-mixed precision level, O0 - all fp32, O2 - part fp32 (e.g. norm layers), allowing increasing max frames")
-    parser.add_argument("--dtype", default="bf16", type=str, choices=["bf16", "fp16"], help="precision type of partial layers for under mixed-precision mode, such as dense and conv layers")
+    parser.add_argument(
+        "--dtype",
+        default="fp32",
+        type=str,
+        choices=["fp32", "fp16", "bf16"],
+        help="mixed precision type, if fp32, all layer precision is float32 (amp_level=O0),  \
+                if bf16 or fp16, amp_level==O2, part of layers will compute in bf16 or fp16 such as matmul, dense, conv.",
+    )
     parser.add_argument("--device_target", type=str, default="Ascend", help="Ascend or GPU")
 
     args = parser.parse_args()

@@ -1,6 +1,6 @@
 import copy
-import glob
 import csv
+import glob
 import logging
 import os
 import random
@@ -22,7 +22,8 @@ def read_gif(gif_path, mode="RGB"):
 
 
 def create_video_transforms(
-        size=384, crop_size=256, interpolation="bicubic", backend="al", random_crop=False, flip=False, num_frames=None):
+    size=384, crop_size=256, interpolation="bicubic", backend="al", random_crop=False, flip=False, num_frames=None
+):
     if backend == "al":
         # expect rgb image in range 0-255, shape (h w c)
         from albumentations import CenterCrop, HorizontalFlip, RandomCrop, SmallestMaxSize
@@ -32,16 +33,16 @@ def create_video_transforms(
         targets = {"image{}".format(i): "image" for i in range(num_frames)}
         mapping = {"bilinear": cv2.INTER_LINEAR, "bicubic": cv2.INTER_CUBIC}
         transforms = [
-                SmallestMaxSize(max_size=size, interpolation=mapping[interpolation]),
-                CenterCrop(crop_size, crop_size) if not random_crop else RandomCrop(crop_size, crop_size),
+            SmallestMaxSize(max_size=size, interpolation=mapping[interpolation]),
+            CenterCrop(crop_size, crop_size) if not random_crop else RandomCrop(crop_size, crop_size),
         ]
         if flip:
             transforms += [HorizontalFlip(p=0.5)]
 
         pixel_transforms = albumentations.Compose(
-                transforms,
-                additional_targets=targets,
-                )
+            transforms,
+            additional_targets=targets,
+        )
     else:
         raise NotImplementedError
 
@@ -165,7 +166,7 @@ class VideoDataset:
         try:
             pixel_values = self.get_batch(idx)
             if (self.prev_ok_sample is None) or (self.require_update_prev):
-                self.prev_ok_sample = copy.deepcopy((pixel_values, caption))
+                self.prev_ok_sample = copy.deepcopy(pixel_values)
                 self.require_update_prev = False
         except Exception as e:
             logger.warning(f"Fail to get sample of idx {idx}. The corrupted video will be replaced.")
@@ -229,4 +230,3 @@ if __name__ == "__main__":
     print(sample.shape)
 
     check_sanity(sample)
-

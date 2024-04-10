@@ -70,11 +70,11 @@ class CausalConv3d(nn.Cell):
 
         # pad temporal dimension by k-1, manually
         self.time_pad = dilation[0] * (time_kernel_size - 1) + (1 - stride[0])
-        if self.time_pad >= 1: 
+        if self.time_pad >= 1:
             self.temporal_padding = True
         else:
             self.temporal_padding = False
-            
+
         # pad h,w dimensions if used, by conv3d API
         # diff from torch: bias, pad_mode
 
@@ -124,7 +124,9 @@ class CausalConv3d(nn.Cell):
 
 
 class ResnetBlock3D(nn.Cell):
-    def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False, dropout, dtype=ms.float32, upcast_sigmoid=False):
+    def __init__(
+        self, *, in_channels, out_channels=None, conv_shortcut=False, dropout, dtype=ms.float32, upcast_sigmoid=False
+    ):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = in_channels if out_channels is None else out_channels
@@ -273,6 +275,7 @@ class Downsample(nn.Cell):
             x = ops.AvgPool(kernel_size=2, stride=2)(x)
         return x
 
+
 class SpatialDownsample2x(nn.Cell):
     def __init__(
         self,
@@ -288,24 +291,24 @@ class SpatialDownsample2x(nn.Cell):
         self.chan_in = chan_in
         self.chan_out = chan_out
         self.kernel_size = kernel_size
-        # TODO: no need to use CausalConv3d, can reshape to spatial (bt, c, h, w) and use conv 2d 
+        # TODO: no need to use CausalConv3d, can reshape to spatial (bt, c, h, w) and use conv 2d
         self.conv = CausalConv3d(
             self.chan_in,
             self.chan_out,
             (1,) + self.kernel_size,
-            stride=(1, ) + stride,
+            stride=(1,) + stride,
             padding=0,
         )
-        
+
         # no asymmetric padding, must do it ourselves
         # order (width_pad, width_pad, height_pad, height_pad, time_pad, 0)
         # self.padding = (0,1,0,1,0,0) # not compatible for ms2.2
-        self.pad = ops.Pad(paddings=((0,0), (0,0), (0,0), (0,1), (0, 1)))
+        self.pad = ops.Pad(paddings=((0, 0), (0, 0), (0, 0), (0, 1), (0, 1)))
 
     def construct(self, x):
         # x shape: (b c t h w)
         # x = ops.pad(x, self.padding, mode="constant", value=0)
-        x = self.pad(x) 
+        x = self.pad(x)
         x = self.conv(x)
         return x
 
@@ -327,15 +330,15 @@ class SpatialUpsample2x(nn.Cell):
             self.chan_in,
             self.chan_out,
             (1,) + self.kernel_size,
-            stride=(1, ) + stride,
+            stride=(1,) + stride,
             padding=1,
         )
-    
+
     def construct(self, x):
         b, c, t, h, w = x.shape
 
         # x = rearrange(x, "b c t h w -> b (c t) h w")
-        x = ops.reshape(x, (b, c*t, h, w))
+        x = ops.reshape(x, (b, c * t, h, w))
 
         hw_in = x.shape[-2:]
         scale_factor = 2
@@ -344,11 +347,12 @@ class SpatialUpsample2x(nn.Cell):
 
         # x = ops.interpolate(x, scale_factor=(2.,2.), mode="nearest") # 4D not supported
         # x = rearrange(x, "b (c t) h w -> b c t h w", t=t)
-        x = ops.reshape(x, (b, c, t, h*scale_factor, w*scale_factor))
+        x = ops.reshape(x, (b, c, t, h * scale_factor, w * scale_factor))
 
         x = self.conv(x)
         return x
-    
+
+
 class TimeDownsample2x(nn.Cell):
     def __init__(
         self,
@@ -359,12 +363,12 @@ class TimeDownsample2x(nn.Cell):
         self.kernel_size = kernel_size
         self.replace_avgpool3d = replace_avgpool3d
         if not replace_avgpool3d:
-            self.conv = nn.AvgPool3d((kernel_size,1,1), stride=(2,1,1))
+            self.conv = nn.AvgPool3d((kernel_size, 1, 1), stride=(2, 1, 1))
         else:
-            self.conv = nn.AvgPool2d((kernel_size,1), stride=(2,1))
+            self.conv = nn.AvgPool2d((kernel_size, 1), stride=(2, 1))
         # print('D--: replace avgpool3d', replace_avgpool3d)
-        self.time_pad = self.kernel_size - 1 
-        
+        self.time_pad = self.kernel_size - 1
+
     def construct(self, x):
         first_frame = x[:, :, :1, :, :]
         first_frame_pad = ops.repeat_interleave(first_frame, self.time_pad, axis=2)
@@ -375,28 +379,26 @@ class TimeDownsample2x(nn.Cell):
         else:
             # FIXME: only work when h, w stride is 1
             b, c, t, h, w = x.shape
-            x = ops.reshape(x, (b, c, t, h*w))
+            x = ops.reshape(x, (b, c, t, h * w))
             x = self.conv(x)
             x = ops.reshape(x, (b, c, -1, h, w))
             return x
 
+
 class TimeUpsample2x(nn.Cell):
-    def __init__(
-        self,
-        exclude_first_frame=True
-    ):
+    def __init__(self, exclude_first_frame=True):
         super().__init__()
         self.exclude_first_frame = exclude_first_frame
 
     def construct(self, x):
         if x.shape[2] > 1:
             if self.exclude_first_frame:
-                x, x_= x[:,:,:1], x[:,:,1:]
+                x, x_ = x[:, :, :1], x[:, :, 1:]
                 # FIXME: ms2.2.10 cannot support trilinear on 910b
-                x_= ops.interpolate(x_, scale_factor=(2.,1.,1.), mode='trilinear')
+                x_ = ops.interpolate(x_, scale_factor=(2.0, 1.0, 1.0), mode="trilinear")
                 x = ops.concat([x, x_], axis=2)
             else:
-                x = ops.interpolate(x, scale_factor=(2.,1.,1.), mode='trilinear')
+                x = ops.interpolate(x, scale_factor=(2.0, 1.0, 1.0), mode="trilinear")
 
         return x
 
@@ -501,7 +503,7 @@ class AttnBlock(nn.Cell):
         w_ = self.bmm(q, k)  # b,hw,hw    w[b,i,j]=sum_c q[b,i,c]k[b,c,j]
 
         w_ = w_ * (int(c) ** (-0.5))
-        # FIXME: cast w_ to FP32 in amp 
+        # FIXME: cast w_ to FP32 in amp
         w_ = ops.Softmax(axis=2)(w_)
 
         # attend to values
@@ -544,7 +546,7 @@ class AttnBlock3D(nn.Cell):
         q = q.permute(0, 2, 1, 3, 4)
         q = ops.reshape(q, (b * t, c, h * w))
         q = q.permute(0, 2, 1)  # b,hw,c
-        
+
         # k: (b c t h w) -> (b t c h w) -> (b*t c h*w)
         k = k.permute(0, 2, 1, 3, 4)
         k = ops.reshape(k, (b * t, c, h * w))
@@ -566,7 +568,7 @@ class AttnBlock3D(nn.Cell):
 
         # h_: (b*t c hw) -> (b t c h w) -> (b c t h w)
         h_ = ops.reshape(h_, (b, t, c, h, w))
-        h_ = h_.permute(0, 2, 1, 3 ,4)
+        h_ = h_.permute(0, 2, 1, 3, 4)
 
         h_ = self.proj_out(h_)
 

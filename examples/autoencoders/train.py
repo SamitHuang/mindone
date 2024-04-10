@@ -84,15 +84,17 @@ def main(args):
         disc = None
 
     # mixed precision
-    # TODO: keep sigmoid and softmax FP32 for better precision
-    dtype = {"fp16": ms.float16, "bf16": ms.bfloat16, "fp32": ms.float32}[args.dtype]
+    # TODO: set softmax, sigmoid computed in FP32. manually set inside network since they are ops, instead of layers whose precision will be set by AMP level.
     if args.dtype != "fp32":
-        ae = auto_mixed_precision(ae, amp_level="O2", dtype=dtype)
+        amp_level = "O2"
+        dtype = {"fp16": ms.float16, "bf16": ms.bfloat16}[args.dtype]
+        ae = auto_mixed_precision(ae, amp_level, dtype)
         if use_discriminator:
-            disc = auto_mixed_precision(disc, "O2", dtype=dtype)
-        logger.info(f"Set mixed precision (O2) dtype to {args.dtype}")
+            disc = auto_mixed_precision(disc, amp_level, dtype)
+        logger.info(f"Set mixed precision to O2 with dtype={args.dtype}")
+    else:
+        amp_level = "O0"
 
-    # TODO: allow loading pretrained weights
     # 3. build net with loss (core)
     # G with loss
     ae_with_loss = GeneratorWithLoss(ae, discriminator=disc, **model_config.lossconfig)
@@ -114,13 +116,17 @@ def main(args):
         random_crop=args.random_crop,
         flip=args.flip,
     )
-    if args.dataset_name == 'video':
-        ds_config.update(dict(
-            sample_stride=args.frame_stride,
-            sample_n_frames=args.num_frames,
-            return_image=False,
-            ))
-        assert not (args.num_frames %  2 == 0 and model_config.generator.params.ddconfig.split_time_upsample), 'num of frames must be odd if split_time_upsample is True' 
+    if args.dataset_name == "video":
+        ds_config.update(
+            dict(
+                sample_stride=args.frame_stride,
+                sample_n_frames=args.num_frames,
+                return_image=False,
+            )
+        )
+        assert not (
+            args.num_frames % 2 == 0 and model_config.generator.params.ddconfig.split_time_upsample
+        ), "num of frames must be odd if split_time_upsample is True"
     else:
         ds_config.update(dict(expand_dim_t=args.expand_dim_t))
     dataset = create_dataloader(
@@ -240,6 +246,8 @@ def main(args):
             [
                 f"MindSpore mode[GRAPH(0)/PYNATIVE(1)]: {args.mode}",
                 f"Distributed mode: {args.use_parallel}",
+                f"amp level: {amp_level}",
+                f"dtype: {dtype}",
                 f"Data path: {args.data_path}",
                 f"Learning rate: {learning_rate}",
                 f"Batch size: {args.batch_size}",

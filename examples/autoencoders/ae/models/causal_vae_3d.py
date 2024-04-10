@@ -1,19 +1,19 @@
 import numpy as np
+
 import mindspore as ms
 from mindspore import nn, ops
 
 from .modules import (
-        CausalConv3d,
-        Normalize,
-        ResnetBlock3D,
-        AttnBlock3D,
-        SpatialDownsample2x,
-        SpatialUpsample2x,
-        TimeDownsample2x,
-        TimeUpsample2x,
-        make_attn,
-        nonlinearity,
-        )
+    CausalConv3d,
+    Normalize,
+    ResnetBlock3D,
+    SpatialDownsample2x,
+    SpatialUpsample2x,
+    TimeDownsample2x,
+    TimeUpsample2x,
+    make_attn,
+    nonlinearity,
+)
 
 
 class CausalVAEModel(nn.Cell):
@@ -35,13 +35,17 @@ class CausalVAEModel(nn.Cell):
         self.encoder = Encoder(dtype=self.dtype, upcast_sigmoid=upcast_sigmoid, **ddconfig)
         self.decoder = Decoder(dtype=self.dtype, upcast_sigmoid=upcast_sigmoid, **ddconfig)
         assert ddconfig["double_z"]
-        if ddconfig['split_time_upsample']:
+        if ddconfig["split_time_upsample"]:
             print("Exclude first frame from time upsample")
         self.quant_conv = CausalConv3d(
-            2 * ddconfig["z_channels"], 2 * embed_dim, 1,
-            )
+            2 * ddconfig["z_channels"],
+            2 * embed_dim,
+            1,
+        )
         self.post_quant_conv = CausalConv3d(
-            embed_dim, ddconfig["z_channels"], 1,
+            embed_dim,
+            ddconfig["z_channels"],
+            1,
         )
         self.embed_dim = embed_dim
 
@@ -68,24 +72,25 @@ class CausalVAEModel(nn.Cell):
         vae_3d_keys = list(self.parameters_dict().keys())
 
         # 3d -> 2d
-        map_dict = {"conv.weight":"weight",
-                    "conv.bias":"bias",
-                    }
+        map_dict = {
+            "conv.weight": "weight",
+            "conv.bias": "bias",
+        }
 
         new_state_dict = {}
         for key_3d in vae_3d_keys:
             if key_3d.startswith("loss"):
                 continue
-                
+
             # param name mapping from vae-3d to vae-2d
             key_2d = key_3d
             for kw in map_dict:
                 key_2d = key_2d.replace(kw, map_dict[kw])
-            
+
             assert key_2d in vae_2d_keys, f"Key {key_2d} ({key_3d}) not found in 2D VAE"
-            
+
             # set vae 3d state dict
-            shape_3d = ae.parameters_dict()[key_3d].shape
+            shape_3d = self.parameters_dict()[key_3d].shape
             shape_2d = vae2d_sd[key_2d].shape
             if "bias" in key_2d:
                 assert shape_3d == shape_2d, f"Shape mismatch for key {key_3d} ({key_2d})"
@@ -99,15 +104,15 @@ class CausalVAEModel(nn.Cell):
                 w = vae2d_sd[key_2d]
                 new_w = ms.ops.zeros(shape_3d, dtype=w.dtype)
                 # tail initialization
-                new_w[:, :, -1, :, :] = w     # cin, cout, t, h, w
-                
+                new_w[:, :, -1, :, :] = w  # cin, cout, t, h, w
+
                 new_w = ms.Parameter(new_w, name=key_3d)
-                
+
                 new_state_dict[key_3d] = new_w
             elif "attn_1" in key_2d:
                 new_val = vae2d_sd[key_2d].expand_dims(axis=2)
                 new_param = ms.Parameter(new_val, name=key_3d)
-                new_state_dict[key_3d]= new_param
+                new_state_dict[key_3d] = new_param
             else:
                 raise NotImplementedError(f"Key {key_3d} ({key_2d}) not implemented")
 
@@ -116,7 +121,6 @@ class CausalVAEModel(nn.Cell):
                 print("net param not loaded: ", m)
             if len(u) > 0:
                 print("checkpoint param not loaded: ", u)
-
 
     def init_from_ckpt(self, path, ignore_keys=list(), remove_prefix=["first_stage_model.", "autoencoder."]):
         # TODO: support auto download pretrained checkpoints
@@ -136,7 +140,7 @@ class CausalVAEModel(nn.Cell):
         h = self.encoder(x)
         moments = self.quant_conv(h)
         mean, logvar = self.split(moments)
-        
+
         return mean, logvar
 
     def sample(self, mean, logvar):
@@ -185,7 +189,7 @@ class Encoder(nn.Cell):
         z_channels,
         double_z=True,
         use_linear_attn=False,
-        attn_type="vanilla3D", # diff 3d
+        attn_type="vanilla3D",  # diff 3d
         dtype=ms.float32,
         time_compress=2,  # diff 3d
         upcast_sigmoid=False,
@@ -194,7 +198,8 @@ class Encoder(nn.Cell):
         """
         ch: hidden size, i.e. output channels of the first conv layer. typical: 128
         out_ch: placeholder, not used in Encoder
-        ch_mult: channel multiply factors for each res block, also determine the number of res blocks. Each block will be applied with spatial downsample x2 except for the last block. In total, the spatial downsample rate = 2**(len(ch_mult)-1)
+        ch_mult: channel multiply factors for each res block, also determine the number of res blocks.
+            Each block will be applied with spatial downsample x2 except for the last block. In total, the spatial downsample rate = 2**(len(ch_mult)-1)
         resolution: spatial resolution, 256
         time_compress: the begging `time_compress` blocks will be applied with temporal downsample x2. In total, the temporal downsample rate = 2**time_compress
         """
@@ -215,7 +220,11 @@ class Encoder(nn.Cell):
         # downsampling
         # diff 3d
         self.conv_in = CausalConv3d(
-            in_channels, self.ch, kernel_size=3, stride=1, padding=1,
+            in_channels,
+            self.ch,
+            kernel_size=3,
+            stride=1,
+            padding=1,
         )
 
         curr_res = resolution
@@ -226,7 +235,7 @@ class Encoder(nn.Cell):
             block = nn.CellList()
             attn = nn.CellList()
             block_in = ch * in_ch_mult[i_level]  # input channels
-            block_out = ch * ch_mult[i_level] # output channels
+            block_out = ch * ch_mult[i_level]  # output channels
             for i_block in range(self.num_res_blocks):
                 block.append(
                     ResnetBlock3D(
@@ -275,7 +284,7 @@ class Encoder(nn.Cell):
             dtype=self.dtype,
             upcast_sigmoid=upcast_sigmoid,
         )
-        self.mid.update_parameters_name(prefix=self.param_prefix + f"mid.")
+        self.mid.update_parameters_name(prefix=self.param_prefix + "mid.")
 
         # end
         self.norm_out = Normalize(block_in, extend=True)
@@ -362,19 +371,14 @@ class Decoder(nn.Cell):
         print("Working with z of shape {} = {} dimensions.".format(self.z_shape, np.prod(self.z_shape)))
 
         # z to block_in
-        self.conv_in = CausalConv3d(
-            z_channels, block_in, kernel_size=3, padding=1)
+        self.conv_in = CausalConv3d(z_channels, block_in, kernel_size=3, padding=1)
 
         # middle
         self.mid = nn.Cell()
-        self.mid.block_1 = ResnetBlock3D(
-            in_channels=block_in, out_channels=block_in, dropout=dropout, dtype=self.dtype
-        )
+        self.mid.block_1 = ResnetBlock3D(in_channels=block_in, out_channels=block_in, dropout=dropout, dtype=self.dtype)
         self.mid.attn_1 = make_attn(block_in, attn_type=attn_type, dtype=self.dtype)
-        self.mid.block_2 = ResnetBlock3D(
-            in_channels=block_in, out_channels=block_in, dropout=dropout, dtype=self.dtype
-        )
-        self.mid.update_parameters_name(prefix=self.param_prefix + f"mid.")
+        self.mid.block_2 = ResnetBlock3D(in_channels=block_in, out_channels=block_in, dropout=dropout, dtype=self.dtype)
+        self.mid.update_parameters_name(prefix=self.param_prefix + "mid.")
 
         # upsampling
         self.up = nn.CellList(auto_prefix=False)
@@ -419,14 +423,9 @@ class Decoder(nn.Cell):
         # end
         self.norm_out = Normalize(block_in, extend=True)
 
-        self.conv_out = CausalConv3d(
-            block_in, out_ch, kernel_size=3, padding=1
-        )
+        self.conv_out = CausalConv3d(block_in, out_ch, kernel_size=3, padding=1)
 
     def construct(self, z):
-        # timestep embedding
-        temb = None
-
         # z to block_in
         h = self.conv_in(z)
 
@@ -458,6 +457,3 @@ class Decoder(nn.Cell):
         if self.tanh_out:
             h = ops.tanh(h)
         return h
-
-
-
