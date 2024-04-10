@@ -1,8 +1,11 @@
 # init Causal VAE from vae 2d
 import sys
+
 sys.path.append(".")
 import argparse
+
 from ae.models.causal_vae_3d import CausalVAEModel
+
 import mindspore as ms
 
 

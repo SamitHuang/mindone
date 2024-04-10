@@ -1,7 +1,9 @@
 import argparse
+
 import mindspore as ms
 
 # path = "../stable_diffusion_v2/models/sd_v1.5-d0ab7146.ckpt"
+
 
 def convert(path, save_fp):
     ignore_keys = list()
@@ -25,6 +27,7 @@ def convert(path, save_fp):
             sd.pop(pname)
 
     ms.save_checkpoint(sd, save_fp)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

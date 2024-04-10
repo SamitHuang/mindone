@@ -1,10 +1,10 @@
 # TODO: use trained checkpoint and real data to check.
 
 import sys
-sys.path.append(".")
-import torch
 
+sys.path.append(".")
 import numpy as np
+import torch
 from ae.models.modules import AttnBlock3D, CausalConv3d, ResnetBlock3D
 
 import mindspore as ms

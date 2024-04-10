@@ -1,5 +1,5 @@
 # to enbale kbk mode, uncomment the line below
-# export GRAPH_OP_RUN=1 
+# export GRAPH_OP_RUN=1
 
 # FIXME: change dtype to bf16 or amp_level to O0, once MS supports conv3d bf16 or fp32 on 910b.
 python infer.py --model_config configs/causal_vae_488.yaml \
