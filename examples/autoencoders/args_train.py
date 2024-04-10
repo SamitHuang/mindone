@@ -48,20 +48,6 @@ def parse_args():
     # ms
     parser.add_argument("--mode", default=0, type=int, help="Specify the mode: 0 for graph mode, 1 for pynative mode")
     parser.add_argument("--device_target", type=str, default="Ascend", help="Ascend or GPU")
-    parser.add_argument(
-        "--amp_level",
-        default="O0",
-        type=str,
-        choices=["O0", "O2"],
-        help="auto-mixed precision level, O0 - all fp32, O2 - part fp32 (e.g. norm layers), allowing increasing max frames",
-    )
-    parser.add_argument(
-        "--dtype",
-        default="bf16",
-        type=str,
-        choices=["bf16", "fp16"],
-        help="precision type of partial layers for under mixed-precision mode, such as dense and conv layers",
-    )
     parser.add_argument("--profile", default=False, type=str2bool, help="Profile or not")
     # data
     parser.add_argument(

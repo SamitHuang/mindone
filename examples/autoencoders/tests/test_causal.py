@@ -205,6 +205,7 @@ def compare_res3d(npy_fp=None, ckpt_fp=None, backend="ms"):
 
     print(f"{backend}: ", out.shape, out.mean(), out.sum())
 
+
 def test_res3d():
     import torch
 
@@ -212,7 +213,7 @@ def test_res3d():
     sys.path.append(pt_code_path)
     from opensora.models.ae.videobase.modules.resnet_block import ResnetBlock3D as RB3D_PT
 
-    cout = hidden_size = 128
+    hidden_size = 128
     x = np.random.normal(size=(bs, hidden_size, T, H, W))
 
     rb3_pt = RB3D_PT(in_channels=hidden_size, out_channels=hidden_size, dropout=0.0)
@@ -270,7 +271,7 @@ def compare_attn3d():
 
     # ms.set_context(mode=0)
     a3d_ms = AttnBlock3D(cin)
-    sd = ms.load_checkpoint(ms_ckpt, a3d_ms)
+    ms.load_checkpoint(ms_ckpt, a3d_ms)
 
     res_ms = a3d_ms(ms.Tensor(x, dtype=ms.float32))
     res_ms = res_ms.asnumpy()

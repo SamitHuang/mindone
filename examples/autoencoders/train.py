@@ -247,7 +247,7 @@ def main(args):
                 f"MindSpore mode[GRAPH(0)/PYNATIVE(1)]: {args.mode}",
                 f"Distributed mode: {args.use_parallel}",
                 f"amp level: {amp_level}",
-                f"dtype: {dtype}",
+                f"dtype: {args.dtype}",
                 f"Data path: {args.data_path}",
                 f"Learning rate: {learning_rate}",
                 f"Batch size: {args.batch_size}",
