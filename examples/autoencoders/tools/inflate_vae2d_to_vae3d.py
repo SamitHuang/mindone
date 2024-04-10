@@ -1,30 +1,29 @@
 # init Causal VAE from vae 2d
+import sys
+sys.path.append(".")
 import argparse
-
 from ae.models.causal_vae_3d import CausalVAEModel
-
 import mindspore as ms
-
-args = dict(
-    ch=128,
-    out_ch=3,
-    ch_mult=(1, 2, 4, 4),
-    num_res_blocks=2,
-    attn_resolutions=[16],
-    dropout=0.0,
-    resamp_with_conv=True,
-    in_channels=3,
-    resolution=256,
-    z_channels=4,
-    double_z=True,
-    use_linear_attn=False,
-    attn_type="vanilla3D",  # diff 3d
-    time_compress=2,  # diff 3d
-    split_time_upsample=True,
-)
 
 
 def inflate(vae_ckpt, save_fp):
+    args = dict(
+        ch=128,
+        out_ch=3,
+        ch_mult=(1, 2, 4, 4),
+        num_res_blocks=2,
+        attn_resolutions=[16],
+        dropout=0.0,
+        resamp_with_conv=True,
+        in_channels=3,
+        resolution=256,
+        z_channels=4,
+        double_z=True,
+        use_linear_attn=False,
+        attn_type="vanilla3D",  # diff 3d
+        time_compress=2,  # diff 3d
+        split_time_upsample=True,
+    )
     ae = CausalVAEModel(ddconfig=args, embed_dim=4)
     vae2d_sd = ms.load_checkpoint(vae_ckpt)
 
