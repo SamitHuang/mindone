@@ -4,6 +4,7 @@ omegaconf
 einops
 ftfy
 regex
+beautifulsoup4
 albumentations
 pandas
 imagesize
@@ -13,3 +14,6 @@ tqdm
 mindcv
 decord
 jsonargparse[signatures,omegaconf,urls]>=4.25.0
+huggingface_hub>=0.22.2
+tokenizers>=0.15.2
+transformers>=4.39.3

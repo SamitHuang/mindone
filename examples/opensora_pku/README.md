@@ -9,11 +9,16 @@ We aim to achieve efficient training and inference on Ascend NPU devices based o
     - [x] Causal Video Autoencoder
         - [x] Inference
         - [x] Training (precision to be improved)
-    - [ ] Latte Text-to-Video (Coming soon)
-        - [ ] Inference
+    - [x] Latte Text-to-Video (Coming soon)
+        - [x] Inference
         - [ ] Training
 
 ## Installation
+
+Please make sure the following frameworks are installed.
+
+- python >= 3.8
+- mindspore >= 2.3.0rc1+20240409  [[install](https://www.mindspore.cn/install)]
 
 ```
 pip install -r requirements.txt
@@ -108,4 +113,39 @@ The training task is under progress. The initial training performance without fu
 
 ## Video Diffusion Transformer
 
-Coming soon
+### Inference
+
+After the Causal Video VAE is prepared, you can take the following steps to run text-to-video inference.
+
+1. Please download the model checkpoints from HF [Open-Sora-Plan-v1.0.0](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main). There are three stages of model checkpoints, saved in `17x256x256`, `65x256x256`, and `65x512x512` sub-folders.
+
+Taking `17x256x256` as an example, please download the torch checkpoint from the given [URL](https://huggingface.co/LanguageBind/Open-Sora-Plan-v1.0.0/tree/main/17x256x256), and place it under `models/17x256x256/`.
+
+2. Convert the checkpoint to mindspore format:
+
+```shell
+tools/model_conversion/convert_latte.py --src models/17x256x256/diffusion_pytorch_model.safetensors  --target models/17x256x256/model.ckpt
+```
+
+3. Run text-to-video inference.
+
+```shell
+python infer_diffusion.py --config configs/diffusion/latte_17x256x256_122.yaml
+```
+
+Some of the generated videos are shown here:
+<table class="center">
+    <tr style="line-height: 0">
+    <td width=33% style="border: none; text-align: center">Sunset over the sea</td>
+    <td width=33% style="border: none; text-align: center">Yellow and black tropical fish dart through the sea</td>
+    <td width=33% style="border: none; text-align: center">An epic tornado attacking above aglowing city at night</td>
+    </tr>
+    <tr>
+    <td width=33% style="border: none"><img src="https://raw.githubusercontent.com/wtomin/mindone-assets/main/opensora_pku/fp32/0-Sunset%20over%20the%20sea..gif" style="width:100%"></td>
+    <td width=33% style="border: none"><img src="https://raw.githubusercontent.com/wtomin/mindone-assets/main/opensora_pku/fp32/0-Yellow%20and%20black%20tropical%20fish%20dart%20through%20the%20sea..gif" style="width:100%"></td>
+    <td width=33% style="border: none"><img src="https://raw.githubusercontent.com/wtomin/mindone-assets/main/opensora_pku/fp32/0-An%20epic%20tornado%20attacking%20above%20aglowing%20city%20at%20night..gif" style="width:100%"></td>
+    </tr>
+</table>
+<p align="center">
+  <em> Figure 1. The generated videos of the 17x256x256 LatteT2V model given the prompts above. </em>
+</p>
