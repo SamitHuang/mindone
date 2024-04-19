@@ -121,7 +121,12 @@ class MultiHeadCrossAttention(nn.Cell):
         # kv: (B N_k C*2) -> (B N_k 2 C) -> (B N_k 2 num_head head_dim)-> (B num_head 2 N_k head_dim), split.
         kv = ops.reshape(kv, (B, N_k, 2, self.num_heads, self.head_dim))
         kv = ops.transpose(kv, (0, 3, 2, 1, 4))
-        k, v = ops.unstack(kv, axis=2)
+
+        # optim parallel adapt
+        # k, v = ops.unstack(kv, axis=2)
+        k, v = ops.split(kv, 1, axis=2)
+        k = k.reshape(B, self.num_heads, N_k, self.head_dim)  # TODO: use squeeze?
+        v = v.reshape(B, self.num_heads, N_k, self.head_dim)
 
         # 2+: mask adaptation for multi-head attention
         if mask is not None:
@@ -221,12 +226,18 @@ class SelfAttention(nn.Cell):
         qkv = self.qkv(x)
         # (b, n, 3*h*d) -> (b, n, 3, h, d)
         qkv = ops.reshape(qkv, (B, N, 3, self.num_heads, self.head_dim))
-        q, k, v = ops.unstack(qkv, axis=2)  # (b n h d)
+
+        # optim parallel adapt
+        # q, k, v = ops.unstack(qkv, axis=2)  # (b n h d)
+        q, k, v = ops.split(qkv, 1, axis=2)
 
         # (b n h d) -> (b h n d)
-        q = q.transpose(0, 2, 1, 3)
-        k = k.transpose(0, 2, 1, 3)
-        v = v.transpose(0, 2, 1, 3)
+        # q = q.transpose(0, 2, 1, 3)
+        # k = k.transpose(0, 2, 1, 3)
+        # v = v.transpose(0, 2, 1, 3)
+        q = q.reshape(B, N, self.num_heads, self.head_dim).transpose(0, 2, 1, 3)
+        k = k.reshape(B, N, self.num_heads, self.head_dim).transpose(0, 2, 1, 3)
+        v = v.reshape(B, N, self.num_heads, self.head_dim).transpose(0, 2, 1, 3)
 
         # mask process
         if mask is not None:

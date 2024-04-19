@@ -275,9 +275,13 @@ class CaptionEmbedder(nn.Cell):
     """
     Embeds class labels into vector representations. Also handles label dropout for classifier-free guidance.
     """
-
-    def __init__(self, in_channels, hidden_size, uncond_prob, act_layer=nn.GELU(approximate=True), token_num=120):
+    # optim parallel adapt
+    # def __init__(self, in_channels, hidden_size, uncond_prob, act_layer=nn.GELU(approximate=True), token_num=120):
+    def __init__(self, in_channels, hidden_size, uncond_prob, act_layer=None, token_num=120):
         super().__init__()
+        if act_layer is None:
+            act_layer = nn.GELU(approximate=True)
+
         self.y_proj = Mlp(
             in_features=in_channels, hidden_features=hidden_size, out_features=hidden_size, act_layer=act_layer, drop=0
         )
@@ -428,6 +432,7 @@ class STDiT(nn.Cell):
         self.final_layer = T2IFinalLayer(hidden_size, int(np.prod(self.patch_size)), self.out_channels)
 
         # init model
+        print("D--: skip stdit initialization to test optim parallel!!")
         self.initialize_weights()
         self.initialize_temporal()
 
@@ -604,11 +609,16 @@ class STDiT(nn.Cell):
 
         # Initialize patch_embed like nn.Linear (instead of nn.Conv2d):
         # xavier_uniform_(w.view([w.shape[0], -1]))
-        w = self.x_embedder.proj.weight
+        # w = self.x_embedder.proj.weight
+        # w_flatted = w.reshape(w.shape[0], -1)
+        # w.set_data(initializer(XavierUniform(), w_flatted.shape, w_flatted.dtype).reshape(w.shape))
+        
+        # optim paralllel adapt. FIXME: the adapt changes the init value!!! need fix.
+        w = self.x_embedder.proj.weight.init_data()
         w_flatted = w.reshape(w.shape[0], -1)
-        # FIXME: incompatible in optim parallel mode
-        # FIXME: impl in torch can be incorrect. can be reshape order mismatch
-        w.set_data(initializer(XavierUniform(), w_flatted.shape, w_flatted.dtype).reshape(w.shape))
+        w.set_data(initializer(XavierUniform(), w.shape, w.dtype).init_data())
+
+
 
         # Initialize timestep embedding MLP:
         normal_(self.t_embedder.mlp[0].weight, std=0.02)

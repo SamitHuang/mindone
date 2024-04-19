@@ -50,6 +50,7 @@ def init_env(
     max_device_memory: str = None,
     device_target: str = "Ascend",
     parallel_mode: str = "data",
+    enable_dvm: bool = False,
 ) -> Tuple[int, int, int]:
     """
     Initialize MindSpore environment.
@@ -70,9 +71,14 @@ def init_env(
         ms.set_context(
             mode=mode,
             device_target=device_target,
-            ascend_config={"precision_mode": "allow_fp32_to_fp16"},  # ms2.2.23 parallel needs
+            # optim paralel adapt. TODO: cannot set precision_mode in optim parallel mode??
+            # ascend_config={"precision_mode": "allow_fp32_to_fp16"},  # ms2.2.23 parallel needs
             # ascend_config={"precision_mode": "must_keep_origin_dtype"},  # TODO: tune
         )
+        if enable_dvm: 
+            print("D--: enable dvm")
+            ms.set_context(enable_graph_kernel=True)
+
         if parallel_mode == "optim":
             print("D--: use optim parallel")
             ms.set_auto_parallel_context(
@@ -123,6 +129,7 @@ def main(args):
         device_target=args.device_target,
         max_device_memory=args.max_device_memory,
         parallel_mode=args.parallel_mode,
+        enable_dvm=args.enable_dvm,
     )
     set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
 
@@ -157,7 +164,7 @@ def main(args):
             latte_model,
             amp_level="O2",
             dtype=model_dtype,
-            custom_fp32_cells=[LayerNorm, Attention, nn.SiLU],
+            custom_fp32_cells=[LayerNorm, Attention], #, nn.SiLU], TODO: tmp remove for testing max frames
         )
     # load checkpoint
     if len(args.pretrained_model_path) > 0:
@@ -209,7 +216,7 @@ def main(args):
         disable_flip=args.disable_flip,
     )
     dataset = create_dataloader(
-        ds_config, batch_size=args.batch_size, shuffle=True, device_num=device_num, rank_id=rank_id
+        ds_config, batch_size=args.batch_size, shuffle=True, device_num=device_num, rank_id=rank_id, num_parallel_workers=args.num_parallel_workers,
     )
     dataset_size = dataset.get_dataset_size()
 
