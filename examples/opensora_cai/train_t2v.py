@@ -71,8 +71,8 @@ def init_env(
         ms.set_context(
             mode=mode,
             device_target=device_target,
+            ascend_config={"precision_mode": "allow_fp32_to_fp16"},  # ms2.2.23 parallel needs
             # optim paralel adapt. TODO: cannot set precision_mode in optim parallel mode??
-            # ascend_config={"precision_mode": "allow_fp32_to_fp16"},  # ms2.2.23 parallel needs
             # ascend_config={"precision_mode": "must_keep_origin_dtype"},  # TODO: tune
         )
         if enable_dvm: 

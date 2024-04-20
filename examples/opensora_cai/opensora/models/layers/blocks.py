@@ -216,7 +216,7 @@ class SelfAttention(nn.Cell):
         else:
             self.flash_attention = None
 
-    def construct(self, x, mask=None):
+    def construct(self, x):
         """
         x: (b n c)
         mask: (b n), 1 - valid, 0 - padded
@@ -241,20 +241,12 @@ class SelfAttention(nn.Cell):
         k = k.reshape(B, N, self.num_heads, self.head_dim).transpose(0, 2, 1, 3)
         v = v.reshape(B, N, self.num_heads, self.head_dim).transpose(0, 2, 1, 3)
 
-        # mask process
-        if mask is not None:
-            mask = 1 - mask
-            mask = mask[:, None, None, :]
-
         q_n = q.shape[-2]
         k_n = k.shape[-2]
         if self.enable_flash_attention and q_n % 16 == 0 and k_n % 16 == 0 and self.head_dim <= 256:
-            # mask: (b n_k) -> (b 1 n_q n_k)
-            if mask is not None:
-                mask = ops.repeat_interleave(mask, int(q.shape[-2]), axis=-2)
-            out = self.flash_attention(q, k, v, mask=mask)
+            out = self.flash_attention(q, k, v)
         else:
-            out = self.attention(q, k, v, mask)
+            out = self.attention(q, k, v)
 
         b, h, n, d = out.shape
         # reshape FA output to original attn input format, (b h n d) -> (b n h*d)

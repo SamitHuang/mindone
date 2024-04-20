@@ -60,7 +60,7 @@ def parse_train_args(parser):
         type=str,
         help="It can be a string for path to resume checkpoint, or a bool False for not resuming.(default=False)",
     )
-    parser.add_argument("--optim", default="adamw", type=str, help="optimizer")
+    parser.add_argument("--optim", default="adamw", type=str, help="optimizer: adamw, adamw_zero1")
     parser.add_argument(
         "--betas",
         type=float,
