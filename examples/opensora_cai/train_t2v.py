@@ -118,9 +118,6 @@ def init_env(
 
 
 def main(args):
-    time_str = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    args.output_path = os.path.join(args.output_path, time_str)
-
     # 1. init
     rank_id, device_num = init_env(
         args.mode,
@@ -131,6 +128,10 @@ def main(args):
         parallel_mode=args.parallel_mode,
         enable_dvm=args.enable_dvm,
     )
+
+    time_str = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    args.output_path = os.path.join(args.output_path, time_str)
+
     set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
 
     # 2. model initiate and weight loading
@@ -262,8 +263,10 @@ def main(args):
         raise ValueError
 
     # resume ckpt
-    ckpt_dir = os.path.join(args.output_path, "ckpt")
+    # TODO: fix resume training for optim parallel
     start_epoch = 0
+    '''
+    ckpt_dir = os.path.join(args.output_path, "ckpt")
     if args.resume:
         resume_ckpt = os.path.join(ckpt_dir, "train_resume.ckpt") if isinstance(args.resume, bool) else args.resume
 
@@ -273,6 +276,7 @@ def main(args):
         loss_scaler.loss_scale_value = loss_scale
         loss_scaler.cur_iter = cur_iter
         loss_scaler.last_overflow_iter = last_overflow_iter
+    '''
 
     # trainer (standalone and distributed)
     ema = (
@@ -300,8 +304,14 @@ def main(args):
     callback = [TimeMonitor(args.log_interval)]
     ofm_cb = OverflowMonitor()
     callback.append(ofm_cb)
+    
+    if (args.parallel_mode=='data' and rank_id==0) or \
+        (args.parallel_mode=='optim'):
+        if args.parallel_mode=='optim': 
+            ckpt_dir = os.path.join(args.output_path, f"ckpt_{rank_id}")
+        else:
+            ckpt_dir = os.path.join(args.output_path, "ckpt")
 
-    if rank_id == 0:
         save_cb = EvalSaveCallback(
             network=latent_diffusion_with_loss.network,
             rank_id=rank_id,
@@ -315,6 +325,7 @@ def main(args):
             start_epoch=start_epoch,
             model_name="STDiT",
             record_lr=False,
+            optim_parallel= (args.parallel_mode=='optim'),
         )
         callback.append(save_cb)
         if args.profile:

@@ -47,6 +47,7 @@ class EvalSaveCallback(Callback):
         model_name="sd",
         save_trainable_only: bool = False,
         param_save_filter: List[str] = None,
+        optim_parallel=False,
     ):
         """
         Args:
@@ -54,6 +55,7 @@ class EvalSaveCallback(Callback):
             param_save_filter: indicates what parameters to save in checkpoint. If None, save all parameters in network. \
                 Otherwise, only params that contain one of the keyword in param_save_filter list will be saved.
         """
+        self.optim_parallel = optim_parallel
         self.rank_id = rank_id
         self.is_main_device = rank_id in [0, None]
         self.ema = ema
@@ -76,7 +78,7 @@ class EvalSaveCallback(Callback):
         self.start_epoch = start_epoch
         self.record_lr = record_lr
 
-        if self.is_main_device:
+        if self.is_main_device or self.optim_parallel:
             self.ckpt_save_policy = ckpt_save_policy
             self.ckpt_manager = CheckpointManager(
                 ckpt_save_dir,
@@ -123,7 +125,7 @@ class EvalSaveCallback(Callback):
         else:
             cur_epoch = cb_params.cur_epoch_num - 1
 
-        if self.is_main_device:
+        if self.is_main_device or self.optim_parallel:
             # if data sink, train step callback will not be invokded
             if self.step_mode and (cur_step % self.ckpt_save_interval == 0 or cur_step == step_num):
                 ckpt_name = (
@@ -204,7 +206,7 @@ class EvalSaveCallback(Callback):
 
         cur_step = cur_epoch * cb_params.batch_num
 
-        if self.is_main_device and (not self.step_mode):
+        if (self.is_main_device or self.optim_parallel ) and (not self.step_mode):
             if (cur_epoch % self.ckpt_save_interval == 0) or (cur_epoch == epoch_num):
                 ckpt_name = (
                     f"{self.model_name}-s{cur_step}.ckpt"
@@ -235,7 +237,7 @@ class EvalSaveCallback(Callback):
             self.last_epoch_end_time = time.time()
 
     def on_train_end(self, run_context):
-        if self.is_main_device:
+        if self.is_main_device or self.optim_parallel:
             if self.ckpt_save_policy == "top_k":
                 log_str = f"Top K checkpoints:\n{self.main_indicator}\tcheckpoint\n"
                 for p, ckpt_name in self.ckpt_manager.get_ckpt_queue():
