@@ -163,9 +163,9 @@ def main(args):
         model_dtype = {"fp16": ms.float16, "bf16": ms.bfloat16}[args.dtype]
         latte_model = auto_mixed_precision(
             latte_model,
-            amp_level="O2",
+            amp_level=args.amp_level,
             dtype=model_dtype,
-            custom_fp32_cells=[LayerNorm, Attention], #, nn.SiLU], TODO: tmp remove for testing max frames
+            custom_fp32_cells=[LayerNorm, Attention, nn.SiLU, nn.GELU],
         )
     # load checkpoint
     if len(args.pretrained_model_path) > 0:
@@ -217,7 +217,10 @@ def main(args):
         disable_flip=args.disable_flip,
     )
     dataset = create_dataloader(
-        ds_config, batch_size=args.batch_size, shuffle=True, device_num=device_num, rank_id=rank_id, num_parallel_workers=args.num_parallel_workers,
+        ds_config, batch_size=args.batch_size, shuffle=True, 
+        device_num=device_num, rank_id=rank_id,
+        num_parallel_workers=args.num_parallel_workers,
+        max_rowsize=args.max_rowsize,
     )
     dataset_size = dataset.get_dataset_size()
 
@@ -267,6 +270,7 @@ def main(args):
     start_epoch = 0
     '''
     ckpt_dir = os.path.join(args.output_path, "ckpt")
+    start_epoch = 0
     if args.resume:
         resume_ckpt = os.path.join(ckpt_dir, "train_resume.ckpt") if isinstance(args.resume, bool) else args.resume
 

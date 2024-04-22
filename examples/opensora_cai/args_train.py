@@ -60,10 +60,11 @@ def parse_train_args(parser):
         type=str,
         help="It can be a string for path to resume checkpoint, or a bool False for not resuming.(default=False)",
     )
-    parser.add_argument("--optim", default="adamw", type=str, help="optimizer: adamw, adamw_zero1")
+    parser.add_argument("--optim", default="adamw", type=str, help="optimizer")
     parser.add_argument(
         "--betas",
         type=float,
+        nargs='+',
         default=[0.9, 0.999],
         help="Specify the [beta1, beta2] parameter for the AdamW optimizer.",
     )
@@ -82,7 +83,6 @@ def parse_train_args(parser):
     parser.add_argument("--seed", default=3407, type=int, help="data path")
     parser.add_argument("--warmup_steps", default=1000, type=int, help="warmup steps")
     parser.add_argument("--batch_size", default=10, type=int, help="batch size")
-    parser.add_argument("--num_parallel_workers", default=12, type=int, help="num of parallel workers for data loading")
     parser.add_argument("--start_learning_rate", default=1e-5, type=float, help="The initial learning rate for Adam.")
     parser.add_argument("--end_learning_rate", default=1e-7, type=float, help="The end learning rate for Adam.")
     parser.add_argument("--decay_steps", default=0, type=int, help="lr decay steps.")
@@ -117,6 +117,8 @@ def parse_train_args(parser):
         choices=["bf16", "fp16", "fp32"],
         help="what data type to use for latte. Default is `fp16`, which corresponds to ms.float16",
     )
+    parser.add_argument("--amp_level", default="O2", type=str, help="mindspore amp level, O1: most fp32, only layers in whitelist compute in fp16 (dense, conv, etc); \
+            O2: most fp16, only layers in blacklist compute in fp32 (batch norm etc)")
     parser.add_argument("--t5_model_dir", default=None, type=str, help="the T5 cache folder path")
     parser.add_argument(
         "--vae_checkpoint",
@@ -130,6 +132,8 @@ def parse_train_args(parser):
     parser.add_argument("--image_size", default=256, type=int, help="the image size used to initiate model")
     parser.add_argument("--num_frames", default=16, type=int, help="the num of frames used to initiate model")
     parser.add_argument("--frame_stride", default=3, type=int, help="frame sampling stride")
+    parser.add_argument("--num_parallel_workers", default=12, type=int, help="num workers for data loading")
+    parser.add_argument("--max_rowsize", default=64, type=int, help="max rowsize for data loading")
     parser.add_argument(
         "--disable_flip",
         default=True,
