@@ -87,6 +87,8 @@ def main(args):
         space_scale=args.space_scale,  # 0.5 for 256x256. 1. for 512
         time_scale=args.time_scale,
         patchify_conv3d_replace="conv2d",  # for Ascend
+        enable_flashattn=args.enable_flash_attention,
+        enable_sequence_parallelism=args.enable_sequence_parallelism,
     )
     latte_model = STDiT_XL_2(**model_extra_args)
     latte_model = latte_model.set_train(False)
@@ -266,6 +268,12 @@ def parse_args():
         default=False,
         type=str2bool,
         help="whether to enable flash attention. Default is False",
+    )
+    parser.add_argument(
+        "--enable_sequence_parallelism",
+        default=None,
+        type=str2bool,
+        help="whether to enable sequence parallelism.",
     )
     parser.add_argument(
         "--dtype",

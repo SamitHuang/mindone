@@ -75,11 +75,11 @@ def init_env(
             # optim paralel adapt. TODO: cannot set precision_mode in optim parallel mode??
             # ascend_config={"precision_mode": "must_keep_origin_dtype"},  # TODO: tune
         )
-        if enable_dvm: 
+        if enable_dvm:
             print("D--: enable dvm")
             ms.set_context(enable_graph_kernel=True)
 
-        if parallel_mode == "optim":
+        if parallel_mode == "semi":
             print("D--: use optim parallel")
             ms.set_auto_parallel_context(
                 parallel_mode=ms.ParallelMode.SEMI_AUTO_PARALLEL,
@@ -122,13 +122,14 @@ def main(args):
     args.output_path = os.path.join(args.output_path, time_str)
 
     # 1. init
+    parallel_mode = "semi" if args.enable_sequence_parallelism else args.parallel_mode
     rank_id, device_num = init_env(
         args.mode,
         seed=args.seed,
         distributed=args.use_parallel,
         device_target=args.device_target,
         max_device_memory=args.max_device_memory,
-        parallel_mode=args.parallel_mode,
+        parallel_mode=parallel_mode,
         enable_dvm=args.enable_dvm,
     )
     set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
@@ -150,6 +151,12 @@ def main(args):
         time_scale=args.time_scale,
         patchify_conv3d_replace="conv2d",  # for Ascend
         enable_flashattn=args.enable_flash_attention,
+        enable_sequence_parallelism=args.enable_sequence_parallelism,
+        parallel_config=dict(
+            data_parallel=args.data_parallel,
+            model_parallel=args.model_parallel,
+            sequence_parallel=args.sequence_parallel,
+        ),
         use_recompute=args.use_recompute,
     )
     logger.info(f"STDiT input size: {input_size}")
@@ -164,7 +171,7 @@ def main(args):
             latte_model,
             amp_level="O2",
             dtype=model_dtype,
-            custom_fp32_cells=[LayerNorm, Attention], #, nn.SiLU], TODO: tmp remove for testing max frames
+            custom_fp32_cells=[LayerNorm, Attention],  # , nn.SiLU], TODO: tmp remove for testing max frames
         )
     # load checkpoint
     if len(args.pretrained_model_path) > 0:
@@ -216,7 +223,12 @@ def main(args):
         disable_flip=args.disable_flip,
     )
     dataset = create_dataloader(
-        ds_config, batch_size=args.batch_size, shuffle=True, device_num=device_num, rank_id=rank_id, num_parallel_workers=args.num_parallel_workers,
+        ds_config,
+        batch_size=args.batch_size,
+        shuffle=True,
+        device_num=device_num,
+        rank_id=rank_id,
+        num_parallel_workers=args.num_parallel_workers,
     )
     dataset_size = dataset.get_dataset_size()
 

@@ -1,6 +1,8 @@
 import math
 import numbers
-from typing import Optional, Tuple, Type
+from typing import Any, Dict, Optional, Tuple, Type
+
+import numpy as np
 
 import mindspore as ms
 from mindspore import Parameter, Tensor, nn, ops
@@ -36,6 +38,125 @@ class Attention(nn.Cell):
         out = ops.bmm(attn, v)
 
         return out
+
+
+class SeqParallelAttention(nn.Cell):
+    def __init__(
+        self, num_heads: int, dim_head: int, attn_drop: float = 0.0, parallel_config: Dict[str, Any] = {}
+    ) -> None:
+        super().__init__()
+        self.scale = dim_head**-0.5
+        self.num_heads = num_heads
+        self.dim_head = dim_head
+
+        self.bmm = ops.BatchMatMul()
+        self.mul = ops.Mul()
+        self.softmax = ops.Softmax(axis=-1)
+        self.attn_drop = nn.Dropout(p=attn_drop)
+        self.matmul = ops.BatchMatMul()
+        self.transpose = ops.Transpose()
+        self.transpose_a2a = ops.Transpose()
+        self.sub = ops.Sub()
+        self.mul = ops.Mul()
+        self.add = ops.Add()
+
+        self.minus_inf = Tensor(np.finfo(np.float32).min, dtype=ms.float32)
+
+        self.parallel_config = parallel_config
+        self.shard()
+
+    def _merge_head(self, x: Tensor) -> Tensor:
+        x = self.transpose(x, (0, 3, 1, 2, 4))  # (b, n, h/mp, mp, d)
+        # magic all-to-all
+        x = self.transpose_a2a(x, (0, 1, 3, 2, 4))
+        x = ops.reshape(x, (-1, self.num_heads * self.dim_head))
+        return x
+
+    def construct(self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+        # mask: (b 1 1 1 n_k), 1 - keep, 0 indicates discard.
+        sim = self.bmm(q, k)
+        sim = self.mul(sim, self.scale)
+        sim = sim.to(ms.float32)
+
+        if mask is not None:
+            mask = 1.0 - mask.to(ms.float32)
+            mask = self.mul(mask, self.minus_inf)
+            sim = self.add(mask, sim)
+
+        attn = self.softmax(sim).astype(v.dtype)
+        attn = self.attn_drop(attn)
+        out = self.matmul(attn, v)
+        out = self._merge_head(out)
+        return out
+
+    def shard(self):
+        self.dp = self.parallel_config.get("data_parallel", 1)
+        self.mp = self.parallel_config.get("model_parallel", 1)
+        self.sp = self.parallel_config.get("sequence_parallel", 1)
+
+        if self.sp > self.num_heads // self.mp:
+            self.sp_ds = self.num_heads // self.mp
+            self.sp_co = self.sp // self.sp_ds
+        else:
+            self.sp_ds = self.sp
+            self.sp_co = 1
+
+        self.bmm.shard(((self.dp, self.sp_ds, self.mp, self.sp_co, 1), (self.dp, self.sp_ds, self.mp, 1, 1)))
+        self.bmm.add_prim_attr(
+            "layout",
+            {
+                "dev_matrix": (self.dp, self.sp_co, self.sp_ds, self.mp, 1),
+                "input_tensor_map": ((4, 2, 1, 3, 0), (4, 2, 1, -1, 0)),
+            },
+        )
+
+        self.sub.shard(((1,), (self.dp, 1, 1, self.sp_co, 1)))
+
+        self.mul.shard(((self.dp, self.sp_ds, self.mp, self.sp_co, 1), ()))
+        self.mul.add_prim_attr(
+            "layout",
+            {"dev_matrix": (self.dp, self.sp_co, self.sp_ds, self.mp, 1), "input_tensor_map": ((4, 2, 1, 3, 0), ())},
+        )
+
+        self.softmax.shard(((self.dp, self.sp_ds, self.mp, self.sp_co, 1),))
+        self.softmax.add_prim_attr(
+            "layout",
+            {"dev_matrix": (self.dp, self.sp_co, self.sp_ds, self.mp, 1), "input_tensor_map": ((4, 2, 1, 3, 0),)},
+        )
+
+        self.attn_drop.dropout.shard(((self.dp, self.sp_ds, self.mp, self.sp_co, 1),))
+        self.attn_drop.dropout.add_prim_attr(
+            "layout",
+            {"dev_matrix": (self.dp, self.sp_co, self.sp_ds, self.mp, 1), "input_tensor_map": ((4, 2, 1, 3, 0),)},
+        )
+
+        self.matmul.shard(((self.dp, self.sp_ds, self.mp, self.sp_co, 1), (self.dp, self.sp_ds, self.mp, 1, 1)))
+        self.matmul.add_prim_attr(
+            "layout",
+            {
+                "dev_matrix": (self.dp, self.sp_co, self.sp_ds, self.mp, 1),
+                "input_tensor_map": ((4, 2, 1, 3, 0), (4, 2, 1, -1, 0)),
+            },
+        )
+
+        self.transpose.shard(((self.dp, self.sp_ds, self.mp, self.sp_co, 1),))
+        self.transpose.add_prim_attr(
+            "layout",
+            {"dev_matrix": (self.dp, self.sp_co, self.sp_ds, self.mp, 1), "input_tensor_map": ((4, 2, 1, 3, 0),)},
+        )
+
+        self.transpose_a2a.shard(((self.dp, self.sp, 1, self.mp, 1),))
+
+        self.mul.shard(((self.dp, 1, 1, self.sp_co, 1), (1,)))
+
+        self.add.shard(((self.dp, 1, 1, self.sp_co, 1), (self.dp, self.sp_ds, self.mp, self.sp_co, 1)))
+        self.add.add_prim_attr(
+            "layout",
+            {
+                "dev_matrix": (self.dp, self.sp_co, self.sp_ds, self.mp, 1),
+                "input_tensor_map": ((4, -1, -1, 3, 0), (4, 2, 1, 3, 0)),
+            },
+        )
 
 
 class MultiHeadCrossAttention(nn.Cell):
@@ -97,14 +218,9 @@ class MultiHeadCrossAttention(nn.Cell):
         """
         B_ori, _, C = x.shape
 
-        if mask is None:
-            # FIXME: this branch is used to test the align with torch when mask is None, B dim is flatten to the seq_len dim,
-            # but never used in real training or inference. Remove after all precision check are done.
-            x = x.reshape((1, -1, C))
-        else:
-            # TODO: directly input cond (B, N_tokens, D), no need to flatten, to save memory.
-            # cond: (1, B*N_tokens, C) -> (B, N_tokens, C)
-            cond = ops.reshape(cond, (B_ori, -1, C))
+        # TODO: directly input cond (B, N_tokens, D), no need to flatten, to save memory.
+        # cond: (1, B*N_tokens, C) -> (B, N_tokens, C)
+        cond = ops.reshape(cond, (B_ori, -1, C))
 
         B, N, C = x.shape
         N_k = cond.shape[1]
@@ -165,6 +281,126 @@ class MultiHeadCrossAttention(nn.Cell):
         return x
 
 
+class SeqParallelMultiHeadCrossAttention(nn.Cell):
+    def __init__(
+        self,
+        d_model,
+        num_heads,
+        attn_drop=0.0,
+        proj_drop=0.0,
+        has_bias=True,
+        enable_flash_attention=False,
+        parallel_config: Dict[str, Any] = {},
+    ):
+        super().__init__()
+        assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
+
+        self.d_model = d_model
+        self.num_heads = num_heads
+        head_dim = d_model // num_heads
+        self.parallel_config = parallel_config
+        self.has_bias = has_bias
+
+        self.q_linear = nn.Dense(d_model, d_model, has_bias=has_bias)
+        self.kv_linear = nn.Dense(d_model, d_model * 2, has_bias=has_bias)
+        self.split = ops.Split(-1, 2)
+        self.attn_drop = nn.Dropout(p=attn_drop)
+        self.proj = nn.Dense(d_model, d_model, has_bias=has_bias)
+        self.proj_drop = nn.Dropout(p=proj_drop)
+        self.transpose = ops.Transpose()
+        self.reshape = ops.Reshape()
+        self.transpose_a2a = ops.Transpose()
+        self.tile = ops.Tile()
+
+        self.attention = SeqParallelAttention(
+            self.num_heads, head_dim, attn_drop=attn_drop, parallel_config=parallel_config
+        )
+
+        if enable_flash_attention:
+            raise NotImplementedError("Flash Attention is not supported yet.")
+
+        self.shard()
+
+    def _rearange_in(self, x, b, n, h, transpose=False):
+        # (b*n, h*d) -> (b, h/mp, mp, n, d)
+        x = ops.reshape(x, (b, n, self.mp, h // self.mp, -1))
+        # magic all-to-all
+        x = self.transpose_a2a(x, (0, 1, 3, 2, 4))
+        if not transpose:
+            x = self.transpose(x, (0, 2, 3, 1, 4))
+        else:
+            x = self.transpose(x, (0, 2, 3, 4, 1))
+        return x
+
+    def construct(self, x: Tensor, cond: Tensor, mask: Optional[Tensor] = None):
+        """
+        Inputs:
+            x: (B, N, C), N=seq_len=h*w*t, C = hidden_size = head_dim * num_heads
+            cond: (1, B*N_tokens, C)
+            mask : (B, N_tokens), 1 - valid tokens, 0 - padding tokens
+        Return:
+            (B, N, C)
+        """
+        h = self.num_heads
+        b, n, d = x.shape
+        n_c = cond.shape[1] // b
+
+        x = ops.reshape(x, (-1, x.shape[-1]))
+        cond = ops.reshape(cond, (-1, cond.shape[-1]))
+
+        q = self.q_linear(x)
+        kv = self.kv_linear(cond)
+        k, v = self.split(kv)
+
+        q = self._rearange_in(q, b, n, h)
+        k = self._rearange_in(k, b, n_c, h, transpose=True)
+        v = self._rearange_in(v, b, n_c, h)
+
+        if mask is not None:
+            mask = ops.reshape(mask, (b, 1, 1, 1, n_c))
+            mask = self.tile(mask, (1, 1, 1, n, 1))
+
+        out = self.attention(q, k, v, mask)
+
+        out = self.proj(out)
+        out = self.proj_drop(out)
+        out = ops.reshape(out, (b, n, d))
+        return out
+
+    def shard(self):
+        self.dp = self.parallel_config.get("data_parallel", 1)
+        self.mp = self.parallel_config.get("model_parallel", 1)
+        self.sp = self.parallel_config.get("sequence_parallel", 1)
+
+        if self.sp > self.num_heads // self.mp:
+            self.sp_ds = self.num_heads // self.mp
+            self.sp_co = self.sp // self.sp_ds
+        else:
+            self.sp_ds = self.sp
+            self.sp_co = 1
+
+        self.q_linear.matmul.shard(((self.dp * self.sp, 1), (self.mp, 1)))
+        if self.has_bias:
+            self.q_linear.bias_add.shard(((self.dp * self.sp, self.mp), (self.mp,)))
+
+        self.kv_linear.matmul.shard(((self.dp * self.sp, 1), (self.mp, 1)))
+        if self.has_bias:
+            self.kv_linear.bias_add.shard(((self.dp * self.sp, self.mp), (self.mp,)))
+
+        self.split.shard(((self.dp * self.sp, self.mp),))
+        self.split.add_prim_attr("skip_redistribution", True)
+
+        self.transpose_a2a.shard(((self.dp, self.mp, self.mp, 1, 1),))
+        self.transpose.shard(((self.dp, self.sp, self.sp_ds, self.mp, 1),))
+
+        self.tile.shard(((1, 1, 1, 1, 1),))
+
+        self.proj.matmul.shard(((self.dp * self.sp, self.mp), (self.mp, 1)))
+        self.proj.bias_add.shard(((self.dp * self.sp, 1), (1,)))
+
+        self.proj_drop.dropout.shard(((self.dp * self.sp, 1),))
+
+
 class SelfAttention(nn.Cell):
     """Attention adopted from :
     Multi-head self attention
@@ -186,6 +422,7 @@ class SelfAttention(nn.Cell):
         proj_drop=0.0,
         dtype=ms.float32,
         enable_flash_attention=False,
+        **kwargs,
     ):
         super().__init__()
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
@@ -253,6 +490,112 @@ class SelfAttention(nn.Cell):
         out = out.transpose(0, 2, 1, 3).view(b, n, -1)
 
         return self.proj_drop(self.proj(out)).to(x_dtype)
+
+
+class SeqParallelSelfAttention(nn.Cell):
+    def __init__(
+        self,
+        dim,
+        num_heads=8,
+        qkv_bias=False,
+        attn_drop=0.0,
+        proj_drop=0.0,
+        dtype=ms.float32,
+        enable_flash_attention=False,
+        parallel_config: Dict[str, Any] = {},
+    ):
+        super().__init__()
+        assert dim % num_heads == 0, "dim should be divisible by num_heads"
+        self.dtype = dtype
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = head_dim**-0.5
+        self.parallel_config = parallel_config
+        self.qkv_bias = qkv_bias
+
+        self.qkv = nn.Dense(dim, dim * 3, has_bias=qkv_bias, weight_init=XavierUniform(), bias_init=Zero()).to_float(
+            self.dtype
+        )
+        self.split = ops.Split(-1, 3)
+        self.proj = nn.Dense(dim, dim, weight_init=XavierUniform(), bias_init=Zero()).to_float(self.dtype)
+        self.proj_drop = nn.Dropout(p=proj_drop)
+        self.softmax = ops.Softmax(axis=-1)
+        self.transpose = ops.Transpose()
+        self.reshape = ops.Reshape()
+        self.transpose_a2a = ops.Transpose()
+        self.tile = ops.Tile()
+
+        self.attention = SeqParallelAttention(
+            self.num_heads, head_dim, attn_drop=attn_drop, parallel_config=parallel_config
+        )
+
+        if enable_flash_attention:
+            raise NotImplementedError("Flash Attention is not supported yet.")
+
+        self.shard()
+
+    def _rearange_in(self, x, b, n, h, transpose=False):
+        # (b*n, h*d) -> (b, h/mp, mp, n, d)
+        x = ops.reshape(x, (b, n, self.mp, h // self.mp, -1))
+        # magic all-to-all
+        x = self.transpose_a2a(x, (0, 1, 3, 2, 4))
+        if not transpose:
+            x = self.transpose(x, (0, 2, 3, 1, 4))
+        else:
+            x = self.transpose(x, (0, 2, 3, 4, 1))
+        return x
+
+    def construct(self, x: Tensor, mask: Optional[Tensor] = None):
+        h = self.num_heads
+        b, n, d = x.shape
+
+        x = ops.reshape(x, (-1, x.shape[-1]))
+        qkv = self.qkv(x)
+        q, k, v = self.split(qkv)
+
+        q = self._rearange_in(q, b, n, h)
+        k = self._rearange_in(k, b, n, h, transpose=True)
+        v = self._rearange_in(v, b, n, h)
+
+        if mask is not None:
+            mask = ops.reshape(mask, (b, 1, 1, 1, n))
+            mask = self.tile(mask, (1, 1, 1, n, 1))
+
+        out = self.attention(q, k, v, mask)
+
+        out = self.proj(out)
+        out = self.proj_drop(out)
+        out = ops.reshape(out, (b, n, d))
+        return out
+
+    def shard(self):
+        self.dp = self.parallel_config.get("data_parallel", 1)
+        self.mp = self.parallel_config.get("model_parallel", 1)
+        self.sp = self.parallel_config.get("sequence_parallel", 1)
+
+        if self.sp > self.num_heads // self.mp:
+            self.sp_ds = self.num_heads // self.mp
+            self.sp_co = self.sp // self.sp_ds
+        else:
+            self.sp_ds = self.sp
+            self.sp_co = 1
+
+        self.qkv.matmul.shard(((self.dp * self.sp, 1), (self.mp, 1)))
+        if self.qkv_bias:
+            self.qkv.bias_add.shard(((self.dp * self.sp, self.mp), (self.mp,)))
+
+        self.split.shard(((self.dp * self.sp, self.mp),))
+        self.split.add_prim_attr("skip_redistribution", True)
+
+        self.transpose_a2a.shard(((self.dp, self.mp, self.mp, 1, 1),))
+        self.transpose.shard(((self.dp, self.sp, self.sp_ds, self.mp, 1),))
+
+        self.tile.shard(((1, 1, 1, 1, 1),))
+
+        self.proj.matmul.shard(((self.dp * self.sp, self.mp), (self.mp, 1)))
+        self.proj.bias_add.shard(((self.dp * self.sp, 1), (1,)))
+
+        self.proj_drop.dropout.shard(((self.dp * self.sp, 1),))
 
 
 class LayerNorm(nn.Cell):
@@ -487,3 +830,19 @@ class LabelEmbedder(nn.Cell):
             labels = self.token_drop(labels, force_drop_ids)
         embeddings = self.embedding_table(labels)
         return embeddings
+
+
+if __name__ == "__main__":
+    np.random.seed(0)
+    ms.set_context(mode=ms.PYNATIVE_MODE)
+    x = ms.Tensor(np.random.random((4, 10, 64)), dtype=ms.float32)
+    context = ms.Tensor(np.random.random((1, 32, 64)), dtype=ms.float32)
+    mask = ms.Tensor(np.random.random((4, 8)) > 0.5, dtype=ms.uint8)
+    ms.set_seed(0)
+    net1 = MultiHeadCrossAttention(64, 8)
+    ms.set_seed(0)
+    net2 = SeqParallelMultiHeadCrossAttention(64, 8)
+    y1 = net1(x, context, mask=mask).asnumpy()
+    y2 = net2(x, context, mask=mask).asnumpy()
+
+    assert np.abs(y1 - y2).max() == 0.0
