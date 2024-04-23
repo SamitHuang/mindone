@@ -106,18 +106,10 @@ class MultiHeadCrossAttention(nn.Cell):
         Return:
             (B, N, C)
         """
-        B_ori, _, C = x.shape
-
-        if mask is None:
-            # FIXME: this branch is used to test the align with torch when mask is None, B dim is flatten to the seq_len dim,
-            # but never used in real training or inference. Remove after all precision check are done.
-            x = x.reshape((1, -1, C))
-        else:
-            # TODO: directly input cond (B, N_tokens, D), no need to flatten, to save memory.
-            # cond: (1, B*N_tokens, C) -> (B, N_tokens, C)
-            cond = ops.reshape(cond, (B_ori, -1, C))
-
         B, N, C = x.shape
+
+        # cond: (1, B*N_tokens, C) -> (B, N_tokens, C)
+        cond = ops.reshape(cond, (B, -1, C))
         N_k = cond.shape[1]
 
         # 1. q, kv linear projection
@@ -160,10 +152,6 @@ class MultiHeadCrossAttention(nn.Cell):
 
         # (b h n d) -> (b n h d) ->  (b n h*d)
         x = self._rearange_out(x)
-
-        # FIXME: remove it later
-        if mask is None:
-            x = x.view(B_ori, -1, C)
 
         # 4. output projection
         x = self.proj(x)
