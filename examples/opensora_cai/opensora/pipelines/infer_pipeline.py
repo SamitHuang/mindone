@@ -52,13 +52,11 @@ class InferPipeline(ABC):
         else:
             self.sampling_func = self.diffusion.p_sample_loop
 
-    @ms.jit
     def vae_encode(self, x):
         image_latents = self.vae.encode(x)
         image_latents = image_latents * self.scale_factor
         return image_latents.astype(ms.float16)
 
-    @ms.jit
     def vae_decode(self, x):
         """
         Args:

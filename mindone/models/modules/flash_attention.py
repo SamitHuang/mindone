@@ -87,8 +87,9 @@ class MSFlashAttention(nn.Cell):
 
         #   a trick to pad head dimensions to 2**n * 64
         if self.fix_head_dims is not None and head_dim in self.fix_head_dims:
+            base = 16
             # pad to 2**n * 64 to avoid accuracy errors
-            padding_size = 64 * 2 ** math.ceil(math.log(head_dim / 64, 2)) - head_dim
+            padding_size = base * 2 ** math.ceil(math.log(head_dim / base, 2)) - head_dim
             q = msnp.pad(q, ((0, 0), (0, 0), (0, 0), (0, padding_size)), constant_value=0)
             k = msnp.pad(k, ((0, 0), (0, 0), (0, 0), (0, padding_size)), constant_value=0)
             v = msnp.pad(v, ((0, 0), (0, 0), (0, 0), (0, padding_size)), constant_value=0)

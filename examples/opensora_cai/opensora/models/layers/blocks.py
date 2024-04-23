@@ -8,6 +8,7 @@ from mindspore.common.initializer import XavierUniform, Zero, initializer
 
 from mindone.models.modules.flash_attention import FLASH_IS_AVAILABLE, MSFlashAttention
 
+from mindspore.ops.operations.nn_ops import FlashAttentionScore
 
 class Attention(nn.Cell):
     def __init__(self, dim_head: int, attn_drop: float = 0.0) -> None:
@@ -21,6 +22,8 @@ class Attention(nn.Cell):
         k v: (b h n_k d), (b h n_v d)
         mask: (b 1 n_k), 0 - keep, 1 indicates discard.
         """
+        ori_dtype = q.dtype
+
         b, h, n_q, d = q.shape
         _, _, n_k, _ = k.shape
         q = ops.reshape(q, (b*h, n_q, d))
@@ -38,12 +41,12 @@ class Attention(nn.Cell):
             sim = ops.masked_fill(sim, mask, -ms.numpy.inf)
             # sim = ops.masked_fill(sim, mask, ops.cast(float("-inf"), sim.dtype))
 
-        # (b h n_q n_k)
+        # (b*h n_q n_k)
         attn = ops.softmax(sim, axis=-1).astype(v.dtype)
         attn = self.attn_drop(attn)
-        # out = ops.bmm(attn.to(ms.float16), v.to(ms.float16))
         out = ops.matmul(attn, v)
         
+        # (b*h n_q d) -> (b h n_q d)
         out = ops.reshape(out, (b, h, -1, d))
 
         return out
@@ -64,7 +67,7 @@ class MultiHeadCrossAttention(nn.Cell):
         ```
     """
 
-    def __init__(self, d_model, num_heads, attn_drop=0.0, proj_drop=0.0, has_bias=True, enable_flash_attention=False):
+    def __init__(self, d_model, num_heads, attn_drop=0.0, proj_drop=0.0, has_bias=True, enable_flash_attention=False, dtype=ms.bfloat16):
         super().__init__()
         assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
 
@@ -83,8 +86,10 @@ class MultiHeadCrossAttention(nn.Cell):
 
         self.enable_flash_attention = enable_flash_attention
         if enable_flash_attention:
-            self.flash_attention = MSFlashAttention(
-                head_dim=self.head_dim, head_num=self.num_heads, fix_head_dims=[72], attention_dropout=attn_drop
+            self.flash_attention = FlashAttentionScore(
+                scale_value=1.0 / math.sqrt(self.head_dim),  # required if we didn't scale q or k before FA
+                head_num=num_heads,
+                input_layout="BSH",  # BSH or BNSD
             )
         else:
             self.flash_attention = None
@@ -106,64 +111,47 @@ class MultiHeadCrossAttention(nn.Cell):
         Return:
             (B, N, C)
         """
-        B_ori, _, C = x.shape
+        B, N_q, C = x.shape
 
-        if mask is None:
-            # FIXME: this branch is used to test the align with torch when mask is None, B dim is flatten to the seq_len dim,
-            # but never used in real training or inference. Remove after all precision check are done.
-            x = x.reshape((1, -1, C))
-        else:
-            # TODO: directly input cond (B, N_tokens, D), no need to flatten, to save memory.
-            # cond: (1, B*N_tokens, C) -> (B, N_tokens, C)
-            cond = ops.reshape(cond, (B_ori, -1, C))
-
-        B, N, C = x.shape
+        cond = ops.reshape(cond, (B, -1, C))
         N_k = cond.shape[1]
 
-        # 1. q, kv linear projection
-        q = self.q_linear(x)  # .reshape((1, -1, self.num_heads, self.head_dim))
-        kv = self.kv_linear(cond)  # .reshape((1, -1, 2, self.num_heads, self.head_dim))
+        q = self.q_linear(x)
+        kv = self.kv_linear(cond)
 
-        # 2. reshape qkv for multi-head attn
-        # q: (B N C) -> (B N num_head head_dim) -> (B num_head N head_dim)
-        q = ops.reshape(q, (B, N, self.num_heads, self.head_dim))
-        q = ops.transpose(q, (0, 2, 1, 3))
+        # kv: (B N_k 2*C) -> (B N_k 2 C)
+        kv = ops.reshape(kv, (B, N_k, 2, C))
+        # (B N_k C)
+        k, v = ops.unstack(kv, axis=2)  # TODO: use split for optim parallel
 
-        # kv: (B N_k C*2) -> (B N_k 2 C) -> (B N_k 2 num_head head_dim)-> (B num_head 2 N_k head_dim), split.
-        kv = ops.reshape(kv, (B, N_k, 2, self.num_heads, self.head_dim))
-        kv = ops.transpose(kv, (0, 3, 2, 1, 4))
-        k, v = ops.unstack(kv, axis=2)
-
-        # 2+: mask adaptation for multi-head attention
+        # mask adaptation for multi-head attention
         if mask is not None:
             # flip mask, since ms FA treats 1 as discard, 0 as retain.
             mask = 1 - mask
 
         # 3. attn compute
-        q_n = q.shape[-2]
-        k_n = k.shape[-2]
-        if self.enable_flash_attention and q_n % 16 == 0 and k_n % 16 == 0 and self.head_dim <= 256:
+        if self.enable_flash_attention and N_q % 16 == 0 and N_k % 16 == 0 and self.head_dim <= 256:
             if mask is not None:
-                # (b n_k) -> (b 1 1 n_k), will be broadcast according to qk sim, e.g. (b num_heads n_q n_k)
+                # mask: (B, N_k) -> (B, 1, N_q, N_k)
                 mask = mask[:, None, None, :]
-                # (b 1 1 n_k) -> (b 1 n_q n_k)
-                # mask = ops.repeat_interleave(mask.to(ms.uint8), q.shape[-2], axis=-2)
-                mask = ops.repeat_interleave(mask, int(q.shape[-2]), axis=-2)
-
-            x = self.flash_attention(q, k, v, mask=mask)
+                mask = ops.repeat_interleave(mask, N_q, axis=-2)
+                mask = mask.to(ms.uint8)
 
             # FA attn_mask def: retention and 1 indicates discard. Input tensor of shape :math:`(B, N1, S1, S2)`, `(B, 1, S1, S2)` `(S1, S2)`
+            _, _, _, x = self.flash_attention(q, k, v, None, None, None, mask, None)
         else:
+            # reshape qkv for multi-head attn
+            # q: (B N C) -> (B N num_head head_dim) -> (B num_head N head_dim)
+            q = ops.reshape(q, (B, N_q, self.num_heads, self.head_dim)).transpose(0, 2, 1, 3)
+            k = ops.reshape(k, (B, N_k, self.num_heads, self.head_dim)).transpose(0, 2, 1, 3)
+            v = ops.reshape(v, (B, N_k, self.num_heads, self.head_dim)).transpose(0, 2, 1, 3)
+
             if mask is not None:
                 mask = mask[:, None, :]
             x = self.attention(q, k, v, mask)
 
-        # (b h n d) -> (b n h d) ->  (b n h*d)
-        x = self._rearange_out(x)
-
-        # FIXME: remove it later
-        if mask is None:
-            x = x.view(B_ori, -1, C)
+            # (b h n d) -> (b n h d) ->  (b n h*d)
+            x = self._rearange_out(x)
 
         # 4. output projection
         x = self.proj(x)
@@ -191,21 +179,18 @@ class SelfAttention(nn.Cell):
         qkv_bias=False,
         attn_drop=0.0,
         proj_drop=0.0,
-        dtype=ms.float32,
         enable_flash_attention=False,
+        mm_dtype=ms.bfloat16,
     ):
         super().__init__()
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
-        self.dtype = dtype
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.head_dim = head_dim
         self.scale = head_dim**-0.5
 
-        self.qkv = nn.Dense(dim, dim * 3, has_bias=qkv_bias, weight_init=XavierUniform(), bias_init=Zero()).to_float(
-            self.dtype
-        )
-        self.proj = nn.Dense(dim, dim, weight_init=XavierUniform(), bias_init=Zero()).to_float(self.dtype)
+        self.qkv = nn.Dense(dim, dim * 3, has_bias=qkv_bias, weight_init=XavierUniform(), bias_init=Zero())
+        self.proj = nn.Dense(dim, dim, weight_init=XavierUniform(), bias_init=Zero())
         self.proj_drop = nn.Dropout(p=proj_drop)
         self.transpose = ops.Transpose()
         self.reshape = ops.Reshape()
@@ -217,8 +202,10 @@ class SelfAttention(nn.Cell):
         )
 
         if self.enable_flash_attention:
-            self.flash_attention = MSFlashAttention(
-                head_dim=head_dim, head_num=num_heads, fix_head_dims=[72], attention_dropout=attn_drop
+            self.flash_attention = FlashAttentionScore(
+                scale_value=1.0 / math.sqrt(head_dim),  # required if we didn't scale q or k before FA
+                head_num=num_heads,
+                input_layout="BSH",  # BSH or BNSD
             )
         else:
             self.flash_attention = None
@@ -233,35 +220,37 @@ class SelfAttention(nn.Cell):
         B, N, C = x.shape
 
         qkv = self.qkv(x)
-        # (b, n, 3*h*d) -> (b, n, 3, h, d)
-        qkv = ops.reshape(qkv, (B, N, 3, self.num_heads, self.head_dim))
-        q, k, v = ops.unstack(qkv, axis=2)  # (b n h d)
 
-        # (b n h d) -> (b h n d)
-        q = q.transpose(0, 2, 1, 3)
-        k = k.transpose(0, 2, 1, 3)
-        v = v.transpose(0, 2, 1, 3)
+        # (b, n, 3*C) -> (b, n, 3, C)
+        qkv = ops.reshape(qkv, (B, N, 3, C))
+        # (b, n, C)
+        q, k, v = ops.unstack(qkv, axis=2)  # TODO: use split for optim parallel
 
         # mask process
         if mask is not None:
             mask = 1 - mask
 
-        q_n = q.shape[-2]
-        k_n = k.shape[-2]
-        if self.enable_flash_attention and q_n % 16 == 0 and k_n % 16 == 0 and self.head_dim <= 256:
+        if self.enable_flash_attention and N % 16 == 0 and self.head_dim <= 256:
             if mask is not None:
-                mask = mask[:, None, None, :]
                 # mask: (b n_k) -> (b 1 n_q n_k)
-                mask = ops.repeat_interleave(mask, int(q.shape[-2]), axis=-2)
-            out = self.flash_attention(q, k, v, mask=mask)
+                mask = mask[:, None, None, :]
+                mask = ops.repeat_interleave(mask, N, axis=-2)
+                mask = mask.to(ms.uint8)
+
+            _, _, _, out = self.flash_attention(q, k, v, None, None, None, mask, None)
         else:
+            # (b n C) -> (b n h d) -> (b h n d)
+            q = q.reshape(B, N, self.num_heads, self.head_dim).transpose(0, 2, 1, 3)
+            k = k.reshape(B, N, self.num_heads, self.head_dim).transpose(0, 2, 1, 3)
+            v = v.reshape(B, N, self.num_heads, self.head_dim).transpose(0, 2, 1, 3)
+
             if mask is not None:
                 mask = mask[:, None, :]
             out = self.attention(q, k, v, mask)
 
-        b, h, n, d = out.shape
-        # reshape FA output to original attn input format, (b h n d) -> (b n h*d)
-        out = out.transpose(0, 2, 1, 3).view(b, n, -1)
+            b, h, n, d = out.shape
+            # (b h n d) -> (b n h*d)
+            out = out.transpose(0, 2, 1, 3).view(b, n, -1)
 
         return self.proj_drop(self.proj(out)).to(x_dtype)
 
