@@ -325,12 +325,11 @@ class TextVideoDataset:
 
         return pixel_values, text_data, mask.astype(np.uint8)
 
-    def traverse_single_video_frames(self, video_index):
+    def traverse_single_video_frames(self, video_index, num_workers=4, batch_size=1):
         video_dict = self.dataset[video_index]
         video_fn = video_dict[self.video_column]
         video_path = os.path.join(self.video_folder, video_fn)
 
-        video_name = os.path.basename(video_fn).split(".")[0]
         # read video
         video_path = os.path.join(self.video_folder, video_fn)
         # in case missing .mp4 in csv file
@@ -353,20 +352,22 @@ class TextVideoDataset:
             clips_indices.append([start_idx, video_length])
         assert len(clips_indices) > 0 and clips_indices[-1][-1] == video_length, "incorrect sampled clips!"
 
-        for clip_indices in clips_indices:
-            i, j = clip_indices
-            frame_indice = list(range(i, j, 1))
-            select_video_frames = [
-                f"{index}" for index in frame_indice
-            ]  # return indexes as strings, for the purpose of saving frame-wise embedding cache
-            if video_path.endswith(".gif"):
-                pixel_values = video_reader[frame_indice]  # shape: (f, h, w, c)
-            else:
-                pixel_values = video_reader.get_batch(frame_indice).asnumpy()  # shape: (f, h, w, c)
-            pixel_values = self.apply_transform(pixel_values)
-            pixel_values = (pixel_values / 127.5 - 1.0).astype(np.float32)
-            return_dict = {"video": pixel_values}
-            yield video_name, select_video_frames, return_dict
+        def iterate_all_frames():
+            for clip_range in clips_indices:
+                i, j = clip_range
+                frame_indice = list(range(i, j, 1))
+                if video_path.endswith(".gif"):
+                    pixel_values = video_reader[frame_indice]  # shape: (f, h, w, c)
+                else:
+                    pixel_values = video_reader.get_batch(frame_indice).asnumpy()  # shape: (f, h, w, c)
+                pixel_values = self.apply_transform(pixel_values)
+                pixel_values = (pixel_values / 127.5 - 1.0).astype(np.float32)
+                yield video_fn, pixel_values
+
+        single_video_dataset = ms.dataset.GeneratorDataset(
+            source=iterate_all_frames, column_names=["video_fn", "video"]
+        )
+        return single_video_dataset.batch(batch_size=batch_size, num_parallel_workers=num_workers, drop_remainder=False)
 
 
 def create_dataloader(

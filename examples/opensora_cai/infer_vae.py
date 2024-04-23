@@ -78,7 +78,6 @@ def main(args):
             drop_remainder=False,
             return_dataset=True,
         )
-        logger.info(f"Num samples: {dataset}")
 
     # model initiate and weight loading
     logger.info("vae init")
@@ -108,11 +107,12 @@ def main(args):
             start_time = time.time()
             video_latent_mean = []
             video_latent_std = []
-            for video_name, _, inputs in dataset.traverse_single_video_frames(video_index):
-                video_data = inputs["video"]
-                latent_momentum = ms.ops.stop_gradient(
-                    vae.encode_with_moments_output(ms.Tensor(video_data, ms.float32))
-                )
+            frame_iterator = dataset.traverse_single_video_frames(video_index)
+            for video_name, video_data in frame_iterator:
+                b, f, c, h, w = video_data.shape
+                assert video_data.ndim == 5, "shape error!"
+                video_data = video_data.reshape((b * f, c, h, w))
+                latent_momentum = ms.ops.stop_gradient(vae.encode_with_moments_output(video_data))
                 mean, std = latent_momentum.chunk(2, axis=1)
                 video_latent_mean.append(mean.asnumpy())
                 video_latent_std.append(std.asnumpy())
@@ -120,6 +120,7 @@ def main(args):
             video_latent_std = np.concatenate(video_latent_std, axis=0)
 
             end_time = time.time()
+            video_name = eval(str(video_name))[0]
             logger.info(f"Time cost: {end_time-start_time:0.3f}s for video {video_name}")
 
             fn = Path(str(video_name)).with_suffix(".npz")
