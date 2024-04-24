@@ -123,8 +123,8 @@ python train_t2v.py --config configs/train/stdit_256x256x16.yaml \
     --csv_path "../videocomposer/datasets/webvid5/video_caption.csv" \
     --video_folder "../videocomposer/datasets/webvid5" \
     --text_embed_folder "../videocomposer/datasets/webvid5" \
+    --vae_latent_folder "../videocomposer/datasets/webvid5_vae_256x256" \
 ```
-Append `--vae_latent_folder "../videocomposer/datasets/webvid5_vae_256x256"` to the command above to enable training with vae latents cache.
 
 Please change `csv_path`,`video_folder`, `embed_folder` according to your data location.
 
