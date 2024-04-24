@@ -122,12 +122,12 @@ class MultiHeadCrossAttention(nn.Cell):
         q = ops.reshape(q, (B, N, self.num_heads, self.head_dim))
         q = ops.transpose(q, (0, 2, 1, 3))
 
-        # kv: (B N_k 2*C) -> (B N_k 2 C) -> (B N_k 2 h d) 
+        # kv: (B N_k C*2) -> (B N_k 2 C) -> (B N_k 2 num_head head_dim).
         kv = ops.reshape(kv, (B, N_k, 2, self.num_heads, self.head_dim))
-        # -> (2 B h N_k d)
-        kv = ops.transpose(kv, (2, 0, 3, 1, 4))
-        # -> (B h N_k d)
-        k, v = kv.unbind(dim=0)
+        k, v = ops.unstack(kv, axis=2)
+        # (B n h d) -> (B h n d)
+        k = ops.transpose(k, (0, 2, 1, 3))
+        v = ops.transpose(v, (0, 2, 1, 3))
 
         # 2+: mask adaptation for multi-head attention
         if mask is not None:
@@ -135,7 +135,7 @@ class MultiHeadCrossAttention(nn.Cell):
             mask = 1 - mask
 
         # 3. attn compute
-        if self.enable_flash_attention and q_n % 16 == 0 and k_n % 16 == 0 and self.head_dim <= 256:
+        if self.enable_flash_attention:
             if mask is not None:
                 # (b n_k) -> (b 1 1 n_k), will be broadcast according to qk sim, e.g. (b num_heads n_q n_k)
                 mask = mask[:, None, None, :]
@@ -185,19 +185,25 @@ class SelfAttention(nn.Cell):
     ):
         super().__init__()
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
+        self.dtype = dtype
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.head_dim = head_dim
         self.scale = head_dim**-0.5
 
-        self.qkv = nn.Dense(dim, dim * 3, has_bias=qkv_bias, weight_init=XavierUniform(), bias_init=Zero())
-        self.proj = nn.Dense(dim, dim, weight_init=XavierUniform(), bias_init=Zero())
+        self.qkv = nn.Dense(dim, dim * 3, has_bias=qkv_bias, weight_init=XavierUniform(), bias_init=Zero()).to_float(
+            self.dtype
+        )
+        self.proj = nn.Dense(dim, dim, weight_init=XavierUniform(), bias_init=Zero()).to_float(self.dtype)
         self.proj_drop = nn.Dropout(p=proj_drop)
+        self.transpose = ops.Transpose()
+        self.reshape = ops.Reshape()
 
-        self.attention = Attention(head_dim, attn_drop=attn_drop)
+
         self.enable_flash_attention = (
             enable_flash_attention and FLASH_IS_AVAILABLE and (ms.context.get_context("device_target") == "Ascend")
         )
+
         if self.enable_flash_attention:
             self.flash_attention = MSFlashAttention(
                 head_dim=head_dim, head_num=num_heads, attention_dropout=attn_drop
@@ -217,10 +223,12 @@ class SelfAttention(nn.Cell):
         qkv = self.qkv(x)
         # (b, n, 3*h*d) -> (b, n, 3, h, d)
         qkv = ops.reshape(qkv, (B, N, 3, self.num_heads, self.head_dim))
-        # -> (3, b, h, n, d)
-        qkv = ops.transpose(qkv, (2, 0, 3, 1, 4))
-        # (b h n d)
-        q, k, v = qkv.unbind(dim=0)  
+        q, k, v = ops.unstack(qkv, axis=2)  # (b n h d)
+
+        # (b n h d) -> (b h n d)
+        q = q.transpose(0, 2, 1, 3)
+        k = k.transpose(0, 2, 1, 3)
+        v = v.transpose(0, 2, 1, 3)
 
         # mask process
         if mask is not None:
