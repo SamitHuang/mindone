@@ -133,12 +133,10 @@ class MultiHeadCrossAttention(nn.Cell):
         q = ops.reshape(q, (B, N, self.num_heads, self.head_dim))
         q = ops.transpose(q, (0, 2, 1, 3))
 
-        # kv: (B N_k C*2) -> (B N_k 2 C) -> (B N_k 2 num_head head_dim).
+        # kv: (B N_k C*2) -> (B N_k 2 C) -> (B N_k 2 num_head head_dim) -> (b h 2 n d)
         kv = ops.reshape(kv, (B, N_k, 2, self.num_heads, self.head_dim))
+        kv = ops.transpose(kv, (0, 3, 2, 1, 4))
         k, v = ops.unstack(kv, axis=2)
-        # (B n h d) -> (B h n d)
-        k = ops.transpose(k, (0, 2, 1, 3))
-        v = ops.transpose(v, (0, 2, 1, 3))
 
         # 2+: mask adaptation for multi-head attention
         if mask is not None:
