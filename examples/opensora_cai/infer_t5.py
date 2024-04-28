@@ -166,7 +166,7 @@ def main(args):
                     text_emb=text_emb[i].asnumpy().astype(np.float32),
                     # tokens=text_tokens[i].asnumpy(), #.astype(np.int32),
                 )
-        logger.info(f"Curretn step time cost: {time cost:0.3f}s")
+        logger.info(f"Curretn step time cost: {time_cost:0.3f}s")
         logger.info(f"Done. Embeddings saved in {output_folder}")
 
     else:
