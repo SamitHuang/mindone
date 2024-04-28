@@ -157,7 +157,7 @@ class InferPipeline(ABC):
         if latent_save_fp is not None:
             np.save(latent_save_fp, latents.asnumpy())
             print(f"Denoised latents saved in {latent_save_fp}")
-        
+
         if self.vae is not None:
             if latents.dim() == 4:
                 images = self.vae_decode(latents)

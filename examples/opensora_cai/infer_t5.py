@@ -20,6 +20,7 @@ __dir__ = os.path.dirname(os.path.abspath(__file__))
 mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../"))
 sys.path.insert(0, mindone_lib_path)
 
+from mindone.utils.amp import auto_mixed_precision
 from mindone.utils.logger import set_logger
 from mindone.utils.seed import set_random_seed
 
@@ -122,6 +123,7 @@ def main(args):
     for param in text_encoder.get_parameters():  # freeze latte_model
         param.requires_grad = False
 
+    dtype_map = {"fp16": ms.float16, "bf16": ms.bfloat16}
     if args.dtype in ["fp16", "bf16"]:
         text_encoder = auto_mixed_precision(text_encoder, amp_level=args.amp_level, dtype=dtype_map[args.dtype])
 
@@ -140,7 +142,6 @@ def main(args):
 
         for step, data in tqdm(enumerate(ds_iter), total=dataset_size):
             start_time = time.time()
-
             file_paths = data["file_path"]
             captions = data["caption"]
             captions = [str(captions[i]) for i in range(len(captions))]
@@ -150,7 +151,7 @@ def main(args):
             text_emb = text_encoder(text_tokens, mask)
 
             end_time = time.time()
-            # logger.info(f"Time cost: {end_time-start_time:0.3f}s")
+            time_cost = end_time - start_time
 
             # save the embeddings aligning to video frames
             for i in range(text_emb.shape[0]):
@@ -165,6 +166,7 @@ def main(args):
                     text_emb=text_emb[i].asnumpy().astype(np.float32),
                     # tokens=text_tokens[i].asnumpy(), #.astype(np.int32),
                 )
+        logger.info(f"Curretn step time cost: {time cost:0.3f}s")
         logger.info(f"Done. Embeddings saved in {output_folder}")
 
     else:
