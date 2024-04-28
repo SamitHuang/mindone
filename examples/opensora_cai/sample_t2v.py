@@ -21,7 +21,7 @@ from opensora.models.layers.blocks import Attention, LayerNorm
 from opensora.models.stdit import STDiT_XL_2
 from opensora.models.text_encoders import get_text_encoder_and_tokenizer
 from opensora.pipelines import InferPipeline
-from opensora.utils.model_utils import _check_cfgs_in_parser, count_params, str2bool
+from opensora.utils.model_utils import _check_cfgs_in_parser, str2bool
 
 from mindone.utils.amp import auto_mixed_precision
 from mindone.utils.logger import set_logger
@@ -201,7 +201,7 @@ def main(args):
         # infer
         start_time = time.time()
         x_samples = pipeline(inputs, latent_save_fp=f"samples/denoised_latent_{i:02d}.npy")
-        
+
         if x_samples is not None:
             x_samples = x_samples.asnumpy()
             batch_time = time.time() - start_time
@@ -316,7 +316,12 @@ def parse_args():
     parser.add_argument("--fps", type=int, default=8, help="FPS in the saved video")
     parser.add_argument("--batch_size", default=4, type=int, help="infer batch size")
     parser.add_argument("--embed_path", type=str, default=None, help="path to t5 embedding")
-    parser.add_argument("--use_vae_decode", type=str2bool, default=True, help="if False, skip vae decode to save memory (you can use infer_vae_decode.py to decode the saved denoised latent later.")
+    parser.add_argument(
+        "--use_vae_decode",
+        type=str2bool,
+        default=True,
+        help="if False, skip vae decode to save memory (you can use infer_vae_decode.py to decode the saved denoised latent later.",
+    )
     parser.add_argument("--ddim_sampling", type=str2bool, default=True, help="Whether to use DDIM for sampling")
     default_args = parser.parse_args()
     abs_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ""))
