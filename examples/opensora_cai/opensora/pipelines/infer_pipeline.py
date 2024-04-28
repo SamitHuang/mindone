@@ -98,7 +98,7 @@ class InferPipeline(ABC):
 
         if inputs["text_emb"] is None:
             text_tokens = inputs["text_tokens"]
-            text_emb = self.get_condition_embeddings(text_tokens, **{"mask": mask})
+            text_emb = self.get_condition_embeddings(text_tokens, **{"mask": mask}).to(ms.float32)
         else:
             text_emb = inputs["text_emb"]
             b, max_tokens, d = text_emb.shape
