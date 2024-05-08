@@ -110,7 +110,7 @@ while other frames are assigned a timestep _t_. An example is shown below:
 <p align="center"><img alt="mask strategy" src="https://github.com/mindspore-lab/mindone/assets/16683750/0cf5b478-288f-4f53-906d-26fb7b93182c" width="750"/></p>
 
 To generate videos conditioned on images and videos, you will need to specify the following parameters in the
-[config file](../configs/opensora-v1-1/sample.yaml):
+[config file](../configs/opensora-v1-1/inference/sample.yaml):
 
 ```yaml
 loop: 2
@@ -144,7 +144,7 @@ The output video's length will be `loop * (num_frames - condition_frame_length) 
 
 To generate a video with conditioning on images and videos, execute the following command:
 ```shell
-python scripts/inference_i2v.py --config configs/opensora-v1-1/sample.yaml --ckpt_path /path/to/your/opensora-v1-1.ckpt
+python scripts/inference_i2v.py --config configs/opensora-v1-1/inference/sample.yaml --ckpt_path /path/to/your/opensora-v1-1.ckpt
 ```
 
 ## Training
