@@ -6,13 +6,11 @@ import logging
 import math
 import os
 import sys
-from typing import Tuple
 
 import yaml
 
 import mindspore as ms
 from mindspore import Model, nn
-from mindspore.communication.management import get_group_size, get_rank, init
 from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
 from mindspore.train.callback import TimeMonitor
 
@@ -21,13 +19,16 @@ mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../../"))
 sys.path.insert(0, mindone_lib_path)
 sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
 from args_train import parse_args
-from opensora.datasets.t2v_dataset import create_dataloader
-from opensora.models.stdit.stdit import STDiT_XL_2
+from opensora.datasets.iv2v_dataset import ImageVideo2VideoDataset
+from opensora.datasets.mask_generator import MaskGenerator
+from opensora.models.stdit import STDiT2_XL_2
 from opensora.models.vae.autoencoder import SD_CONFIG, AutoencoderKL
 from opensora.pipelines import DiffusionWithLoss
 from opensora.schedulers.iddpm import create_diffusion
 from opensora.utils.model_utils import WHITELIST_OPS
+from train import init_env, set_all_reduce_fusion
 
+from mindone.data import create_dataloader
 from mindone.trainers.callback import EvalSaveCallback, OverflowMonitor, ProfilerCallback
 from mindone.trainers.checkpoint import resume_train_network
 from mindone.trainers.ema import EMA
@@ -37,106 +38,11 @@ from mindone.trainers.train_step import TrainOneStepWrapper
 from mindone.utils.amp import auto_mixed_precision
 from mindone.utils.logger import set_logger
 from mindone.utils.params import count_params
-from mindone.utils.seed import set_random_seed
 
 os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
 os.environ["MS_ASCEND_CHECK_OVERFLOW_MODE"] = "INFNAN_MODE"
 
 logger = logging.getLogger(__name__)
-
-
-def init_env(
-    mode: int = ms.GRAPH_MODE,
-    seed: int = 42,
-    distributed: bool = False,
-    max_device_memory: str = None,
-    device_target: str = "Ascend",
-    parallel_mode: str = "data",
-    enable_dvm: bool = False,
-    debug: bool = False,
-) -> Tuple[int, int]:
-    """
-    Initialize MindSpore environment.
-
-    Args:
-        mode: MindSpore execution mode. Default is 0 (ms.GRAPH_MODE).
-        seed: The seed value for reproducibility. Default is 42.
-        distributed: Whether to enable distributed training. Default is False.
-    Returns:
-        A tuple containing the device ID, rank ID and number of devices.
-    """
-    set_random_seed(seed)
-
-    if debug and mode == ms.GRAPH_MODE:  # force PyNative mode when debugging
-        logger.warning("Debug mode is on, switching execution mode to PyNative.")
-        mode = ms.PYNATIVE_MODE
-
-    if max_device_memory is not None:
-        ms.set_context(max_device_memory=max_device_memory)
-
-    if distributed:
-        ms.set_context(
-            mode=mode,
-            device_target=device_target,
-            # ascend_config={"precision_mode": "must_keep_origin_dtype"},  # TODO: tune
-        )
-        if parallel_mode == "optim":
-            print("use optim parallel")
-            ms.set_auto_parallel_context(
-                parallel_mode=ms.ParallelMode.SEMI_AUTO_PARALLEL,
-                enable_parallel_optimizer=True,
-            )
-            init()
-            device_num = get_group_size()
-            rank_id = get_rank()
-        else:
-            init()
-            device_num = get_group_size()
-            rank_id = get_rank()
-            logger.debug(f"rank_id: {rank_id}, device_num: {device_num}")
-            ms.reset_auto_parallel_context()
-
-            ms.set_auto_parallel_context(
-                parallel_mode=ms.ParallelMode.DATA_PARALLEL,
-                gradients_mean=True,
-                device_num=device_num,
-            )
-
-        var_info = ["device_num", "rank_id", "device_num / 8", "rank_id / 8"]
-        var_value = [device_num, rank_id, int(device_num / 8), int(rank_id / 8)]
-        logger.info(dict(zip(var_info, var_value)))
-
-    else:
-        device_num = 1
-        rank_id = 0
-        ms.set_context(
-            mode=mode,
-            device_target=device_target,
-            pynative_synchronize=debug,
-        )
-
-    if enable_dvm:
-        print("enable dvm")
-        ms.set_context(enable_graph_kernel=True)
-
-    return rank_id, device_num
-
-
-def set_all_reduce_fusion(
-    params,
-    split_num: int = 7,
-    distributed: bool = False,
-    parallel_mode: str = "data",
-) -> None:
-    """Set allreduce fusion strategy by split_num."""
-
-    if distributed and parallel_mode == "data":
-        all_params_num = len(params)
-        step = all_params_num // split_num
-        split_list = [i * step for i in range(1, split_num)]
-        split_list.append(all_params_num - 1)
-        logger.info(f"Distribute config set: dall_params_num: {all_params_num}, set all_reduce_fusion: {split_list}")
-        ms.set_auto_parallel_context(all_reduce_fusion_config=split_list)
 
 
 def main(args):
@@ -153,6 +59,7 @@ def main(args):
         max_device_memory=args.max_device_memory,
         parallel_mode=args.parallel_mode,
         enable_dvm=args.enable_dvm,
+        debug=args.debug,
     )
     set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
 
@@ -161,22 +68,24 @@ def main(args):
     VAE_T_COMPRESS = 1
     VAE_S_COMPRESS = 8
     VAE_Z_CH = SD_CONFIG["z_channels"]
+    img_h, img_w = args.image_size if isinstance(args.image_size, list) else (args.image_size, args.image_size)
     input_size = (
         args.num_frames // VAE_T_COMPRESS,
-        args.image_size // VAE_S_COMPRESS,
-        args.image_size // VAE_S_COMPRESS,
+        img_h // VAE_S_COMPRESS,
+        img_w // VAE_S_COMPRESS,
     )
     model_extra_args = dict(
         input_size=input_size,
         in_channels=VAE_Z_CH,
-        space_scale=args.space_scale,  # 0.5 for 256x256. 1. for 512
-        time_scale=args.time_scale,
+        model_max_length=args.model_max_length,
         patchify_conv3d_replace="conv2d",  # for Ascend
         enable_flashattn=args.enable_flash_attention,
+        input_sq_size=512,
+        qk_norm=True,
         use_recompute=args.use_recompute,
     )
-    logger.info(f"STDiT input size: {input_size}")
-    latte_model = STDiT_XL_2(**model_extra_args)
+    logger.info(f"STDiT2 input size: {input_size}")
+    latte_model = STDiT2_XL_2(**model_extra_args)
 
     # mixed precision
     dtype_map = {"fp16": ms.float16, "bf16": ms.bfloat16}
@@ -227,32 +136,44 @@ def main(args):
     )
 
     # 3. create dataset
-    ds_config = dict(
+    mask_gen = MaskGenerator(  # TODO: move to config file
+        {
+            "mask_no": 0.75,
+            "mask_quarter_random": 0.025,
+            "mask_quarter_head": 0.025,
+            "mask_quarter_tail": 0.025,
+            "mask_quarter_head_tail": 0.05,
+            "mask_image_random": 0.025,
+            "mask_image_head": 0.025,
+            "mask_image_tail": 0.025,
+            "mask_image_head_tail": 0.05,
+        }
+    )
+
+    dataset = ImageVideo2VideoDataset(
         csv_path=args.csv_path,
         video_folder=args.video_folder,
         text_emb_folder=args.text_embed_folder,
-        return_text_emb=True,
-        vae_latent_folder=args.vae_latent_folder,
-        return_vae_latent=train_with_vae_latent,
-        vae_scale_factor=args.sd_scale_factor,
-        sample_size=args.image_size,
-        sample_stride=args.frame_stride,
         sample_n_frames=args.num_frames,
-        tokenizer=None,
-        video_column=args.video_column,
-        caption_column=args.caption_column,
-        disable_flip=args.disable_flip,
+        sample_stride=args.frame_stride,
+        frames_mask_generator=mask_gen,
+        output_columns=["video", "fps", "num_frames", "frames_mask", "caption"],
     )
-    dataset = create_dataloader(
-        ds_config,
+
+    dataloader = create_dataloader(
+        dataset,
         batch_size=args.batch_size,
+        transforms=dataset.train_transforms(target_size=(img_h, img_w), tokenizer=None),  # Tokenizer isn't supported
         shuffle=True,
         device_num=device_num,
         rank_id=rank_id,
-        num_parallel_workers=args.num_parallel_workers,
+        num_workers=args.num_parallel_workers,
         max_rowsize=args.max_rowsize,
+        debug=args.debug,
+        # Sort output columns to match DiffusionWithLoss input
+        project_columns=["video", "caption", "mask", "frames_mask", "num_frames", "height", "width", "fps", "ar"],
     )
-    dataset_size = dataset.get_dataset_size()
+    dataset_size = dataloader.get_dataset_size()
 
     # compute total steps and data epochs (in unit of data sink size)
     if args.train_steps == -1:
@@ -445,7 +366,7 @@ def main(args):
     # 6. train
     model.train(
         sink_epochs,
-        dataset,
+        dataloader,
         callbacks=callback,
         dataset_sink_mode=args.dataset_sink_mode,
         sink_size=args.sink_size,
