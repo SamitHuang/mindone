@@ -55,7 +55,9 @@ def parse_train_args(parser):
     )
     parser.add_argument("--space_scale", default=0.5, type=float, help="stdit model space scalec")
     parser.add_argument("--time_scale", default=1.0, type=float, help="stdit model time scalec")
+    parser.add_argument("--model_max_length", type=int, default=120, help="T5's embedded sequence length.")
     # ms
+    parser.add_argument("--debug", type=str2bool, default=False, help="Execute inference in debug mode.")
     parser.add_argument("--device_target", type=str, default="Ascend", help="Ascend or GPU")
     parser.add_argument("--max_device_memory", type=str, default=None, help="e.g. `30GB` for 910a, `59GB` for 910b")
     parser.add_argument("--mode", default=0, type=int, help="Specify the mode: 0 for graph mode, 1 for pynative mode")
@@ -156,7 +158,7 @@ def parse_train_args(parser):
     parser.add_argument(
         "--sd_scale_factor", type=float, default=0.18215, help="VAE scale factor of Stable Diffusion model."
     )
-    parser.add_argument("--image_size", default=256, type=int, help="the image size used to initiate model")
+    parser.add_argument("--image_size", default=256, type=int, nargs="+", help="the image size used to initiate model")
     parser.add_argument("--num_frames", default=16, type=int, help="the num of frames used to initiate model")
     parser.add_argument("--frame_stride", default=3, type=int, help="frame sampling stride")
     parser.add_argument("--num_parallel_workers", default=12, type=int, help="num workers for data loading")
