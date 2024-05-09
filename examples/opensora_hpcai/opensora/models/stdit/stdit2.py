@@ -337,6 +337,7 @@ class STDiT2(nn.Cell):
         width: Optional[Tensor] = None,
         ar: Optional[Tensor] = None,
         fps: Optional[Tensor] = None,
+        **kwargs,
     ):
         """
         Forward pass of STDiT.

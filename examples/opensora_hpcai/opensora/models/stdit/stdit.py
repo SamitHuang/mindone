@@ -286,7 +286,7 @@ class STDiT(nn.Cell):
         else:
             b.add_flags(output_no_recompute=True)
 
-    def construct(self, x, timestep, y, mask=None):
+    def construct(self, x, timestep, y, mask=None, **kwargs):
         """
         Args:
             x (ms.Tensor): latent representation of video; of shape [B, C, T, H, W]
