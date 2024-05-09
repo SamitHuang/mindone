@@ -152,6 +152,7 @@ class DiffusionWithLoss(nn.Cell):
         text_tokens: Tensor,
         mask: Optional[Tensor] = None,
         frames_mask: Optional[Tensor] = None,
+        num_frames: Optional[Tensor] = None,
         height: Optional[Tensor] = None,
         width: Optional[Tensor] = None,
         fps: Optional[Tensor] = None,
@@ -185,7 +186,7 @@ class DiffusionWithLoss(nn.Cell):
             text_embed = self.get_condition_embeddings(text_tokens)
         else:
             text_embed = text_tokens  # dataset retunrs text embeddings instead of text tokens
-        loss = self.compute_loss(x, text_embed, mask)
+        loss = self.compute_loss(x, text_embed, mask, frames_mask, num_frames, height, width, fps, ar)
 
         return loss
 

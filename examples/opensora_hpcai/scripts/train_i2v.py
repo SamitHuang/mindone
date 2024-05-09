@@ -157,7 +157,7 @@ def main(args):
         sample_n_frames=args.num_frames,
         sample_stride=args.frame_stride,
         frames_mask_generator=mask_gen,
-        output_columns=["video", "fps", "num_frames", "frames_mask", "caption"],
+        output_columns=["video", "caption", "mask", "fps", "num_frames", "frames_mask"],
     )
 
     dataloader = create_dataloader(

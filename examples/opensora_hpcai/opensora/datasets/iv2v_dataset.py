@@ -66,7 +66,7 @@ class ImageVideo2VideoDataset(BaseDataset):
     def __getitem__(self, idx: int) -> Tuple[Any, ...]:
         data = self._data[idx].copy()
         if self._text_emb_folder:
-            with np.load(Path(data["video"]).stem + ".npz") as td:
+            with np.load(os.path.join(self._text_emb_folder, Path(data["video"]).stem + ".npz")) as td:
                 data.update({"caption": td["text_emb"], "mask": td["mask"]})
 
         with VideoReader(data["video"]) as reader:

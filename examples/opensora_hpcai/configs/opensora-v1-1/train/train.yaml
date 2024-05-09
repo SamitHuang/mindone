@@ -1,6 +1,6 @@
 # model
 pretrained_model_path: "models/opensora_v1.1_stage3.ckpt"
-model_max_length: 120   # TODO: 200
+model_max_length: 200
 
 #enable_flash_attention: True
 #use_recompute: True

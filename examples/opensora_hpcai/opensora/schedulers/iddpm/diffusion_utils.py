@@ -120,7 +120,7 @@ def mean_flat(tensor: Tensor, frames_mask: Optional[Tensor] = None) -> Tensor:
     else:
         assert tensor.dim() == 5
         assert tensor.shape[2] == frames_mask.shape[1]
-        tensor = tensor.swapaxes(1, 2).reshape(tensor.shape[0], tensor.shape[2], -1)    # b c t h w -> b t (c h w)
+        tensor = tensor.swapaxes(1, 2).reshape(tensor.shape[0], tensor.shape[2], -1)  # b c t h w -> b t (c h w)
         denom = frames_mask.sum(axis=1) * tensor.shape[-1]
         # loss = (tensor * frames_mask.unsqueeze(2)).sum(axis=1).sum(axis=1) / denom
         loss = (tensor * frames_mask.unsqueeze(2)).sum(axis=(1, 2)) / denom

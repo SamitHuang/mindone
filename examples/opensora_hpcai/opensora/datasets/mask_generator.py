@@ -47,7 +47,7 @@ class MaskGenerator:
         # Hardcoded condition_frames
         condition_frames_max = num_frames // 4
 
-        mask = np.ones(num_frames, dtype=np.float32)
+        mask = np.ones(num_frames, dtype=np.bool_)
         if num_frames <= 1:
             return mask
 
