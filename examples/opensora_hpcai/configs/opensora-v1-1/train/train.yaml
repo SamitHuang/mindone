@@ -2,8 +2,8 @@
 pretrained_model_path: "models/opensora_v1.1_stage3.ckpt"
 model_max_length: 200
 
-#enable_flash_attention: True
-#use_recompute: True
+enable_flash_attention: True
+use_recompute: True
 
 # data
 image_size: [512, 512]
@@ -11,10 +11,10 @@ num_frames: 16
 frame_stride: 3
 
 num_parallel_workers: 16
-max_rowsize: 96
+max_rowsize: 256
 
 # precision
-dtype: "fp16"
+dtype: "bf16"
 init_loss_scale: 65536
 
 # training hyper-params
@@ -32,5 +32,5 @@ optim: "adamw_re"
 optim_eps: 1.e-8
 weight_decay: 0.
 
-epochs: 2
+epochs: 2000
 ckpt_save_interval: 100
