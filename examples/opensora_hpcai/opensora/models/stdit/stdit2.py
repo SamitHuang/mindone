@@ -378,7 +378,8 @@ class STDiT2(nn.Cell):
         S = H * W
         scale = rs / self.input_sq_size
         base_size = round(S**0.5)
-        pos_emb = self.pos_embed(x, H, W, scale=scale, base_size=base_size)
+        # BUG MS2.3rc1: ops.meshgrid() bprop is not supported
+        pos_emb = ops.stop_gradient(self.pos_embed(x, H, W, scale=scale, base_size=base_size))
 
         # embedding
         if self.patchify_conv3d_replace is None:

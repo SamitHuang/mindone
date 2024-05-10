@@ -749,11 +749,7 @@ class PositionEmbedding2D(nn.Cell):
         if base_size is not None:
             grid_h *= base_size / h
             grid_w *= base_size / w
-        grid_h, grid_w = ops.meshgrid(
-            grid_w,
-            grid_h,
-            indexing="ij",
-        )  # here w goes first
+        grid_h, grid_w = ops.meshgrid(grid_w, grid_h, indexing="ij")  # here w goes first
         grid_h = grid_h.t().reshape(-1)
         grid_w = grid_w.t().reshape(-1)
         emb_h = self._get_sin_cos_emb(grid_h)
