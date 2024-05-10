@@ -139,6 +139,7 @@ class MultiHeadCrossAttention(nn.Cell):
         Return:
             (B, N, C)
         """
+        x_dtype = x.dtype
         B, N, C = x.shape
 
         # cond: (1, B*N_tokens, C) -> (B, N_tokens, C)
@@ -184,10 +185,7 @@ class MultiHeadCrossAttention(nn.Cell):
         x = ops.reshape(x, (B, N, -1))
 
         # 4. output projection
-        x = self.proj(x)
-        x = self.proj_drop(x)
-
-        return x
+        return self.proj_drop(self.proj(x)).to(x_dtype)
 
 
 class SelfAttention(nn.Cell):
