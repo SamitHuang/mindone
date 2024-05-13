@@ -542,6 +542,16 @@ class STDiT2(nn.Cell):
                     assert conv3d_weight.shape[-3] == 1
                     sd[key_3d] = Parameter(conv3d_weight.squeeze(axis=-3), name=key_3d)
 
+            # Loading PixArt weights (T5's sequence length is 120 vs. 200 in STDiT2).
+            if self.y_embedder.y_embedding.shape != sd["y_embedder.y_embedding"].shape:
+                print("WARNING: T5's sequence length doesn't match STDiT2. Padding with default values.")
+                param = sd["y_embedder.y_embedding"].value()
+                sd["y_embedder.y_embedding"] = Parameter(
+                    ops.concat((param, self.y_embedder.y_embedding.value()[param.shape[0] :]), axis=0),
+                    name=self.y_embedder.y_embedding.name,
+                    requires_grad=self.y_embedder.y_embedding.requires_grad,
+                )
+
             m, u = load_param_into_net(self, sd)
             print("net param not load: ", m, len(m))
             print("ckpt param not load: ", u, len(u))
