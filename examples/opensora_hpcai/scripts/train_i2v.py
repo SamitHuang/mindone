@@ -8,9 +8,9 @@ import os
 import sys
 
 import yaml
-
+import numpy as np
 import mindspore as ms
-from mindspore import Model, nn
+from mindspore import Model, nn, Tensor
 from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
 from mindspore.train.callback import TimeMonitor
 
@@ -43,7 +43,31 @@ os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
 os.environ["MS_ASCEND_CHECK_OVERFLOW_MODE"] = "INFNAN_MODE"
 
 logger = logging.getLogger(__name__)
+import mindspore as ms
 
+class StopAtStep(ms.Callback):
+    def __init__(self, start_step, stop_step):
+        super(StopAtStep, self).__init__()
+        self.start_step = start_step
+        self.stop_step = stop_step
+        self.profiler = ms.Profiler(start_profile=False, output_path='./data_step')
+
+    def on_train_step_begin(self, run_context):
+        cb_params = run_context.original_args()
+        step_num = cb_params.cur_step_num
+        if step_num == self.start_step:
+            self.profiler.start()
+
+    def on_train_step_end(self, run_context):
+        cb_params = run_context.original_args()
+        step_num = cb_params.cur_step_num
+        if step_num == self.stop_step:
+            self.profiler.stop()
+            self.profiler.analyse()
+
+
+# TODO: debug only
+dynamic_shape = False 
 
 def main(args):
     if args.add_datetime:
@@ -61,6 +85,7 @@ def main(args):
         enable_dvm=args.enable_dvm,
         debug=args.debug,
     )
+    # ms.set_context(save_graphs=True, save_graphs_path="ms_ir")
     set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
 
     # 2. model initiate and weight loading
@@ -159,11 +184,16 @@ def main(args):
         frames_mask_generator=mask_gen,
         output_columns=["video", "caption", "mask", "fps", "num_frames", "frames_mask"],
     )
+    
+    # FIXME: temp test for dynamic input shape
+    sizes = [(1024, 576), (1024, 1024), (576, 1024)]
+    # sizes = [(1024, 1024)]
+    # sizes = [(img_h, img_w)]
 
     dataloader = create_dataloader(
         dataset,
         batch_size=args.batch_size,
-        transforms=dataset.train_transforms(target_size=(img_h, img_w), tokenizer=None),  # Tokenizer isn't supported
+        transforms=dataset.train_transforms(target_size=sizes, tokenizer=None),  # Tokenizer isn't supported
         shuffle=True,
         device_num=device_num,
         rank_id=rank_id,
@@ -294,6 +324,19 @@ def main(args):
         clip_norm=args.max_grad_norm,
         ema=ema,
     )
+    
+    if dynamic_shape:
+        x = Tensor(shape=[args.batch_size, None, 3, None, None], dtype=ms.float32)
+        text_tokens = Tensor(np.ones((args.batch_size, args.model_max_length, 4096)),dtype=ms.float32)
+        mask = Tensor(np.ones((args.batch_size, args.model_max_length)),dtype=ms.uint8)
+        frames_mask = Tensor(shape=[args.batch_size, None],dtype=ms.bool_)
+        num_frames_shape = Tensor(np.ones((args.batch_size)),dtype=ms.float32)
+        height = Tensor(np.ones((args.batch_size)),dtype=ms.float32)
+        width = Tensor(np.ones((args.batch_size)),dtype=ms.float32)
+        fps = Tensor(np.ones((args.batch_size)),dtype=ms.float32)
+        ar = Tensor(np.ones((args.batch_size)),dtype=ms.float32)
+
+        net_with_grads.set_inputs(x, text_tokens, mask, frames_mask, num_frames_shape, height, width, fps, ar)
 
     model = Model(net_with_grads)
     # callbacks
@@ -362,7 +405,8 @@ def main(args):
 
         with open(os.path.join(args.output_path, "args.yaml"), "w") as f:
             yaml.safe_dump(vars(args), stream=f, default_flow_style=False, sort_keys=False)
-
+    #prof = StopAtStep(3,5)
+    #callback.append(prof)
     # 6. train
     model.train(
         sink_epochs,

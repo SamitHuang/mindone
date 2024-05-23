@@ -4,10 +4,13 @@ import os
 import random
 import sys
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple, Union
+import albumentations
 
 import numpy as np
 
+import mindspore as ms
+from mindspore.dataset import transforms, vision
 from mindspore.dataset.vision import CenterCrop, Inter, Normalize, Resize
 
 # FIXME: remove in future when mindone is ready for install
@@ -17,6 +20,44 @@ from mindone.data.video_reader import VideoReader
 
 _logger = logging.getLogger(__name__)
 
+
+def create_spatial_transforms(h, w, num_frames, interpolation="bicubic"):
+    from albumentations import CenterCrop, HorizontalFlip, SmallestMaxSize
+    targets = {"image{}".format(i): "image" for i in range(num_frames)}
+    mapping = {"bilinear": cv2.INTER_LINEAR, "bicubic": cv2.INTER_CUBIC}
+    pixel_transforms = albumentations.Compose(
+        [
+            SmallestMaxSize(max_size=h, interpolation=mapping[interpolation]),
+            CenterCrop(h, w),
+        ],
+        additional_targets=targets,
+    )
+
+    return pixel_transforms
+
+class VariableResizeAndCrop(): 
+        def __init__(self, sizes):
+            if isinstance(sizes, tuple):
+                sizes = [sizes]
+            self.sizes = sizes
+            self.num_choices = len(sizes)
+
+        def __call__(self, x):
+            idx = random.randint(0, self.num_choices-1) 
+            target_size = self.sizes[idx]
+            # print("target_size: ", target_size)
+             
+            pixel_transforms = transforms.Compose(
+                [
+                    Resize(min(target_size), interpolation=Inter.BILINEAR),
+                    CenterCrop(target_size),
+                ]
+            )
+
+            y = pixel_transforms(x) 
+
+            return y
+    
 
 class ImageVideo2VideoDataset(BaseDataset):
     def __init__(
@@ -84,14 +125,14 @@ class ImageVideo2VideoDataset(BaseDataset):
     def __len__(self):
         return len(self._data)
 
+    
     def train_transforms(
-        self, target_size: Tuple[int, int], tokenizer: Optional[Callable[[str], np.ndarray]] = None
+        self, target_size: List[Tuple[int, int]], tokenizer: Optional[Callable[[str], np.ndarray]] = None
     ) -> List[dict]:
         transforms = [
             {
                 "operations": [
-                    Resize(min(target_size), interpolation=Inter.BILINEAR),
-                    CenterCrop(target_size),
+                    VariableResizeAndCrop(target_size),
                     lambda x: (x / 255.0).astype(np.float32),  # ms.ToTensor() doesn't support 4D data
                     Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
                     lambda x: np.transpose(x, (0, 3, 1, 2)),  # ms.HWC2CHW() doesn't support 4D data

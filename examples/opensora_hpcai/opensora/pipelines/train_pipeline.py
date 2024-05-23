@@ -3,6 +3,7 @@ from typing import Optional
 
 import mindspore as ms
 from mindspore import Tensor, nn, ops
+from mindspore import _no_grad
 
 from ..schedulers.iddpm import SpacedDiffusion
 from ..schedulers.iddpm.diffusion_utils import (
@@ -175,6 +176,7 @@ class DiffusionWithLoss(nn.Cell):
                 unet2d input/output shape: (b c h w)
         """
         # 1. get image/video latents z using vae
+        print("=== x shape", x.shape)
         if not self.video_emb_cached:
             x = self.get_latents(x)
         else:
@@ -186,6 +188,22 @@ class DiffusionWithLoss(nn.Cell):
             text_embed = self.get_condition_embeddings(text_tokens)
         else:
             text_embed = text_tokens  # dataset retunrs text embeddings instead of text tokens
+        """
+        with _no_grad():
+            print("=== x shape", x.shape)
+            # 1. get image/video latents z using vae
+            if not self.video_emb_cached:
+                x = self.get_latents(x)
+            else:
+                # (b f c h w) -> (b c f h w)
+                x = ops.transpose(x, (0, 2, 1, 3, 4))
+
+            # 2. get conditions
+            if not self.text_emb_cached:
+                text_embed = self.get_condition_embeddings(text_tokens)
+            else:
+                text_embed = text_tokens  # dataset retunrs text embeddings instead of text tokens
+        """
         loss = self.compute_loss(x, text_embed, mask, frames_mask, num_frames, height, width, fps, ar)
 
         return loss

@@ -185,7 +185,7 @@ def approx_standard_normal_cdf(x):
     A fast approximation of the cumulative distribution function of the
     standard normal.
     """
-    return 0.5 * (1.0 + ops.tanh(Tensor(np.sqrt(2.0 / np.pi)) * (x + 0.044715 * ops.pow(x, 3))))
+    return 0.5 * (1.0 + ops.tanh(Tensor(np.sqrt(2.0 / np.pi), ms.float32) * (x + 0.044715 * ops.pow(x, 3))))
 
 
 def continuous_gaussian_log_likelihood(x, *, means, log_scales):

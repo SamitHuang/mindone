@@ -1,12 +1,12 @@
 import argparse
 import logging
 
-from mindspore.nn import GELU, SiLU
+from mindspore import ops, nn
 
 from ..models.layers.blocks import Attention, LayerNorm, LlamaRMSNorm
 
 # SORA's whitelist (FP32) operators
-WHITELIST_OPS = [LayerNorm, Attention, LlamaRMSNorm, SiLU, GELU]
+WHITELIST_OPS = [LayerNorm, Attention, LlamaRMSNorm, nn.SiLU, nn.GELU, ops.Softmax, ops.Sigmoid, ops.Tanh, ops.Meshgrid]
 
 logger = logging.getLogger(__name__)
 
