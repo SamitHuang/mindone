@@ -77,7 +77,7 @@ def main(args):
         input_size=input_size,
         in_channels=VAE_Z_CH,
         model_max_length=args.model_max_length,
-        patchify_conv3d_replace="conv2d",  # for Ascend
+        patchify_conv3d_replace=args.patchify,  # for Ascend
         enable_flashattn=args.enable_flash_attention,
         input_sq_size=512,
         qk_norm=True,
