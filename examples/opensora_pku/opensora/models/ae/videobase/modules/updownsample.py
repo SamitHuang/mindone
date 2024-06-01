@@ -28,10 +28,11 @@ class Upsample(nn.Cell):
 
 
 class Downsample(nn.Cell):
-    def __init__(self, in_channels, with_conv, dtype=ms.float32):
+    def __init__(self, in_channels, with_conv=True, dtype=ms.float32):
         super().__init__()
         self.dtype = dtype
         self.with_conv = with_conv
+        assert with_conv, "Downsample is forced to use conv in opensora v1.1"
         if self.with_conv:
             # no asymmetric padding in torch conv, must do it ourselves
             self.conv = nn.Conv2d(
@@ -40,11 +41,14 @@ class Downsample(nn.Cell):
 
     def construct(self, x):
         if self.with_conv:
-            pad = ((0, 0), (0, 0), (0, 1), (0, 1))
-            x = nn.Pad(paddings=pad)(x)
+            # pad = ((0, 0), (0, 0), (0, 0), (0, 1), (0, 1))
+            # x = nn.Pad(paddings=pad)(x)
+            pad = (0, 1, 0, 1)  # (pad_left, pad_right, pad_top, pad_bottom)
+            x = ops.pad(x, pad, mode='constant', value=0)
             x = self.conv(x)
         else:
             x = ops.AvgPool(kernel_size=2, stride=2)(x)
+
         return x
 
 
@@ -173,3 +177,47 @@ class TimeUpsample2x(nn.Cell):
                 x = ops.interpolate(x, scale_factor=(2.0, 1.0, 1.0), mode="trilinear")
 
         return x
+
+class TimeDownsampleRes2x(nn.Cell):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size: int = 3,
+        mix_factor: float = 2.0,
+        replace_avgpool3d: bool = True,  # FIXME: currently, ms+910b does not support nn.AvgPool3d
+    ):
+        super().__init__()
+        self.kernel_size = cast_tuple(kernel_size, 3)
+        self.replace_avgpool3d = replace_avgpool3d
+        if not replace_avgpool3d:
+            self.avg_pool = nn.AvgPool3d((kernel_size, 1, 1), stride=(2, 1, 1))
+        else:
+            self.avg_pool = nn.AvgPool2d((kernel_size, 1), stride=(2, 1))
+        self.time_pad = self.kernel_size[0] - 1
+
+        self.conv = nn.Conv3d(in_channels, out_channels, self.kernel_size, stride=(2,1,1), pad_mode="pad", padding=(0,0,1,1,1,1), has_bias=True)
+
+        self.mix_factor = ms.Parameter(ms.Tensor([mix_factor]), requires_grad=True)
+
+    def construct(self, x):
+        import pdb; pdb.set_trace()
+        alpha = ops.sigmoid(self.mix_factor)
+
+        first_frame = x[:, :, :1, :, :]
+        first_frame_pad = ops.repeat_interleave(first_frame, self.time_pad, axis=2)
+        x = ops.concat((first_frame_pad, x), axis=2)
+
+        conv_out = self.conv(x)
+
+        if not self.replace_avgpool3d:
+            pool_out = self.avg_pool(x)
+        else:
+            # FIXME: only work when h, w stride is 1
+            b, c, t, h, w = x.shape
+            x = ops.reshape(x, (b, c, t, h * w))
+            x = self.avg_pool(x)
+            pool_out = ops.reshape(x, (b, c, -1, h, w))
+    
+        return alpha * pool_out + (1 - alpha) * conv_out
+
