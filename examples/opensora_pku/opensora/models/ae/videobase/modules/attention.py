@@ -3,6 +3,7 @@ import logging
 import mindspore as ms
 from mindspore import nn, ops
 
+from .normalize import Normalize 
 from .conv import CausalConv3d
 
 _logger = logging.getLogger(__name__)
@@ -65,7 +66,8 @@ class AttnBlock3D(nn.Cell):
         self.dtype = dtype
 
         self.bmm = ops.BatchMatMul()
-        self.norm = nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
+        # self.norm = nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
+        self.norm = Normalize(in_channels, extend=True)
 
         # TODO: 1x1 conv3d can be replaced with flatten and Linear
         self.q = CausalConv3d(in_channels, in_channels, kernel_size=1, stride=1)

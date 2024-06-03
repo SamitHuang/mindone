@@ -16,7 +16,8 @@ class Upsample(nn.Cell):
             self.conv = nn.Conv2d(
                 in_channels, in_channels, kernel_size=3, stride=1, pad_mode="pad", padding=1, has_bias=True
             ).to_float(self.dtype)
-
+    
+    # TODO: add video_to_image context in case version later than 1.1 use
     def construct(self, x):
         in_shape = x.shape[-2:]
         out_shape = tuple(2 * x for x in in_shape)
@@ -39,7 +40,28 @@ class Downsample(nn.Cell):
                 in_channels, in_channels, kernel_size=3, stride=2, pad_mode="valid", padding=0, has_bias=True
             ).to_float(self.dtype)
 
+    def rearrange_in(self, x):
+        # b c f h w -> b f c h w
+        B, C, F, H, W = x.shape
+        x = ops.transpose(x, (0, 2, 1, 3, 4))
+        # -> (b*f c h w)
+        x = ops.reshape(x, (-1, C, H, W))
+
+        return x
+    
+    def rearrange_out(self, x, F):
+        BF, D, H_, W_ = x.shape
+        # (b*f D h w) -> (b f D h w)
+        x = ops.reshape(x, (BF//F, F, D, H_, W_))
+        # -> (b D f h w)
+        x = ops.transpose(x, (0, 2, 1, 3, 4))
+
+        return x
+
     def construct(self, x):
+        F = x.shape[-3]
+        x = self.rearrange_in(x)
+
         if self.with_conv:
             # pad = ((0, 0), (0, 0), (0, 0), (0, 1), (0, 1))
             # x = nn.Pad(paddings=pad)(x)
@@ -49,6 +71,7 @@ class Downsample(nn.Cell):
         else:
             x = ops.AvgPool(kernel_size=2, stride=2)(x)
 
+        x = self.rearrange_out(x, F)
         return x
 
 
@@ -201,15 +224,15 @@ class TimeDownsampleRes2x(nn.Cell):
         self.mix_factor = ms.Parameter(ms.Tensor([mix_factor]), requires_grad=True)
 
     def construct(self, x):
-        import pdb; pdb.set_trace()
         alpha = ops.sigmoid(self.mix_factor)
-
+        
         first_frame = x[:, :, :1, :, :]
         first_frame_pad = ops.repeat_interleave(first_frame, self.time_pad, axis=2)
         x = ops.concat((first_frame_pad, x), axis=2)
-
+        
         conv_out = self.conv(x)
 
+        # avg pool
         if not self.replace_avgpool3d:
             pool_out = self.avg_pool(x)
         else:
@@ -220,4 +243,27 @@ class TimeDownsampleRes2x(nn.Cell):
             pool_out = ops.reshape(x, (b, c, -1, h, w))
     
         return alpha * pool_out + (1 - alpha) * conv_out
+
+
+class TimeUpsampleRes2x(nn.Cell):
+    def __init__(self, 
+            in_channels,
+            out_channels,
+            kernel_size: int=3,
+            mix_factor: float=2.0,
+            ):
+        super().__init__()
+        self.conv = CausalConv3d(in_channels, out_channels, kernel_size, padding=1)
+        self.mix_factor = ms.Parameter(ms.Tensor([mix_factor]), requires_grad=True)
+
+    def construct(self, x):
+        alpha = ops.sigmoid(self.mix_factor)
+        if x.shape[2] > 1:
+            x, x_ = x[:, :, :1], x[:, :, 1:]
+            # FIXME: ms2.2.10 cannot support trilinear on 910b
+            x_ = ops.interpolate(x_, scale_factor=(2.0, 1.0, 1.0), mode="trilinear")
+            x = ops.concat([x, x_], axis=2)
+
+        return alpha * x + (1-alpha) * self.conv(x)
+
 

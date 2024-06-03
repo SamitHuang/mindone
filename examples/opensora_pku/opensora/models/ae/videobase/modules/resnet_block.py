@@ -2,6 +2,7 @@ import mindspore as ms
 from mindspore import nn
 from mindspore import ops
 
+from .normalize import Normalize 
 from .conv import CausalConv3d
 from .ops import nonlinearity
 
@@ -71,7 +72,7 @@ class ResnetBlock(nn.Cell):
         return x + h
 
 # pku opensora v1.1
-class ResnetBloc2D(nn.Cell):
+class ResnetBlock2D(nn.Cell):
     def __init__(
         self,
         *,
@@ -109,13 +110,30 @@ class ResnetBloc2D(nn.Cell):
                     in_channels, out_channels, kernel_size=1, stride=1, pad_mode="valid", has_bias=True
                 ).to_float(dtype)
 
-    def construct(self, x):
-        # rearrange in
+    def rearrange_in(self, x):
         # b c f h w -> b f c h w
         B, C, F, H, W = x.shape
-        x = ops.tranpose(x, (0, 2, 1, 3, 4))
+        x = ops.transpose(x, (0, 2, 1, 3, 4))
         # -> (b*f c h w)
         x = ops.reshape(x, (-1, C, H, W))
+
+        return x
+    
+    def rearrange_out(self, x, F):
+        BF, D, H_, W_ = x.shape
+        # (b*f D h w) -> (b f D h w)
+        x = ops.reshape(x, (BF//F, F, D, H_, W_))
+        # -> (b D f h w)
+        x = ops.transpose(x, (0, 2, 1, 3, 4))
+
+        return x
+
+    def construct(self, x):
+        # import pdb; pdb.set_trace()
+        # x: (b c f h w)
+        # rearrange in
+        F = x.shape[-3]
+        x = self.rearrange_in(x)
         
         h = x
         h = self.norm1(h)
@@ -135,11 +153,7 @@ class ResnetBloc2D(nn.Cell):
 
         x = x + h
         # rearrange out
-        # (b*f c h w) -> (b f c h w)
-        x = ops.reshape(x, (B, F, C, H, W))
-        # -> (b c f h w)
-        x = ops.tranpose(x, (0, 2, 1, 3, 4))
-
+        x = self.rearrange_out(x, F)
         return x
 
 
@@ -154,9 +168,11 @@ class ResnetBlock3D(nn.Cell):
         self.upcast_sigmoid = upcast_sigmoid
 
         # FIXME: GroupNorm precision mismatch with PT.
-        self.norm1 = nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
+        # self.norm1 = nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
+        self.norm1 = Normalize(in_channels, extend=True)
         self.conv1 = CausalConv3d(in_channels, out_channels, 3, padding=1)
-        self.norm2 = nn.GroupNorm(num_groups=32, num_channels=out_channels, eps=1e-6, affine=True)
+        # self.norm2 = nn.GroupNorm(num_groups=32, num_channels=out_channels, eps=1e-6, affine=True)
+        self.norm2 = Normalize(out_channels, extend=True)
         self.dropout = nn.Dropout(p=dropout)
         self.conv2 = CausalConv3d(out_channels, out_channels, 3, padding=1)
         if self.in_channels != self.out_channels:
