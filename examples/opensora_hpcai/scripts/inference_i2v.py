@@ -104,6 +104,7 @@ def main(args):
 
     if len(args.ckpt_path) > 0:
         logger.info(f"Loading ckpt {args.ckpt_path} into STDiT")
+        assert os.path.exists(args.ckpt_path), f"{args.ckpt_path} not found."
         latte_model.load_from_checkpoint(args.ckpt_path)
     else:
         logger.warning("STDiT uses random initialization!")
@@ -164,6 +165,7 @@ def main(args):
     model_args["fps"] = Tensor([args.fps] * args.batch_size, dtype=ms.float32)
 
     # 3.2 reference
+    print('D--: ', args.reference_path)
     if args.reference_path is not None:
         assert not args.use_parallel, "parallel inference is not supported for I2V"
         assert len(args.reference_path) == len(
