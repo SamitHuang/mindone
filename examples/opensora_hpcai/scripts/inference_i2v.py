@@ -13,7 +13,7 @@ mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../../"))
 sys.path.insert(0, mindone_lib_path)
 sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
 
-from inference import init_env
+from inference import init_env, data_parallel_split
 from opensora.models.stdit import STDiT2_XL_2
 from opensora.models.text_encoder.t5 import get_text_encoder_and_tokenizer
 from opensora.models.vae.vae import SD_CONFIG, AutoencoderKL
@@ -45,7 +45,14 @@ def main(args):
 
     # 1. init env
     # TODO: add distributed support
-    init_env(args.mode, args.seed, device_target=args.device_target, enable_dvm=args.enable_dvm, debug=args.debug)
+    rank_id, device_num = init_env(
+        args.mode,
+        args.seed,
+        args.use_parallel,
+        device_target=args.device_target,
+        enable_dvm=args.enable_dvm,
+        debug=args.debug,
+    )
     set_random_seed(args.seed)
 
     # get captions from cfg or prompt_path
@@ -57,6 +64,10 @@ def main(args):
     else:
         captions = args.captions
     captions = process_prompts(captions, args.loop)
+
+    # split for data parallel
+    captions, base_data_idx = data_parallel_split(captions, rank_id, device_num)
+    print(f"Num captions for rank {rank_id}: {len(captions)}")
 
     # 2. model initiate and weight loading
     # 2.1 latte
@@ -154,6 +165,7 @@ def main(args):
 
     # 3.2 reference
     if args.reference_path is not None:
+        assert not args.use_parallel, "parallel inference is not supported for I2V"
         assert len(args.reference_path) == len(
             captions
         ), f"Reference path mismatch: {len(args.reference_path)} != {len(captions)}"
@@ -244,11 +256,17 @@ def main(args):
 
         # save result
         for j in range(ns):
-            global_idx = i + j
-            prompt = "-".join((batch_prompts[j][0].replace("/", "").split(" ")[:10]))
-            save_fp = f"{save_dir}/{global_idx:03d}-{prompt}.{args.save_format}"
-            save_videos(videos[j], save_fp, fps=args.fps / args.frame_interval)
-            logger.info(f"save to {save_fp}")
+            global_idx = base_data_idx + i + j
+            if args.text_embed_folder is None:
+                prompt = "-".join((batch_prompts[j].replace("/", "").split(" ")[:10]))
+                save_fp = f"{save_dir}/{global_idx:03d}-{prompt}.{args.save_format}"
+            else:
+                fn = prompt_prefix[global_idx]
+                save_fp = f"{save_dir}/{fn}.{args.save_format}"
+            # save videos
+            if videos is not None:
+                save_videos(vidoes[j : j + 1], save_fp, fps=args.fps / args.frame_interval)
+                logger.info(f"Video saved in {save_fp}")
 
 
 if __name__ == "__main__":
