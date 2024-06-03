@@ -192,7 +192,7 @@ def compare_Decoder(pdb_debug=False, backend='ms'):
     res_pt = res_pt.detach().numpy()
 
     ms_ckpt = _convert_ckpt(pt_ckpt, name=name)
-    ms.set_context(mode=1)
+    ms.set_context(mode=0)
     net_ms = Decoder()
     # net_ms = ms.nn.Conv3d(**net_kwargs, kernel_size=(3,3,3), stride=(2,1,1), pad_mode="pad", padding=(0,0,1,1,1,1), has_bias=True)
     # net_ms = ms.nn.Conv3d(**net_kwargs, kernel_size=(3,3,3), stride=(1,1,1), pad_mode="valid", has_bias=True)

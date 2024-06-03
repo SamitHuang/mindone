@@ -364,6 +364,8 @@ class Encoder(nn.Cell):
         in_ch_mult = (1,) + tuple(hidden_size_mult)
         self.in_ch_mult = in_ch_mult
         self.down = nn.CellList(auto_prefix=False)
+        self.downsample_flag = [0] * self.num_resolutions
+        self.time_downsample_flag = [0] * self.num_resolutions
         for i_level in range(self.num_resolutions):
             block = nn.CellList()
             attn = nn.CellList()
@@ -392,6 +394,7 @@ class Encoder(nn.Cell):
                 print("D: spatial downsample")
                 down.downsample = get_obj_from_str(spatial_downsample[i_level])(block_in, block_in, dtype=self.dtype)
                 curr_res = curr_res // 2
+                self.downsample_flag[i_level] = 1
             else:
                 # TODO: still need it for 910b in new MS version?
                 down.downsample = nn.Identity()
@@ -400,6 +403,7 @@ class Encoder(nn.Cell):
             if temporal_downsample[i_level]:
                 # TODO: add dtype support?
                 down.time_downsample = get_obj_from_str(temporal_downsample[i_level])(block_in, block_in)
+                self.time_downsample_flag[i_level] = 1
             else:
                 # TODO: still need it for 910b in new MS version?
                 down.time_downsample = nn.Identity()
@@ -449,16 +453,18 @@ class Encoder(nn.Cell):
                 if len(self.down[i_level].attn) > 0:
                     h = self.down[i_level].attn[i_block](h)
                 hs.append(h)
-            if hasattr(self.down[i_level], "downsample"):
-                if not isinstance(self.down[i_level].downsample, nn.Identity):
-                    hs.append(self.down[i_level].downsample(hs[-1]))
-            if hasattr(self.down[i_level], "time_downsample"):
-                if not isinstance(self.down[i_level].time_downsample, nn.Identity):
-                    hs_down = self.down[i_level].time_downsample(hs[-1])
-                    hs.append(hs_down)
+            # if hasattr(self.down[i_level], "downsample"):
+            #    if not isinstance(self.down[i_level].downsample, nn.Identity):
+            if self.downsample_flag[i_level]:
+                hs.append(self.down[i_level].downsample(hs[-1]))
+            # if hasattr(self.down[i_level], "time_downsample"):
+            #    if not isinstance(self.down[i_level].time_downsample, nn.Identity):
+            if self.time_downsample_flag[i_level]:
+                hs_down = self.down[i_level].time_downsample(hs[-1])
+                hs.append(hs_down)
 
         # middle
-        # h = hs[-1]
+        h = hs[-1]
         h = self.mid.block_1(h)
         h = self.mid.attn_1(h)
         h = self.mid.block_2(h)
@@ -539,6 +545,8 @@ class Decoder(nn.Cell):
 
         # 3. upsampling
         self.up = nn.CellList(auto_prefix=False)
+        self.upsample_flag = [0] * self.num_resolutions
+        self.time_upsample_flag = [0] * self.num_resolutions
         # i_level: 3 -> 2 -> 1 -> 0
         for i_level in reversed(range(self.num_resolutions)):
             block = nn.CellList()
@@ -563,12 +571,14 @@ class Decoder(nn.Cell):
             if spatial_upsample[i_level]:
                 up.upsample = get_obj_from_str(spatial_upsample[i_level])(block_in, block_in, dtype=self.dtype)
                 curr_res = curr_res * 2
+                self.upsample_flag[i_level] = 1
             else:
                 up.upsample = nn.Identity()
             # do temporal upsample x2 in the bottom tc blocks
             if temporal_upsample[i_level]:
                 # TODO: support dtype?
                 up.time_upsample = get_obj_from_str(temporal_upsample[i_level])(block_in, block_in)
+                self.time_upsample_flag[i_level] = 1
             else:
                 up.time_upsample = nn.Identity()
 
@@ -602,13 +612,15 @@ class Decoder(nn.Cell):
                 h = self.up[i_level].block[i_block](h)
                 if len(self.up[i_level].attn) > 0:
                     h = self.up[i_level].attn[i_block](h)
-            if hasattr(self.up[i_level], 'upsample'):
-                if not isinstance(self.up[i_level].upsample, nn.Identity):
-                    h = self.up[i_level].upsample(h)
+            # if hasattr(self.up[i_level], 'upsample'):
+            #    if not isinstance(self.up[i_level].upsample, nn.Identity):
+            if self.upsample_flag[i_level]:
+                h = self.up[i_level].upsample(h)
 
-            if hasattr(self.up[i_level], 'time_upsample'):
-                if not isinstance(self.up[i_level].time_upsample, nn.Identity):
-                    h = self.up[i_level].time_upsample(h)
+            # if hasattr(self.up[i_level], 'time_upsample'):
+            #    if not isinstance(self.up[i_level].time_upsample, nn.Identity):
+            if self.time_upsample_flag[i_level]:
+                h = self.up[i_level].time_upsample(h)
 
         # end
         h = self.norm_out(h)
