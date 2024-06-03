@@ -1,7 +1,7 @@
-export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3
+export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
-# msrun --master_port=8200 --worker_num=4 --local_worker_num=4 --log_dir=logs_t5_cache  \
-mpirun --allow-run-as-root -n 4 --output-filename log_output --merge-stderr-to-stdout \
+# msrun --master_port=8200 --worker_num=8 --local_worker_num=4 --log_dir=logs_t5_cache  \
+mpirun --allow-run-as-root -n 8 --output-filename log_output --merge-stderr-to-stdout \
     python scripts/inference.py\
     --config configs/opensora/inference/stdit_512x512x64.yaml \
     --ckpt_path outputs/stdit_vaeO2Fp16_ditBf16_rc-4_512x512x64/2024-05-09T01-45-32/ckpt/STDiT-e200.ckpt \
