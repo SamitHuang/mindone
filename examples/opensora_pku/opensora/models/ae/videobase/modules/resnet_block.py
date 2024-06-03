@@ -186,7 +186,7 @@ class ResnetBlock3D(nn.Cell):
         h = self.norm1(h)
         h = nonlinearity(h, self.upcast_sigmoid)
         h = self.conv1(h)
-        h = self.norm2(h)
+        h = self.norm2(h)   # FIXME: this cause huge diff
         h = nonlinearity(h, self.upcast_sigmoid)
         h = self.dropout(h)
         h = self.conv2(h)

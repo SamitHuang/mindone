@@ -18,14 +18,23 @@ get_obj_from_str = eval
 logger = logging.getLogger(__name__)
 
 class CausalVAEModel_V2(nn.Cell):
+    '''
+    The default vales are set to be the same as those used in OpenSora v1.1
+    '''
     def __init__(
         self,
+        hidden_size: int=128,
         z_channels: int = 4,
-        embed_dim: int = 4,
         hidden_size_mult: Tuple[int] = (1, 2, 4, 4),
+        attn_resolutions: Tuple[int] = [],
+        dropout: float=0.0,
+        resolution: int=256,
+        double_z: int=4,
+        embed_dim: int = 4,
+        num_res_blocks: int=2,
+        q_conv: str = "CausalConv3d",
         ckpt_path=None,
         ignore_keys=[],
-        colorize_nlabels=None,
         monitor=None,
         use_fp16=False,
         upcast_sigmoid=False,
@@ -35,12 +44,18 @@ class CausalVAEModel_V2(nn.Cell):
 
         self.encoder = Encoder(
                 z_channels=z_channels,
+                hidden_size=hidden_size,
                 hidden_size_mult=hidden_size_mult,
-                dtype=self.dtype, upcast_sigmoid=upcast_sigmoid)
+                dropout=dropout,
+                dtype=self.dtype, upcast_sigmoid=upcast_sigmoid,
+                )
         self.decoder = Decoder(
                 z_channels=z_channels,
+                hidden_size=hidden_size,
                 hidden_size_mult=hidden_size_mult,
-                dtype=self.dtype, upcast_sigmoid=upcast_sigmoid)
+                dropout=dropout,
+                dtype=self.dtype, upcast_sigmoid=upcast_sigmoid,
+                )
         self.quant_conv = CausalConv3d(
             2 * z_channels,
             2 * embed_dim,
@@ -53,9 +68,6 @@ class CausalVAEModel_V2(nn.Cell):
         )
         self.embed_dim = embed_dim
 
-        if colorize_nlabels is not None:
-            assert type(colorize_nlabels) == int
-            self.register_buffer("colorize", ms.ops.standard_normal(3, colorize_nlabels, 1, 1))
         if monitor is not None:
             self.monitor = monitor
         if ckpt_path is not None:
