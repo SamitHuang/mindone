@@ -40,6 +40,9 @@ class Downsample(nn.Cell):
                 in_channels, in_channels, kernel_size=3, stride=2, pad_mode="valid", padding=0, has_bias=True
             ).to_float(self.dtype)
 
+        # self.pad = ops.Pad(paddings=((0, 0), (0, 0), (0, 1), (0, 1)))
+        self.avg_pool = nn.AvgPool2d(kernel_size=2, stride=2)
+
     def rearrange_in(self, x):
         # b c f h w -> b f c h w
         B, C, F, H, W = x.shape
@@ -63,13 +66,14 @@ class Downsample(nn.Cell):
         x = self.rearrange_in(x)
 
         if self.with_conv:
-            # pad = ((0, 0), (0, 0), (0, 0), (0, 1), (0, 1))
-            # x = nn.Pad(paddings=pad)(x)
-            pad = (0, 1, 0, 1)  # (pad_left, pad_right, pad_top, pad_bottom)
-            x = ops.pad(x, pad, mode='constant', value=0)
+            pad = ((0, 0), (0, 0), (0, 1), (0, 1))
+            x = nn.Pad(paddings=pad)(x)
+            # pad = (0, 1, 0, 1)  # (pad_left, pad_right, pad_top, pad_bottom)
+            # x = ops.pad(x, padding=(0, 1, 0, 1))
+            # x = self.pad(x)
             x = self.conv(x)
         else:
-            x = ops.AvgPool(kernel_size=2, stride=2)(x)
+            x = self.avg_pool(x)
 
         x = self.rearrange_out(x, F)
         return x
@@ -256,12 +260,15 @@ class TimeUpsampleRes2x(nn.Cell):
         self.conv = CausalConv3d(in_channels, out_channels, kernel_size, padding=1)
         self.mix_factor = ms.Parameter(ms.Tensor([mix_factor]), requires_grad=True)
 
+        self.interpolate = nn.Upsample(scale_factor=(2.0, 1.0, 1.0), mode="trilinear")
+
     def construct(self, x):
         alpha = ops.sigmoid(self.mix_factor)
         if x.shape[2] > 1:
             x, x_ = x[:, :, :1], x[:, :, 1:]
             # FIXME: ms2.2.10 cannot support trilinear on 910b
-            x_ = ops.interpolate(x_, scale_factor=(2.0, 1.0, 1.0), mode="trilinear")
+            # x_ = ops.interpolate(x_, scale_factor=(2.0, 1.0, 1.0), mode="trilinear")
+            x_ = self.interpolate(x_)
             x = ops.concat([x, x_], axis=2)
 
         return alpha * x + (1-alpha) * self.conv(x)

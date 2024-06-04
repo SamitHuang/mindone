@@ -9,12 +9,15 @@ import time
 
 import imageio
 import numpy as np
+from mindspore import nn, ops
 
-mindone_dir = '/home/mindocr/yx/mindone'
+mindone_dir = '/home_host/yx/mindone'
 sys.path.insert(0, mindone_dir)
 
 from ae.data.loader import create_dataloader
 from ae.videobase.causal_vae.modeling_causalvae_v2 import CausalVAEModel_V2
+from ae.videobase.modules.updownsample import Downsample, TimeDownsampleRes2x, TimeUpsample2x
+
 # from ae.models.lpips import LPIPS
 from omegaconf import OmegaConf
 from PIL import Image
@@ -89,7 +92,9 @@ def main(args):
     if args.dtype != "fp32":
         amp_level = "O2"
         dtype = {"fp16": ms.float16, "bf16": ms.bfloat16}[args.dtype]
-        model = auto_mixed_precision(model, amp_level, dtype)
+        # FIXME: due to AvgPool and ops.interpolate doesn't support bf16, we add them to fp32 cells 
+        custom_fp32_cells = [nn.GroupNorm, nn.AvgPool2d, nn.Upsample]
+        model = auto_mixed_precision(model, amp_level, dtype, custom_fp32_cells)
         logger.info(f"Set mixed precision to O2 with dtype={args.dtype}")
     else:
         amp_level = "O0"
@@ -145,6 +150,9 @@ def main(args):
         z = model.encode(x)
         if not args.encode_only:
             recons = model.decode(z)
+        
+        # adapt to bf16
+        recons = recons.to(ms.float32)
 
         infer_time = time.time() - start_time
         mean_infer_time += infer_time
@@ -157,7 +165,7 @@ def main(args):
             #    recons= recons[:,:,0,:,:]
             is_video = len(recons.shape) == 5 and (recons.shape[-3] > 1)
             t = recons.shape[-3] if is_video else 1
-
+            
             recons_rgb = postprocess(recons.asnumpy())
             x_rgb = postprocess(x.asnumpy())
 
