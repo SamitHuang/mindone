@@ -270,8 +270,12 @@ class LatteT2V(ModelMixin, ConfigMixin):
         )
 
         if self.use_recompute:
-            for block in self.blocks:
-                self.recompute(block)
+            num_no_recompute = 6
+            num_blocks = len(self.blocks)
+            print('num blocks: ', )
+            for bidx, block in enumerate(self.blocks):
+                if bidx < num_blocks - num_no_recompute:
+                    self.recompute(block)
 
         self.maxpool2d = nn.MaxPool2d(
             kernel_size=(self.patch_size, self.patch_size), stride=(self.patch_size, self.patch_size)

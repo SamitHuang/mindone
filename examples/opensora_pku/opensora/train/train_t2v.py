@@ -86,7 +86,7 @@ def main(args):
     else:
         logger.info("vae init")
         vae = getae_wrapper(args.ae)(args.ae_path, subfolder="vae")
-        vae_dtype = ms.bfloat16
+        vae_dtype = {"bf16": ms.bfloat16, "fp16": ms.float16}[args.vae_dtype]
         custom_fp32_cells = [nn.GroupNorm] if vae_dtype == ms.float16 else [nn.AvgPool2d, TrilinearInterpolate]
         vae = auto_mixed_precision(vae, amp_level="O2", dtype=vae_dtype, custom_fp32_cells=custom_fp32_cells)
         logger.info(f"Use amp level O2 for causal 3D VAE. Use dtype {vae_dtype}")
@@ -446,6 +446,7 @@ def parse_t2v_train_args(parser):
     )
     parser.add_argument("--vae_latent_folder", default=None, type=str, help="root dir for the vae latent data")
     parser.add_argument("--model", type=str, default="DiT-XL/122")
+    parser.add_argument("--vae_dtype", type=str, default="bf16")
     parser.add_argument("--num_classes", type=int, default=1000)
     parser.add_argument("--ae", type=str, default="stabilityai/sd-vae-ft-mse")
     parser.add_argument("--ae_path", type=str, default="stabilityai/sd-vae-ft-mse")
