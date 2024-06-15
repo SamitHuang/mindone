@@ -239,20 +239,17 @@ def parse_train_args(parser):
     #################################################################################
     #                                 Model Optimization                            #
     #################################################################################
-    # parser.add_argument("--image_size", default=256, type=int, help="the image size used to initiate model")
-    # parser.add_argument("--num_frames", default=16, type=int, help="the num of frames used to initiate model")
-    # parser.add_argument("--frame_stride", default=3, type=int, help="frame sampling stride")
-    # parser.add_argument(
-    #     "--disable_flip",
-    #     default=True,
-    #     type=str2bool,
-    #     help="disable random flip video (to avoid motion direction and text mismatch)",
-    # )
     parser.add_argument(
         "--use_recompute",
         default=False,
         type=str2bool,
         help="whether use recompute.",
+    )
+    parser.add_argument(
+        "--num_no_recompute",
+        default=0,
+        type=int,
+        help="Num of blocks to exclude from recompute.",
     )
     parser.add_argument(
         "--enable_flash_attention",

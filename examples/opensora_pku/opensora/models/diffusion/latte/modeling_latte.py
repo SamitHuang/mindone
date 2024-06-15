@@ -87,6 +87,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         video_length: int = 16,
         enable_flash_attention: bool = False,
         use_recompute=False,
+        num_no_recompute=0,
         use_rope: bool = False,
         model_max_length: int = 300,
         rope_scaling_type: str = "linear",
@@ -101,6 +102,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         self.video_length = video_length
         self.norm_type = norm_type
         self.use_recompute = use_recompute
+        self.num_no_recompute = num_no_recompute
         self.use_rope = use_rope
         self.model_max_length = model_max_length
         self.compress_kv_factor = compress_kv_factor
@@ -270,11 +272,12 @@ class LatteT2V(ModelMixin, ConfigMixin):
         )
 
         if self.use_recompute:
-            num_no_recompute = 18
+            # self.num_no_recompute = 18
             num_blocks = len(self.blocks)
-            print('num blocks: ', )
+            print('num blocks: ', num_blocks)
+            print('num no recompute: ', num_no_recompute)
             for bidx, block in enumerate(self.blocks):
-                if bidx < num_blocks - num_no_recompute:
+                if bidx < num_blocks - self.num_no_recompute:
                     self.recompute(block)
 
         self.maxpool2d = nn.MaxPool2d(

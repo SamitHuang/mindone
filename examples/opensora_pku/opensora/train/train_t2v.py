@@ -142,6 +142,7 @@ def main(args):
         video_length=video_length,
         enable_flash_attention=args.enable_flash_attention,
         use_recompute=args.use_recompute,
+        num_no_recompute=args.num_no_recompute,
         compress_kv_factor=args.compress_kv_factor,
         use_rope=args.use_rope,
         model_max_length=args.model_max_length,

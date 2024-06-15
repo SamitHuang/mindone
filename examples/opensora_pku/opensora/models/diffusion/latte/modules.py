@@ -252,8 +252,9 @@ class MultiHeadAttention(nn.Cell):
         )
 
         if self.enable_flash_attention:
+            attn_dtype = ms.bfloat16
             self.flash_attention = MSFlashAttention(
-                head_dim=dim_head, head_num=heads, fix_head_dims=[72], attention_dropout=attn_drop
+                head_dim=dim_head, head_num=heads, fix_head_dims=[72], attention_dropout=attn_drop, dtype=attn_dtype
             )
         else:
             self.attention = Attention(
@@ -521,6 +522,7 @@ class MultiHeadAttention(nn.Cell):
             out = self.attention(q, k, v, mask)
             # (b*h, n, d) -> (b, n, h*d)
             out = self._rearange_out(out, h)
+        # TODO: need to cast out to x_dtype if precision is not bf16
         hidden_states = self.to_out(out)
 
         if input_ndim == 4:
