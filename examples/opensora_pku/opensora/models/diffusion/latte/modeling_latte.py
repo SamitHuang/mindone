@@ -270,7 +270,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         )
 
         if self.use_recompute:
-            num_no_recompute = 6
+            num_no_recompute = 18
             num_blocks = len(self.blocks)
             print('num blocks: ', )
             for bidx, block in enumerate(self.blocks):
@@ -320,55 +320,12 @@ class LatteT2V(ModelMixin, ConfigMixin):
         use_image_num: int = 0,
         enable_temporal_attentions: bool = True,
     ):
-        """
-        The [`Transformer2DModel`] forward method.
-
-        Args:
-            hidden_states (`ms.Tensor` of shape `(batch size, num latent pixels)` if discrete, \
-                `ms.Tensor` of shape `(batch size, frame, channel, height, width)` if continuous): Input `hidden_states`.
-            encoder_hidden_states ( `ms.Tensor` of shape `(batch size, sequence len, embed dims)`, *optional*):
-                Conditional embeddings for cross attention layer. If not given, cross-attention defaults to
-                self-attention.
-            timestep ( `ms.Tensor`, *optional*):
-                Used to indicate denoising step. Optional timestep to be applied as an embedding in `AdaLayerNorm`.
-            class_labels ( `ms.Tensor` of shape `(batch size, num classes)`, *optional*):
-                Used to indicate class labels conditioning. Optional class labels to be applied as an embedding in
-                `AdaLayerZeroNorm`.
-            cross_attention_kwargs ( `Dict[str, Any]`, *optional*):
-                A kwargs dictionary that if specified is passed along to the `AttentionProcessor` as defined under
-                `self.processor` in
-                [diffusers.models.attention_processor](https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/attention_processor.py).
-            attention_mask ( `ms.Tensor`, *optional*):
-                An attention mask of shape `(batch, key_tokens)` is applied to `encoder_hidden_states`. If `1` the mask
-                is kept, otherwise if `0` it is discarded. Mask will be converted into a bias, which adds large
-                negative values to the attention scores corresponding to "discard" tokens.
-            encoder_attention_mask ( `ms.Tensor`, *optional*):
-                Cross-attention mask applied to `encoder_hidden_states`. Two formats supported:
-
-                    * Mask `(batch, sequence_length)` True = keep, False = discard.
-                    * Bias `(batch, 1, sequence_length)` 0 = keep, -10000 = discard.
-
-                If `ndim == 2`: will be interpreted as a mask, then converted into a bias consistent with the format
-                above. This bias will be added to the cross-attention scores.
-        Returns:
-           a `tuple` where the first element is the sample tensor.
-        """
         input_batch_size, c, frame, h, w = hidden_states.shape
         frame = frame - use_image_num  # 20-4=16
         # b c f h w -> (b f) c h w
         hidden_states = hidden_states.permute(0, 2, 1, 3, 4).reshape(
             input_batch_size * (frame + use_image_num), c, h, w
         )
-        # ensure attention_mask is a bias, and give it a singleton query_tokens dimension.
-        #   we may have done this conversion already, e.g. if we came here via UNet2DConditionModel#forward.
-        #   we can tell by counting dims; if ndim == 2: it's a mask rather than a bias.
-        # expects mask of shape:
-        #   [batch, key_tokens]
-        # adds singleton query_tokens dimension:
-        #   [batch,                    1, key_tokens]
-        # this helps to broadcast it as a bias over attention scores, which will be in one of the following shapes:
-        #   [batch,  heads, query_tokens, key_tokens] (e.g. torch sdp attn)
-        #   [batch * heads, query_tokens, key_tokens] (e.g. xformers or classic attn)
         if attention_mask is None:
             attention_mask = ops.ones((input_batch_size, frame + use_image_num, h, w), dtype=hidden_states.dtype)
         attention_mask = self.vae_to_diff_mask(attention_mask, use_image_num)
@@ -411,7 +368,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         hw = (height, width)
         num_patches = height * width
 
-        hidden_states = self.pos_embed(hidden_states.to(self.dtype))  # alrady add positional embeddings
+        hidden_states = self.pos_embed(hidden_states)  # alrady add positional embeddings
 
         if self.adaln_single is not None:
             if self.use_additional_conditions and added_cond_kwargs is None:
@@ -429,7 +386,7 @@ class LatteT2V(ModelMixin, ConfigMixin):
         # 2. Blocks
         if self.caption_projection is not None:
             batch_size = hidden_states.shape[0]
-            encoder_hidden_states = self.caption_projection(encoder_hidden_states.to(self.dtype))  # 3 120 1152
+            encoder_hidden_states = self.caption_projection(encoder_hidden_states)  # 3 120 1152
 
             if use_image_num != 0 and self.training:
                 encoder_hidden_states_video = encoder_hidden_states[:, :1, ...]

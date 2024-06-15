@@ -42,9 +42,8 @@ class LayerNorm(nn.Cell):
         self.layer_norm = ops.LayerNorm(-1, -1, epsilon=eps)
 
     def construct(self, x: ms.Tensor):
-        oridtype = x.dtype
-        x, _, _ = self.layer_norm(x.to(ms.float32), self.gamma.to(ms.float32), self.beta.to(ms.float32))
-        return x.to(oridtype)
+        x, _, _ = self.layer_norm(x, self.gamma, self.beta)
+        return x
 
 
 class Attention(nn.Cell):
@@ -522,7 +521,7 @@ class MultiHeadAttention(nn.Cell):
             out = self.attention(q, k, v, mask)
             # (b*h, n, d) -> (b, n, h*d)
             out = self._rearange_out(out, h)
-        hidden_states = self.to_out(out).to(x_dtype)
+        hidden_states = self.to_out(out)
 
         if input_ndim == 4:
             hidden_states = hidden_states.transpose(-1, -2).reshape(batch_size, channel, height, width)
@@ -873,9 +872,9 @@ class PixArtAlphaCombinedTimestepSizeEmbeddings(nn.Cell):
         timesteps_emb = self.timestep_embedder(timesteps_proj.to(dtype=hidden_dtype))  # (N, D)
 
         if self.use_additional_conditions:
-            resolution_emb = self.additional_condition_proj(resolution.flatten()).to(hidden_dtype)
+            resolution_emb = self.additional_condition_proj(resolution.flatten())
             resolution_emb = self.resolution_embedder(resolution_emb).reshape(batch_size, -1)
-            aspect_ratio_emb = self.additional_condition_proj(aspect_ratio.flatten()).to(hidden_dtype)
+            aspect_ratio_emb = self.additional_condition_proj(aspect_ratio.flatten())
             aspect_ratio_emb = self.aspect_ratio_embedder(aspect_ratio_emb).reshape(batch_size, -1)
             conditioning = timesteps_emb + ops.cat([resolution_emb, aspect_ratio_emb], axis=1)
         else:
@@ -946,7 +945,7 @@ class PatchEmbed(nn.Cell):
         else:
             pos_embed = self.pos_embed
 
-        return (latent + pos_embed).to(latent.dtype)
+        return latent + pos_embed
 
 
 class AdaLayerNorm(nn.Cell):

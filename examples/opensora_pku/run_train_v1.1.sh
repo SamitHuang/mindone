@@ -1,28 +1,29 @@
+export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export MS_ENABLE_NUMA=0
+export MS_MEMORY_STATISTIC=1
+export MS_DATASET_SINK_QUEUE=4
+
 # enable kbk
-export MS_ENABLE_ACLNN=0
-export GRAPH_OP_RUN=0
+export MS_ENABLE_ACLNN=1
+export GRAPH_OP_RUN=1
 export GLOG_v=2
 
 # hyper-parameters
 image_size=512
 use_image_num=4
 num_frames=17
-
-
-# if use global_bf16, set amp_level to 0O
 model_dtype="bf16"
 amp_level="O2"
-
 enable_flash_attention="True"
 batch_size=2
 lr="2e-05"
-output_dir=outputs/t2v-GE-vaeFp16-ditGBF16-rcM6-f$num_frames-$image_size-img$use_image_num-videovae488-$model_dtype-FA$enable_flash_attention-bs$batch_size-t5
-
-python opensora/train/train_t2v.py \
+output_dir=outputs/t2v-dvm_optPara_rcM18_rmCast_f$num_frames-$image_size-img$use_image_num-videovae488-$model_dtype-FA$enable_flash_attention-bs$batch_size-t5
+msrun --bind_core=True --worker_num=8 --local_worker_num=8 --master_port=9010 --log_dir=test/parallel_logs opensora/train/train_t2v.py \
       --data_path datasets/sharegpt4v_path_cap_64x512x512-vid64.json \
       --video_folder datasets/vid64/videos \
       --text_embed_folder datasets/vid64/t5-len=300 \
       --pretrained models/t2v.ckpt \
+      --enable_dvm=True \
     --model LatteT2V-XL/122 \
     --text_encoder_name models/t5-v1_1-xxl \
     --dataset t2v \
@@ -49,8 +50,8 @@ python opensora/train/train_t2v.py \
     --use_image_num $use_image_num \
     --dataset_sink_mode True \
     --use_img_from_vid \
-    --vae_dtype=fp16 \
-    --global_bf16 \
+    --use_parallel True \
+    --parallel_mode "optim" \
     --mode=0 \
 
     # --enable_tiling \
