@@ -160,7 +160,7 @@ def main(args):
                 dtype=model_dtype,
                 custom_fp32_cells=[LayerNorm, Attention, nn.SiLU, nn.GELU]
                 if model_dtype == ms.float16
-                else [nn.MaxPool2d],
+                else [nn.MaxPool2d, nn.SiLU, nn.GELU, LayerNorm],
             )
             logger.info(f"Set mixed precision to {args.amp_level} with dtype={args.precision}")
         else:

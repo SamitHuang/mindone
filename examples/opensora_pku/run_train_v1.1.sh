@@ -17,7 +17,7 @@ amp_level="O2"
 enable_flash_attention="True"
 batch_size=2
 lr="2e-05"
-output_dir=outputs/t2v-dvm_FAbf16_rcM18_rmCast_f$num_frames-$image_size-img$use_image_num-videovae488-$model_dtype-FA$enable_flash_attention-bs$batch_size-t5
+output_dir=outputs/t2v-dvm_FAbf16_siluFP32_rcM18_rmCast_f$num_frames-$image_size-img$use_image_num-videovae488-$model_dtype-FA$enable_flash_attention-bs$batch_size-t5
 msrun --bind_core=True --worker_num=8 --local_worker_num=8 --master_port=9010 --log_dir=test/parallel_logs opensora/train/train_t2v.py \
       --data_path datasets/sharegpt4v_path_cap_64x512x512-vid64.json \
       --video_folder datasets/vid64/videos \
