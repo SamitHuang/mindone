@@ -169,9 +169,10 @@ class ResnetBlock2D(nn.Cell):
     def construct(self, x):
         # import pdb; pdb.set_trace()
         # x: (b c f h w)
+        # FIXME: due to prev conv2d already rearrange
         # rearrange in
-        F = x.shape[-3]
-        x = self.rearrange_in(x)
+        # F = x.shape[-3]
+        # x = self.rearrange_in(x)
 
         h = x
         h = self.norm1(h)
@@ -191,5 +192,6 @@ class ResnetBlock2D(nn.Cell):
 
         x = x + h
         # rearrange out
-        x = self.rearrange_out(x, F)
+        # x = self.rearrange_out(x, F)
+
         return x

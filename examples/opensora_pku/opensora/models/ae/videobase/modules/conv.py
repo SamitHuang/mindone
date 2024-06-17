@@ -51,8 +51,9 @@ class Conv2d(nn.Conv2d):
         x = self.rearrange_in(x)
 
         x = super().construct(x)
-
-        x = self.rearrange_out(x, F)
+        
+        # due to the following block is ResNet2D
+        # x = self.rearrange_out(x, F)
 
         return x
 

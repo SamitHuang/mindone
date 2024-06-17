@@ -28,7 +28,7 @@ class Upsample(nn.Cell):
 
 
 class Downsample(nn.Cell):
-    def __init__(self, in_channels, with_conv=True, dtype=ms.float32):
+    def __init__(self, in_channels, with_conv=True, dtype=ms.float32, trans_in=True, trans_out=True):
         super().__init__()
         self.dtype = dtype
         self.with_conv = with_conv
@@ -38,6 +38,9 @@ class Downsample(nn.Cell):
             self.conv = nn.Conv2d(
                 in_channels, in_channels, kernel_size=3, stride=2, pad_mode="valid", padding=0, has_bias=True
             ).to_float(self.dtype)
+
+        self.trans_in = trans_in
+        self.trans_out = trans_out
 
     def rearrange_in(self, x):
         # b c f h w -> b f c h w
@@ -57,9 +60,10 @@ class Downsample(nn.Cell):
 
         return x
 
-    def construct(self, x):
-        F = x.shape[-3]
-        x = self.rearrange_in(x)
+    def construct(self, x, F=None):
+        if self.trans_in:
+            _F = x.shape[-3]
+            x = self.rearrange_in(x)
 
         if self.with_conv:
             pad = ((0, 0), (0, 0), (0, 1), (0, 1))
@@ -69,8 +73,11 @@ class Downsample(nn.Cell):
             x = self.conv(x)
         else:
             x = ops.AvgPool(kernel_size=2, stride=2)(x)
-
-        x = self.rearrange_out(x, F)
+        
+        if self.trans_out:
+            if F is not None:
+                _F = F
+            x = self.rearrange_out(x, _F)
         return x
 
 

@@ -40,19 +40,19 @@ class CausalVAEModel_V2(VideoBaseAE):
             "disc_weight": 0.5,
         },
         q_conv: str = "CausalConv3d",
-        encoder_conv_in: str = "CausalConv3d",
+        encoder_conv_in: str = "Conv2d",
         encoder_conv_out: str = "CausalConv3d",
         encoder_attention: str = "AttnBlock3D",
         encoder_resnet_blocks: Tuple[str] = (
-            "ResnetBlock3D",
-            "ResnetBlock3D",
+            "ResnetBlock2D",
+            "ResnetBlock2D",
             "ResnetBlock3D",
             "ResnetBlock3D",
         ),
         encoder_spatial_downsample: Tuple[str] = (
-            "SpatialDownsample2x",
-            "SpatialDownsample2x",
-            "SpatialDownsample2x",
+            "Downsample",
+            "Downsample",
+            "Downsample",
             "",
         ),
         encoder_temporal_downsample: Tuple[str] = (
@@ -77,7 +77,12 @@ class CausalVAEModel_V2(VideoBaseAE):
             "SpatialUpsample2x",
             "SpatialUpsample2x",
         ),
-        decoder_temporal_upsample: Tuple[str] = ("", "", "TimeUpsample2x", "TimeUpsample2x"),
+        decoder_temporal_upsample: Tuple[str] = (
+                "", 
+                "", 
+                "TimeUpsampleRes2x", 
+                "TimeUpsampleRes2x",
+                ),
         decoder_mid_resnet: str = "ResnetBlock3D",
         ckpt_path=None,
         ignore_keys=[],
@@ -529,6 +534,12 @@ class Encoder(nn.Cell):
         self.down = nn.CellList(auto_prefix=False)
         self.downsample_flag = [0] * self.num_resolutions
         self.time_downsample_flag = [0] * self.num_resolutions
+
+        # lv0: [ResBlock2D, space DS(no trans), None]
+        # lv1: [ResBlock2D, space DS (no trans in, rearrange out:), Time DS]
+        ds_trans_in = [False, False, True, True]
+        ds_trans_out = [False, True, True, True]
+
         for i_level in range(self.num_resolutions):
             block = nn.CellList()
             attn = nn.CellList()
@@ -554,7 +565,7 @@ class Encoder(nn.Cell):
 
             # do spatial downsample according to config
             if spatial_downsample[i_level]:
-                down.downsample = resolve_str_to_obj(spatial_downsample[i_level])(block_in, block_in, dtype=self.dtype)
+                down.downsample = resolve_str_to_obj(spatial_downsample[i_level])(block_in, block_in, dtype=self.dtype, trans_in=ds_trans_in[i_level], trans_out=ds_trans_out[i_level])
                 curr_res = curr_res // 2
                 self.downsample_flag[i_level] = 1
             else:
@@ -606,19 +617,27 @@ class Encoder(nn.Cell):
         )
 
     def construct(self, x):
+        F = x.shape[2]
+
         # downsampling
+        # conv in: rearrange in: b c t h w -> b*t c h w 
+        # lv0: [ResBlock2D, space DS, None]
+        # lv1: [ResBlock2D, space DS (rearrange out:), Time DS]
         hs = [self.conv_in(x)]
         for i_level in range(self.num_resolutions):
             for i_block in range(self.num_res_blocks):
-                # import pdb; pdb.set_trace()
                 h = self.down[i_level].block[i_block](hs[-1])
                 if len(self.down[i_level].attn) > 0:
                     h = self.down[i_level].attn[i_block](h)
                 hs.append(h)
             # if hasattr(self.down[i_level], "downsample"):
             #    if not isinstance(self.down[i_level].downsample, nn.Identity):
+            # import pdb; pdb.set_trace()
             if self.downsample_flag[i_level]:
-                hs.append(self.down[i_level].downsample(hs[-1]))
+                if i_level == 1:
+                    hs.append(self.down[i_level].downsample(hs[-1], F=F))
+                else:
+                    hs.append(self.down[i_level].downsample(hs[-1]))
             # if hasattr(self.down[i_level], "time_downsample"):
             #    if not isinstance(self.down[i_level].time_downsample, nn.Identity):
             if self.time_downsample_flag[i_level]:
