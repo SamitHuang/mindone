@@ -23,7 +23,7 @@ from opensora.models.text_encoder.t5 import T5Embedder
 from opensora.train.commons import create_loss_scaler, init_env, parse_args
 from opensora.utils.utils import get_precision
 
-from mindone.trainers.callback import EvalSaveCallback, OverflowMonitor, ProfilerCallback
+from mindone.trainers.callback import EvalSaveCallback, OverflowMonitor, ProfilerCallbackEpoch
 from mindone.trainers.checkpoint import resume_train_network
 from mindone.trainers.ema import EMA
 from mindone.trainers.lr_schedule import create_scheduler
@@ -37,6 +37,7 @@ os.environ["HCCL_CONNECT_TIMEOUT"] = "6000"
 os.environ["MS_ASCEND_CHECK_OVERFLOW_MODE"] = "INFNAN_MODE"
 
 logger = logging.getLogger(__name__)
+
 
 
 def set_all_reduce_fusion(
@@ -67,6 +68,7 @@ def main(args):
         max_device_memory=args.max_device_memory,
         parallel_mode=args.parallel_mode,
         enable_dvm=args.enable_dvm,
+        backend=args.backend,
         mempool_block_size=args.mempool_block_size,
         global_bf16=args.global_bf16,
         strategy_ckpt_save_file=os.path.join(args.output_dir, "src_strategy.ckpt") if save_src_strategy else "",
@@ -376,7 +378,7 @@ def main(args):
         )
         callback.append(save_cb)
         if args.profile:
-            callback.append(ProfilerCallback())
+            callback.append(ProfilerCallbackEpoch(2, 3, "./profile_data"))
 
     # 5. log and save config
     if rank_id == 0:

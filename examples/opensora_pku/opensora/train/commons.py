@@ -28,6 +28,7 @@ def init_env(
     global_bf16: bool = False,
     strategy_ckpt_save_file: str = "",
     optimizer_weight_shard_size: int = 8,
+    backend: str="kbk",
 ) -> Tuple[int, int, int]:
     """
     Initialize MindSpore environment.
@@ -93,8 +94,20 @@ def init_env(
         )
 
     if enable_dvm:
-        print("enable dvm")
-        ms.set_context(enable_graph_kernel=True, graph_kernel_flags="--disable_cluster_ops=Pow,Select")
+        logger.warning("Please set dvm by backend=dvm for mindspore version > 2.3-0614")
+        # ms.set_context(enable_graph_kernel=True, graph_kernel_flags="--disable_cluster_ops=Pow,Select")
+
+    # temp for ms version > 0614
+    # O0 kbk, 01 dvm, 02 GE
+    if backend == 'kbk':
+        ms.set_context(jit_config={"jit_level": "O0"})
+    elif backend == 'dvm':
+        ms.set_context(jit_config={"jit_level": "O1"})
+    elif backend == 'ge':
+        ms.set_context(jit_config={"jit_level": "O2"})
+    else:
+        raise NotImplementedError
+
     if global_bf16:
         print("Using global bf16")
         ms.set_context(
@@ -126,6 +139,7 @@ def parse_train_args(parser):
     parser.add_argument("--device", type=str, default="Ascend", help="Ascend or GPU")
     parser.add_argument("--max_device_memory", type=str, default=None, help="e.g. `30GB` for 910a, `59GB` for 910b")
     parser.add_argument("--mode", default=0, type=int, help="Specify the mode: 0 for graph mode, 1 for pynative mode")
+    parser.add_argument("--backend", default='kbk', type=str, help="kbk, dmv, or ge")
     parser.add_argument("--use_parallel", default=False, type=str2bool, help="use parallel")
     parser.add_argument(
         "--parallel_mode",
