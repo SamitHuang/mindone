@@ -75,9 +75,10 @@ class Downsample(nn.Cell):
             x = ops.AvgPool(kernel_size=2, stride=2)(x)
         
         if self.trans_out:
-            if F is not None:
-                _F = F
-            x = self.rearrange_out(x, _F)
+            if self.trans_in:
+                x = self.rearrange_out(x, _F)
+            else:
+                x = self.rearrange_out(x, F)
         return x
 
 
