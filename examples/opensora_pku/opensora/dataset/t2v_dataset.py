@@ -316,7 +316,8 @@ class TextVideoDataset:
             if self.is_image:
                 pixel_values = pixel_values[0]
 
-            pixel_values = (pixel_values / 127.5 - 1.0).astype(np.float32)
+            pixel_values = np.divide(pixel_values, 127.5, dtype=np.float32)
+            pixel_values = np.subtract(pixel_values, 1.0, dtype=np.float32)
         else:
             # pixel_values is the vae encoder's output sample * scale_factor
             pass
@@ -417,7 +418,9 @@ class TextVideoDataset:
             else:
                 pixel_values = video_reader.get_batch(frame_indice).asnumpy()  # shape: (f, h, w, c)
             pixel_values = self.apply_transform(pixel_values)
-            pixel_values = (pixel_values / 127.5 - 1.0).astype(np.float32)
+
+            pixel_values = np.divide(pixel_values, 127.5, dtype=np.float32)
+            pixel_values = np.subtract(pixel_values, 1.0, dtype=np.float32)
             return_dict = {"video": pixel_values}
             yield video_name, select_video_frames, return_dict
 
