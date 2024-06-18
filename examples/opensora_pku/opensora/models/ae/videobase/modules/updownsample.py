@@ -256,6 +256,7 @@ class TimeDownsampleRes2x(nn.Cell):
             b, c, t, h, w = x.shape
             x = ops.reshape(x, (b, c, t, h * w))
             x = self.avg_pool(x)
+            # x = ms.mint.nn.functional.avg_pool2d(x, kernel_size=(2, 1), stride=(2,1))
             pool_out = ops.reshape(x, (b, c, -1, h, w))
 
         return alpha * pool_out + (1 - alpha) * conv_out

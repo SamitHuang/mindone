@@ -149,12 +149,26 @@ class CausalConv3d(nn.Cell):
                 bias_init="zeros",
                 **kwargs,
             ).to_float(dtype)
+        
+        # not helping 
+        # self.rep_pad = nn.ReplicationPad2d((0, 0, time_kernel_size-1, 0))
 
     def construct(self, x):
         # x: (bs, Cin, T, H, W )
         if self.temporal_padding:
             first_frame = x[:, :, :1, :, :]
-            first_frame_pad = ops.repeat_interleave(first_frame, self.time_pad, axis=2)
+            # first_frame_pad = ops.repeat_interleave(first_frame, self.time_pad, axis=2)
+            first_frame_pad = ops.tile(first_frame, (1, 1, self.time_pad, 1, 1))
             x = ops.concat((first_frame_pad, x), axis=2)
+
+        '''
+        x_dtype = x.dtype
+        x = x.to(ms.float16)
+        n, c, d, h, w = x.shape
+        x = x.reshape(n*c, d, h*w)
+        x = self.rep_pad(x)
+        x = x.reshape(n, c, -1, h, w)
+        x = x.to(x_dtype)
+        '''
 
         return self.conv(x)

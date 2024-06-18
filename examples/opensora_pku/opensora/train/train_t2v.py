@@ -89,7 +89,8 @@ def main(args):
         logger.info("vae init")
         vae = getae_wrapper(args.ae)(args.ae_path, subfolder="vae")
         vae_dtype = {"bf16": ms.bfloat16, "fp16": ms.float16}[args.vae_dtype]
-        custom_fp32_cells = [nn.GroupNorm] if vae_dtype == ms.float16 else [nn.AvgPool2d, TrilinearInterpolate]
+        # FIXME: check fp16 performance 
+        custom_fp32_cells = [] if vae_dtype == ms.float16 else [nn.AvgPool2d, TrilinearInterpolate, nn.GroupNorm]
         vae = auto_mixed_precision(vae, amp_level="O2", dtype=vae_dtype, custom_fp32_cells=custom_fp32_cells)
         logger.info(f"Use amp level O2 for causal 3D VAE. Use dtype {vae_dtype}")
 

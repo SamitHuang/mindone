@@ -333,11 +333,15 @@ class LatteT2V(ModelMixin, ConfigMixin):
             attention_mask = ops.ones((input_batch_size, frame + use_image_num, h, w), dtype=hidden_states.dtype)
         attention_mask = self.vae_to_diff_mask(attention_mask, use_image_num)
         dtype = attention_mask.dtype
-        attention_mask_compress = self.compress_maxpool2d(attention_mask)
-        attention_mask_compress = attention_mask_compress.to(dtype)
-
         attention_mask = self.make_attn_mask(attention_mask, frame, hidden_states.dtype)
-        attention_mask_compress = self.make_attn_mask(attention_mask_compress, frame, hidden_states.dtype)
+        
+        if self.compress_kv_factor > 1:
+            attention_mask_compress = self.compress_maxpool2d(attention_mask)
+            attention_mask_compress = attention_mask_compress.to(dtype)
+
+            attention_mask_compress = self.make_attn_mask(attention_mask_compress, frame, hidden_states.dtype)
+        else:
+            attention_mask_compress = attention_mask
 
         # 1 + 4, 1 -> video condition, 4 -> image condition
         # convert encoder_attention_mask to a bias the same way we do for attention_mask

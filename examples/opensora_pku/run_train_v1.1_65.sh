@@ -18,7 +18,7 @@ enable_flash_attention="True"
 batch_size=2
 lr="2e-05"
 
-output_dir=outputs/t2v-dvm_FAbf16_siluFP32_rcM18_rmCast_f$num_frames-$image_size-img$use_image_num-videovae488-$model_dtype-FA$enable_flash_attention-bs$batch_size-t5
+output_dir=outputs/t2v-dvm_vaeFp16_RepPad_FAbf16_f$num_frames-$image_size-img$use_image_num-videovae488-$model_dtype-FA$enable_flash_attention-bs$batch_size-t5
 msrun --bind_core=True --worker_num=8 --local_worker_num=8 --master_port=9010 --log_dir=test/parallel_logs opensora/train/train_t2v.py \
       --data_path datasets/sharegpt4v_path_cap_64x512x512-vid64.json \
       --video_folder datasets/vid64/videos \
@@ -36,7 +36,8 @@ msrun --bind_core=True --worker_num=8 --local_worker_num=8 --master_port=9010 --
     --use_recompute True \
     --enable_flash_attention $enable_flash_attention \
     --batch_size=$batch_size \
-    --num_parallel_workers 16 \
+    --num_parallel_workers 10 \
+    --max_rowsize=128 \
     --gradient_accumulation_steps=1 \
     --max_train_steps=6000 \
     --start_learning_rate=$lr \
@@ -57,7 +58,8 @@ msrun --bind_core=True --worker_num=8 --local_worker_num=8 --master_port=9010 --
     --parallel_mode "data" \
     --backend "dvm" \
     --max_device_memory "59GB" \
-    --profile=True \
+    --vae_dtype fp16 \
+    --profile=False \
 
     # --num_no_recompute=18 \
     # --parallel_mode "optim" \
