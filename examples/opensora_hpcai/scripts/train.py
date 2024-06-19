@@ -115,7 +115,9 @@ def init_env(
             device_target=device_target,
             pynative_synchronize=debug,
         )
+    # backend
 
+    # TODO: rm
     if enable_dvm:
         print("enable dvm")
         # FIXME: the graph_kernel_flags settting is a temp solution to fix dvm loss convergence in ms2.3-rc2. Refine it for future ms version.

@@ -143,9 +143,8 @@ Other useful documents and links are listed below.
 
 ## Installation
 
-1. Install MindSpore 2.3rc1 according to the [official instruction](https://www.mindspore.cn/install)
-> To use flash attention, it's recommended to use mindspore 2.3rc2 (release soon).
-
+1. Install MindSpore according to the [official instructions](https://www.mindspore.cn/install).
+    For Ascend devices, please install **CANN driver C18 (0517)** from [here](https://repo.mindspore.cn/ascend/ascend910/20240517/Ascend910B/) and install **MindSpore 2.3-master (0615)** from [here](https://repo.mindspore.cn/mindspore/mindspore/version/202406/20240615/master_20240615020018_43ccb91e45899b64fe31d304497ab17e3ada3cea_newest/unified/).
 
 2. Install requirements
 ```bash
@@ -494,9 +493,11 @@ You may also see the example shell scripts in `scripts/run` for quick reference.
 
 We evaluated the training performance on MindSpore and Ascend NPUs. The results are as follows.
 
-| Model       | Context      | Precision | BS | NPUs | Resolution | Train T. (s/step) |
-|:------------|:-------------|:----------|:--:|:----:|:----------:|:-----------------:|
-| STDiT2-XL/2 | D910\*-MS2.3 | BF16      | 1  |  1   | 16x512x512 |       2.80        |
+| Model       | Context      | Backend | Precision | BS | NPUs | Resolution(framesxHxW) | Train T. (s/step) |
+|:------------|:-------------|:----------|:------:|:----:|:----------:|:-----------------:|
+| STDiT2-XL/2 | D910\*-MS2.3 |    DVM   | BF16      | 1  |  1   | 16x512x512 |       2.60        |
+| STDiT2-XL/2 | D910\*-MS2.3 |    DVM   | BF16      | 1  |  1   | 64x512x512 |               |
+| STDiT2-XL/2 | D910\*-MS2.3 |    DVM   | BF16      | 1  |  1   | 24x576x1024 |             |
 
 
 ### Open-Sora 1.0
@@ -594,7 +595,7 @@ We evaluated the training performance on MindSpore and Ascend NPUs. The results 
 
 | Model       | Context      | Precision | BS | NPUs | Max. Resolution | Train T. (s/step) |
 |:------------|:-------------|:----------|:--:|:----:|:---------------:|:-----------------:|
-| STDiT2-XL/2 | D910\*-MS2.3 | BF16      | 1  |  4   | 16x512x512      |       2.3         |
+| STDiT2-XL/2 | D910\*-MS2.3_master | BF16      | 1  |  4   | 16x512x512      |       2.3         |
 
 
 ### FiT-Like Inference

@@ -72,6 +72,9 @@ Other useful documents and links are listed below.
 
 2. Install MindSpore 2.3 master (0615daily) according to the [website](https://repo.mindspore.cn/mindspore/mindspore/version/202406/20240615/) and use C18 CANN (0517) which can be downloaded from [here](https://repo.mindspore.cn/ascend/ascend910/20240517/).
 
+2. Install MindSpore according to the [official instructions](https://www.mindspore.cn/install).
+    For Ascend devices, please install **CANN driver C18 (0517)** from [here](https://repo.mindspore.cn/ascend/ascend910/20240517/Ascend910B/) and install **MindSpore 2.3-master (0615)** from [here](https://repo.mindspore.cn/mindspore/mindspore/version/202406/20240615/master_20240615020018_43ccb91e45899b64fe31d304497ab17e3ada3cea_newest/unified/).
+
 
 3. Install requirements
 ```bash
@@ -323,8 +326,8 @@ We evaluated the training performance on MindSpore and Ascend NPUs. The results 
 
 | Model           | Context        | Precision | BS | NPUs | num_frames + num_images| Resolution  | Train T. (s/step) |
 |:----------------|:---------------|:----------|:--:|:----:|:-----------:|:-----------:|:--------------:|
-| LatteT2V-XL/122 | D910\*-[CANN C18(0517)](https://repo.mindspore.cn/ascend/ascend910/20240517/)-[MS2.3_master(0615)](https://repo.mindspore.cn/mindspore/mindspore/version/202406/20240615/) | BF16      | 2  |  8   |   17 + 4    | 512x512     |  2.6  |
-| LatteT2V-XL/122 | D910\*-[CANN C18(0517)](https://repo.mindspore.cn/ascend/ascend910/20240517/)-[MS2.3_master(0615)](https://repo.mindspore.cn/mindspore/mindspore/version/202406/20240615/) | BF16      | 2  |  8   |   65 + 16   | 512x512     |  12.4  |
+| LatteT2V-XL/122 | D910\*-[CANN C18(0517)](https://repo.mindspore.cn/ascend/ascend910/20240517/Ascend910B/)-[MS2.3_master(0615)](https://repo.mindspore.cn/mindspore/mindspore/version/202406/20240615/master_20240615020018_43ccb91e45899b64fe31d304497ab17e3ada3cea_newest/unified/) | BF16      | 2  |  8   |   17 + 4    | 512x512     |  2.6  |
+| LatteT2V-XL/122 | D910\*-[CANN C18(0517)](https://repo.mindspore.cn/ascend/ascend910/20240517/Ascend910B/)-[MS2.3_master(0615)](https://repo.mindspore.cn/mindspore/mindspore/version/202406/20240615/master_20240615020018_43ccb91e45899b64fe31d304497ab17e3ada3cea_newest/unified/) | BF16      | 2  |  8   |   65 + 16   | 512x512     |  12.4  |
 > Context: {NPU type}-{CANN version}-{MindSpore version}
 
 ## 👍 Acknowledgement
