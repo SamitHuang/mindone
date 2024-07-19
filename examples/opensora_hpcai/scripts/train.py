@@ -520,6 +520,17 @@ def main(args):
         ema=ema,
     )
 
+    video = ms.Tensor(shape=[None, None, 3, None, None], dtype=ms.float32)
+    caption = ms.Tensor(shape=[None, 200, 4096], dtype=ms.float32)
+    mask = ms.Tensor(shape=[None, 200], dtype=ms.uint8)
+    frames_mask = ms.Tensor(shape=[None, None], dtype=ms.bool_)
+    num_frames = ms.Tensor(shape=[None, ], dtype=ms.float32)
+    height = ms.Tensor(shape=[None, ], dtype=ms.float32)
+    width = ms.Tensor(shape=[None, ], dtype=ms.float32)
+    fps = ms.Tensor(shape=[None, ], dtype=ms.float32)
+    ar = ms.Tensor(shape=[None, ], dtype=ms.float32)
+    net_with_grads.set_inputs(video, caption, mask, frames_mask, num_frames, height, width, fps, ar)
+
     if args.global_bf16:
         model = Model(net_with_grads, amp_level="O0")
     else:
@@ -536,7 +547,6 @@ def main(args):
             rank_id=rank_id,
             ckpt_save_dir=ckpt_dir,
             ema=ema,
-            save_ema_only=False,
             ckpt_save_policy="latest_k",
             ckpt_max_keep=args.ckpt_max_keep,
             step_mode=step_mode,
@@ -606,5 +616,6 @@ def main(args):
 
 if __name__ == "__main__":
     logger.debug("process id:", os.getpid())
+    ms.set_context(graph_kernel_flags='--disable_packet_ops=Reshape')
     args = parse_args()
     main(args)
