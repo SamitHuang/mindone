@@ -19,7 +19,7 @@ InternLM2 tokenizer, modified from transformers.model.llama.tokenization_llama.L
 ### LLM: InternLM-2 
 code: 
 - https://github.com/InternLM/InternLM
-- https://huggingface.co/internlm/internlm2-7b/tree/main
+- https://huggingface.co/internlm/internlm2-chat-7b/tree/main
 
 
 Key Changes:
