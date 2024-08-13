@@ -297,7 +297,7 @@ def initialize_dataset(
         dataloader = ms.dataset.ConcatDataset(dataloaders) if len(dataloaders) > 1 else dataloaders[0]
 
         if all_buckets is not None:
-            hash_func, bucket_boundaries, bucket_batch_sizes = bucket_split_function(all_buckets)
+            hash_func, bucket_boundaries, bucket_batch_sizes, median_batch_size = bucket_split_function(all_buckets)
             dataloader = dataloader.bucket_batch_by_length(
                 ["video"],
                 bucket_boundaries,
@@ -305,6 +305,8 @@ def initialize_dataset(
                 element_length_function=hash_func,
                 drop_remainder=not validation,
             )
+            # Roughly estimate the dataset size to avoid a dry run
+            dataloader.dataset_size = max(round(num_src_samples / median_batch_size), 1)
     return dataloader, num_src_samples
 
 
@@ -714,7 +716,9 @@ def main(args):
         if args.bucket_config is None:
             callbacks.append(TimeMonitor(args.log_interval))
         else:
-            logger.info("As steps per epoch are inaccurate with bucket config, TimeMonitor is disabled. See result.log for the actual step time")
+            logger.info(
+                "As steps per epoch are inaccurate with bucket config, TimeMonitor is disabled. See result.log for the actual step time"
+            )
         if rank_id == 0:
             save_cb = EvalSaveCallback(
                 network=latent_diffusion_with_loss.network,

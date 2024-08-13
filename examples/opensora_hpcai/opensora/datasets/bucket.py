@@ -3,6 +3,7 @@ Credit: OpenSora HPC-AI Tech
 https://github.com/hpcaitech/Open-Sora/blob/ea41df3d6cc5f389b6824572854d97fa9f7779c3/opensora/datasets/bucket.py
 """
 from random import random
+from statistics import median
 
 import numpy as np
 
@@ -128,4 +129,4 @@ def bucket_split_function(buckets: Bucket):
         # video: F C H W
         return hashed_buckets[video.shape[0]][video.shape[2]][video.shape[3]]
 
-    return _bucket_split_function, list(range(1, cnt - 1)), batch_sizes
+    return _bucket_split_function, list(range(1, cnt - 1)), batch_sizes, median(batch_sizes)
