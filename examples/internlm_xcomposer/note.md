@@ -17,6 +17,13 @@ InternLM-XComposer-2.5 (IXC2.5) is built on InternLM-XComposer2 (IXC2) and IXC2-
 
 CLIP ViT-L-14-490 from IXC2 as the vision encoder and further increase its resolution to 560 × 560.
 
+### TODOs
+https://huggingface.co/internlm/internlm-xcomposer2d5-clip/blob/main/config.json
+- [ ] `CLIPVisionModel` in `transformers.models.clip.modeling_clip.py` 
+    - mindnlp: mindnlp/transformers/models/clip/modeling_clip.py 
+        - ms2.3.1+910b, graph ok, error:  ; ms2.2.14+gpu, pynative ok.  
+    - mindone: missing CLIPImageProcessor
+
 
 ### Text Encoder/Tokenizer
 InternLM2 tokenizer, modified from transformers.model.llama.tokenization_llama.LlamaTokenizer
@@ -31,17 +38,19 @@ Key Changes:
 2. Reconfigured maxitrx layout to support **Tensor Parallelism (TP)** transformations 
 3. Use Grouped-Query Attention (GQA)
 
-#### Impl.
-
 ### Glue Layer: Partial LoRA module
-Partial LoRa for each linear layer in LLM decoder block;
+Partial LoRA for each linear layer in LLM decoder block;
 
 rank: 256
+
+In code, a MLP vision projector is applied after ViT. When the query contains vision inputs, Partial LoRA (fine-tuned with vision-language data) will be applied in each LLM linear layer.
+
+
 
 
 ## Inference
 
-### PT run
+### PT code
 
 Based on `transformers` APIs: AutoModel, model.chat pipeline
 
@@ -58,6 +67,15 @@ with torch.autocast(device_type='cuda', dtype=torch.float16):
     response, his = model.chat(tokenizer, query, image, do_sample=False, num_beams=3, use_meta=True)
 ```
 
+model.chat:
+1. [ ] `interleave_wrap_chat`, prepare inputs for LLM
+    - [ ] text prompt formatting, tokenize, embedding 
+    - [ ] image and video embedding
+        - [ ] vit infer
+        - [ ] vision project with MLP 
+    - concatnate text and vision embeddings, wrap into inputs and mask
+2. [ ] `generate`, LLM AR generation
+    - re-use `GenerationMixin` in `transformers.generation.utils.py`
 
 ## Training
 ### 1. LVLM Pre-training
@@ -106,7 +124,10 @@ Learning rates:
 - LLM: fixed learning rate scale factor of 0.2, learn slower
 
 
-### 3. Preference Alignment (only used in Article Composing task)
+Fine-tune method: LoRA, rank 256
+
+
+### 3. Preference Alignment for Article Composing task
 
 Preference data collection:
 1. sample a prompt *x* from augmented instruction tuning data D
@@ -119,11 +140,15 @@ DPO alignment
 - minimize the likelihood of dispreferred responses *yl*
 - maximize the likelihood of preferred responses *yw*
 
-### 4. LoRA fine-tuning (used in Webpage Generation task) 
+Fine-tune method: LoRA: rank 256 
+
+
+### 4. LoRA fine-tuning for Webpage Generation task 
 
 LoRA rank: 512
 
 | Data      | Global BS      | Epochs | Learning rate |  Optimizer |  EMA |
 |:-----------|:-------------|:----------|:-----------:|:-----------:|:-----------------:|
 | Webpages (image-code pairs) |  512 |  1     |  1e-4, cosine_decay with warmup,  1% warmupsteps |  ??  |       ??        |
+
 
