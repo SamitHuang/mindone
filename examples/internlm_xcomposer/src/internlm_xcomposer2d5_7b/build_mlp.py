@@ -80,6 +80,7 @@ class CLIPVisionTower(nn.Module):
         assert type(images) is list
         shapes = []
         input_imgs = []
+        # import pdb; pdb.set_trace()
         for img in images:
             _, C, H, W = img.shape
             shapes.append([H//560, W//560])
@@ -88,7 +89,8 @@ class CLIPVisionTower(nn.Module):
             input_imgs.append(glb_img)
             input_imgs.append(sub_img)
         input_imgs = ops.cat(input_imgs, dim=0)
-
+        
+        # import pdb; pdb.set_trace()
         image_forward_outs = self.vision_tower(input_imgs.to(dtype=self.dtype), output_hidden_states=True)
         image_features = self.feature_select(image_forward_outs).to(input_imgs.dtype) ### B*?, N, C
         _, N, C = image_features.shape

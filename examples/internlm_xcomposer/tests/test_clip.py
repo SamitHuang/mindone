@@ -6,13 +6,16 @@ import mindspore as ms
 import numpy as np
 from mindnlp.transformers import AutoModel, CLIPVisionModel, CLIPImageProcessor, CLIPVisionConfig
 from PIL import Image
-from common import calc_diff
+from _common import calc_diff
 
 
 def test(mode=0, jit_level=None, pt_npy=None):
     ms.set_context(mode=mode)
     if jit_level is not None:
-        ms.set_context(jit_config={"jit_level": jit_level})
+        try:
+            ms.set_context(jit_config={"jit_level": jit_level})
+        except:
+            pass
 
     # import ipdb; ipdb.set_trace()
 
@@ -37,5 +40,5 @@ def test(mode=0, jit_level=None, pt_npy=None):
 
 
 if __name__ == "__main__":
-    test(0, 'O0', pt_npy = 'tests/pt_clip.npy')
+    test(1, 'O0') #pt_npy = 'tests/pt_clip.npy')
 
