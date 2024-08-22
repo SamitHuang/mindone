@@ -17,12 +17,17 @@ InternLM-XComposer-2.5 (IXC2.5) is built on InternLM-XComposer2 (IXC2) and IXC2-
 
 CLIP ViT-L-14-490 from IXC2 as the vision encoder and further increase its resolution to 560 × 560.
 
+Support 4KHD image and videos based on re-patch and global resize.
+
 ### TODOs
 https://huggingface.co/internlm/internlm-xcomposer2d5-clip/blob/main/config.json
-- [ ] `CLIPVisionModel` in `transformers.models.clip.modeling_clip.py` 
+- [x] `internlm-xcomposer2d5-clip`, base `transformers.models.clip.modeling_clip.py` 
     - mindnlp: mindnlp/transformers/models/clip/modeling_clip.py 
-        - ms2.3.1+910b, graph ok, error:  ; ms2.2.14+gpu, pynative ok.  
+        - ms2.3.1+910b, graph ok, error: 1.2% ; ms2.2.14+gpu, pynative ok.  
     - mindone: missing CLIPImageProcessor
+- [ ] `CLIPVisionTower`for 4KHD images and videos
+    - graph & pnative infer ok, error > 6%
+    - FIXME: **interpolate bicubic** error >50%
 
 
 ### Text Encoder/Tokenizer
