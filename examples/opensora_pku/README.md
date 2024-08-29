@@ -193,13 +193,15 @@ python opensora/sample/sample_t2v.py \
     --fps 24 \
     --guidance_scale 7.5 \
     --num_sampling_steps 150 \
+    --enable_flash_attention True \
     --enable_tiling
 ```
 You can change the `version` to `221x512x512` to change the number of frames and resolutions.
 
-> In case of OOM error, there are two options:
-> 1. Pass `--enable_time_chunk True` to allow vae decoding temporal frames as small, overlapped chunks. This can reduce the memory usage, which sacrificies a bit of temporal consistency.
-> 2. Seperate the inference into two stages. In stage 1, please run inference with `--save_latents`. This will save some `.npy` files in the output directory. Then in stage 2, please run the same inference script with `--decode_latents`. The generated videos will be saved in the output directory.
+> In case of OOM error, there are three options:
+> 1. set `--text_encoder_half True` to make T5 half of original model size
+> 2. Pass `--enable_time_chunk True` to allow vae decoding temporal frames as small, overlapped chunks. This can reduce the memory usage, which sacrificies a bit of temporal consistency.
+> 3. Seperate the inference into two stages. In stage 1, please run inference with `--save_latents`. This will save some `.npy` files in the output directory. Then in stage 2, please run the same inference script with `--decode_latents`. The generated videos will be saved in the output directory.
 
 If you want to run a multi-device inference, e.g., 8 cards, please use `msrun` and pass `--use_parallel=True` as the example below:
 

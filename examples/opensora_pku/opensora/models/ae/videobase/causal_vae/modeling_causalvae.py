@@ -143,6 +143,7 @@ class CausalVAEModel(VideoBaseAE):
         self.concat = ops.Concat(axis=1)
         self.exp = ops.Exp()
         self.stdnormal = ops.StandardNormal()
+        # self.depend = ops.Depend() # if get_sequence_parallel_state() else None
         self.depend = ops.Depend() if get_sequence_parallel_state() else None
 
         # self.encoder.recompute()

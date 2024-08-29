@@ -70,6 +70,7 @@ def parse_args():
     parser.add_argument("--sp_size", type=int, default=1, help="For sequence parallel")
 
     parser.add_argument("--text_encoder_name", type=str, default="DeepFloyd/t5-v1_1-xxl")
+    parser.add_argument("--text_encoder_half", type=str2bool, default=False)
     parser.add_argument("--save_img_path", type=str, default="./sample_videos/t2v")
 
     parser.add_argument("--guidance_scale", type=float, default=7.5, help="the scale for classifier-free guidance")
@@ -108,7 +109,7 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=4, help="Inference seed")
     parser.add_argument(
         "--enable_flash_attention",
-        default=False,
+        default=True,
         type=str2bool,
         help="whether to enable flash attention. Default is False",
     )
@@ -175,6 +176,34 @@ def parse_args():
             parser.set_defaults(**cfg)
     args = parser.parse_args()
     return args
+
+
+def convert_half(model, keep_norm_fp32=True, dtype=ms.float16):
+    '''
+    model parameter half precision to reduce memory cost
+
+    Args:
+        model: nn.Cell
+        keep_norm_fp32: keep params of BN/LN/GN fp32
+        dtype: ms.float16 or ms.bfloat16
+    '''
+    if model is not None:
+        assert isinstance(model, nn.Cell)
+
+        k_num, c_num = 0, 0
+        for _, p in model.parameters_and_names():
+            # filter norm/embedding position_ids param
+            if keep_norm_fp32 and ("norm" in p.name):
+                k_num += 1
+            elif "position_ids" in p.name:
+                k_num += 1
+            else:
+                c_num += 1
+                p.set_dtype(dtype)
+
+        print(f"Convert `{type(model).__name__}` param to fp16, keep/modify num {k_num}/{c_num}.")
+
+    return model
 
 
 if __name__ == "__main__":
@@ -336,8 +365,14 @@ if __name__ == "__main__":
         cache_dir="./",
     )
     tokenizer = text_encoder.tokenizer
-    # mixed precision
+    # FIXME: reduce mem
     text_encoder_dtype = get_precision(args.text_encoder_precision)
+    if args.text_encoder_half:
+        logger.info("T5 params converted to half precision")
+        logger.info(f"T5 precision: {args.text_encoder_precision}")
+        text_encoder = convert_half(text_encoder, dtype=text_encoder_dtype)
+
+    # mixed precision
     text_encoder = auto_mixed_precision(text_encoder, amp_level="O2", dtype=text_encoder_dtype)
     text_encoder.dtype = text_encoder_dtype
     logger.info(f"Use amp level O2 for text encoder T5 with dtype={text_encoder_dtype}")
