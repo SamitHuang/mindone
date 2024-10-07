@@ -153,7 +153,8 @@ class VideoAutoencoderKL(nn.Cell):
             x_out = self.module.decode(x / self.scale_factor)
         else:
             mbs = self.micro_batch_size
-
+            
+            # FIXME: loop can be too depth for MS if bs and frame num are large
             x_out = self.module.decode(x[:mbs] / self.scale_factor)
             for i in range(mbs, x.shape[0], mbs):
                 x_cur = self.module.decode(x[i : i + mbs] / self.scale_factor)

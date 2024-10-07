@@ -12,11 +12,11 @@ export MS_DEV_ENABLE_KERNEL_PACKET=on
 export GLOG_v=2
 
 dup=""
-output_dir=outputs/debug_fm
+output_dir=outputs/debug_fm_t2v
 
 # --vae_keep_gn_fp32=False \
 
-# msrun --bind_core=True --worker_num=8 --local_worker_num=8 --log_dir=$output_dir  \
+msrun --bind_core=True --worker_num=8 --local_worker_num=8 --log_dir=$output_dir  \
 python scripts/train.py \
 --pretrained_model_path="models/OpenSora-STDiT-v3/opensora_stdit_v3.ckpt" \
 --mode=0 \
@@ -31,15 +31,17 @@ python scripts/train.py \
 --num_parallel_workers=2 \
 --prefetch_size=2 \
 --image_size 256 256 \
---num_frames 1 \
+--num_frames 204 \
+--batch_size 1 \
 --use_ema=True \
 --output_path=$output_dir \
 --use_recompute=True \
 --vae_dtype=fp16 \
---custom_train=True \
 --train_steps=8000 --ckpt_save_steps=500 \
+--use_parallel=True \
 
-# --use_parallel=True \
+# --custom_train=True \
+
 
 # --num_parallel_workers=8 \
 # --prefetch_size=4 \
