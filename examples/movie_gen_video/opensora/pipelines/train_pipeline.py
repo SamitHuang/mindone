@@ -19,9 +19,9 @@ from ..schedulers.iddpm.diffusion_utils import (
     mean_flat,
     normal_kl,
 )
-from ..schedulers.rectified_flow import RFlowScheduler
+from ..schedulers.rectified_flow import FlowMatchingScheduler
 
-__all__ = ["DiffusionWithLoss", "DiffusionWithLossFiTLike", "RFlowDiffusionWithLoss", "RFlowEvalDiffusionWithLoss"]
+__all__ = ["DiffusionWithLoss", "DiffusionWithLossFiTLike", "FlowMatchingWithLoss", "FlowMatchingEvalWithLoss"]
 
 logger = logging.getLogger(__name__)
 
@@ -416,7 +416,7 @@ class DiffusionWithLossFiTLike(DiffusionWithLoss):
 
 
 # TODO: poor design, extract schedulers away from DiffusionWithLoss
-class RFlowDiffusionWithLoss(DiffusionWithLoss):
+class FlowMatchingWithLoss(DiffusionWithLoss):
     def __init__(
         self,
         *args,
@@ -425,7 +425,7 @@ class RFlowDiffusionWithLoss(DiffusionWithLoss):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self.scheduler = RFlowScheduler(sample_method=sample_method, use_timestep_transform=use_timestep_transform)
+        self.scheduler = FlowMatchingScheduler(sample_method=sample_method, use_timestep_transform=use_timestep_transform)
 
     def compute_loss(
         self,
@@ -453,7 +453,7 @@ class RFlowDiffusionWithLoss(DiffusionWithLoss):
         )
 
 
-class RFlowEvalDiffusionWithLoss(DiffusionWithLoss):
+class FlowMatchingEvalWithLoss(DiffusionWithLoss):
     def __init__(
         self,
         *args,
@@ -461,7 +461,7 @@ class RFlowEvalDiffusionWithLoss(DiffusionWithLoss):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self.scheduler = RFlowScheduler(use_timestep_transform=False)
+        self.scheduler = FlowMatchingScheduler(use_timestep_transform=False)
         self._timesteps = Tensor(
             np.linspace(0, self.scheduler.num_timesteps, num_eval_timesteps + 2)[1:-1], dtype=ms.float32
         )

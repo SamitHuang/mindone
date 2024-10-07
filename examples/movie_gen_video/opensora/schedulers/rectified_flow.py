@@ -13,7 +13,7 @@ from ..utils.distributions import LogisticNormal
 from .iddpm.diffusion_utils import mean_flat
 
 
-class RFLOW:
+class FlowMatching:
     def __init__(
         self,
         num_sampling_steps=10,
@@ -29,7 +29,7 @@ class RFLOW:
         self.use_discrete_timesteps = use_discrete_timesteps
         self.use_timestep_transform = use_timestep_transform
 
-        self.scheduler = RFlowScheduler(
+        self.scheduler = FlowMatchingScheduler(
             num_timesteps=num_timesteps,
             num_sampling_steps=num_sampling_steps,
             use_timestep_transform=use_timestep_transform,
@@ -122,7 +122,7 @@ def timestep_transform(
     return new_t
 
 
-class RFlowScheduler:
+class FlowMatchingScheduler:
     def __init__(
         self,
         num_timesteps=1000,
@@ -132,6 +132,7 @@ class RFlowScheduler:
         scale=1.0,
         use_timestep_transform=False,
         transform_scale=1.0,
+        sigma_min=1e-5,
     ):
         self.num_timesteps = num_timesteps
         self.num_sampling_steps = num_sampling_steps
@@ -149,6 +150,8 @@ class RFlowScheduler:
         # timestep transform
         self.use_timestep_transform = use_timestep_transform
         self.transform_scale = transform_scale
+
+        self.sigma_min = sigma_min
 
     def _discrete_sample(self, size: int) -> Tensor:
         return ops.randint(0, self.num_timesteps, (size,), dtype=dtype.int32)
@@ -199,7 +202,9 @@ class RFlowScheduler:
             x_t, t, text_embed, mask, frames_mask=frames_mask, fps=fps, height=height, width=width, **kwargs
         )
         velocity_pred = model_output.chunk(2, axis=1)[0]
-        loss = mean_flat((velocity_pred - (x_start - noise)).pow(2), frames_mask=frames_mask)
+
+        velocity_gt = x_start - (1 - self.sigma_min) * noise 
+        loss = mean_flat((velocity_pred - velocity_gt).pow(2), frames_mask=frames_mask)
 
         return loss.mean()
 
@@ -220,4 +225,4 @@ class RFlowScheduler:
         timepoints = timepoints[:, None, None, None, None]
         timepoints = timepoints.tile((1, noise.shape[1], noise.shape[2], noise.shape[3], noise.shape[4]))
 
-        return timepoints * original_samples + (1 - timepoints) * noise
+        return timepoints * original_samples + (1 - (1-self.sigma_min) * timepoints) * noise

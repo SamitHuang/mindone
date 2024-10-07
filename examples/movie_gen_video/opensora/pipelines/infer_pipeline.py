@@ -15,7 +15,7 @@ from mindone.models.modules.pos_embed import get_2d_sincos_pos_embed
 from ..models.layers.rotary_embedding import precompute_freqs_cis
 from ..models.vae.vae import VideoAutoencoderKL, VideoAutoencoderPipeline
 from ..schedulers.iddpm import create_diffusion
-from ..schedulers.rectified_flow import RFLOW
+from ..schedulers.rectified_flow import FlowMatching
 
 __all__ = ["InferPipeline", "InferPipelineFiTLike"]
 
@@ -65,7 +65,7 @@ class InferPipeline:
         elif sampling.lower() == "ddpm":
             self.sampling_func = self.diffusion.p_sample_loop
         elif sampling.lower() == "rflow":
-            self.sampling_func = RFLOW(num_inference_steps, cfg_scale=guidance_rescale, use_timestep_transform=True)
+            self.sampling_func = FlowMatching(num_inference_steps, cfg_scale=guidance_rescale, use_timestep_transform=True)
         else:
             raise ValueError(f"Unknown sampling method {sampling}")
 
