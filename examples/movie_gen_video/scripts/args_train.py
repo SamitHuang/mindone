@@ -84,7 +84,7 @@ def parse_train_args(parser):
                 If OpenSora-VAE-v1.2, will use 3D VAE (spatial + temporal), typically for opensora v1.2",
     )
     parser.add_argument(
-        "--noise_scheduler", type=str, default="ddpm", choices=["ddpm", "rflow"], help="Diffusion noise scheduler."
+        "--noise_scheduler", type=str, default="fm", choices=["fm"], help="fm noise scheduler."
     )
     parser.add_argument(
         "--sample_method",

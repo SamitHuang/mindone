@@ -465,23 +465,8 @@ def main(args):
         text_emb_cached=True,
         video_emb_cached=train_with_vae_latent,
     )
-    if args.noise_scheduler.lower() == "ddpm":
-        if args.validate:
-            logger.warning(
-                "Validation is supported with Rectified Flow noise scheduler only. No validation will be performed."
-            )
-        if args.pre_patchify:
-            additional_pipeline_kwargs = dict(
-                patch_size=latte_model.patch_size,
-                max_image_size=args.max_image_size,
-                vae_downsample_rate=8.0,
-                in_channels=latte_model.in_channels,
-            )
-            pipeline_kwargs.update(additional_pipeline_kwargs)
-            pipeline_ = DiffusionWithLossFiTLike
-        else:
-            pipeline_ = DiffusionWithLoss
-    elif args.noise_scheduler.lower() == "rflow":
+
+    if args.noise_scheduler.lower() == "fm":
         if args.validate:
             if args.val_bucket_config is None:
                 metrics = {"Validation loss": BucketLoss(str((img_h, img_w)), {(img_h, img_w)}, args.num_frames)}
