@@ -94,7 +94,7 @@ if __name__ == "__main__":
         default='models/tae_vae2d.ckpt',
         help="Filename to save. Specify folder, e.g., ./models, or file path which ends with .ckpt, e.g., ./models/vae.ckpt",
     )
-
+    args = parser.parse_args()
 
     # ckpt_path = "/Users/Samit/Downloads/sd3.5_vae/diffusion_pytorch_model.safetensors"
     # get_pname_shape(ckpt_path)
