@@ -223,7 +223,6 @@ def test_tae_rec():
     x = ms.Tensor(x)
 
     y = tae(x)
-
     print(y[0].shape)
     save_output_image(y[0].numpy()[0, :, 0, :, :], 'tests/tmp_tae_output.png')
 
@@ -250,7 +249,7 @@ def test_sd3d5_vae():
 
 
 if __name__ == "__main__":
-    ms.set_context(mode=0)
+    ms.set_context(mode=1)
 
     # test_conv25d()
     # test_resnetblock()

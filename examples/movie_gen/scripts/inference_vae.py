@@ -103,7 +103,6 @@ def main(args):
         pretrained=args.ckpt_path,
         )
 
-
     model.set_train(False)
     logger.info(f"Loaded checkpoint from  {args.ckpt_path}")
 
@@ -206,12 +205,11 @@ def main(args):
                
                 t = x.shape[2]
                 x = rearrange_in(x)
-                recons = rearrange_in(recons)
-                lpips_loss = lpips_loss_fn(x, recons).asnumpy()
-
+                # lpips_loss = lpips_loss_fn(x, recons).asnumpy()
 
                 mean_recon += recon_loss.mean()
-                mean_lpips += lpips_loss.mean()
+                # mean_lpips += lpips_loss.mean()
+                logger.info(f"mean recon loss: {mean_recon/num_batches:.4f}")
 
             if args.save_vis:
                 save_fn = os.path.join(
@@ -237,9 +235,9 @@ def main(args):
 
         if args.eval_loss:
             mean_recon /= num_batches
-            mean_lpips /= num_batches
+            # mean_lpips /= num_batches
             logger.info(f"mean recon loss: {mean_recon:.4f}")
-            logger.info(f"mean lpips loss: {mean_lpips:.4f}")
+            # logger.info(f"mean lpips loss: {mean_lpips:.4f}")
 
 
 def parse_args():

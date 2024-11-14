@@ -57,6 +57,7 @@ class TemporalAutoencoder(nn.Cell):
         pretrained: str = None,
         use_recompute: bool=False,
         sample_deterministic: bool=False,
+        discard_spurious_frames: bool=True,
     ):
         super().__init__()
 
@@ -81,7 +82,7 @@ class TemporalAutoencoder(nn.Cell):
         self.split = ms.ops.split
 
         self.sample_deterministic = sample_deterministic
-        self.discard_spurious_frames = True
+        self.discard_spurious_frames = discard_spurious_frames
 
         if pretrained is not None:
             self.load_pretrained(pretrained)
@@ -146,7 +147,8 @@ class TemporalAutoencoder(nn.Cell):
         posterior_mean, posterior_logvar = self._encode(x)
         z = self.sample(posterior_mean, posterior_logvar)
         recons = self.decode(z)
-
+        
+        # import pdb; pdb.set_trace()
         if self.discard_spurious_frames and (recons.shape[-3] != x.shape[-3]):
             recons = recons[:, :, :x.shape[-3], :, :]
 
@@ -164,6 +166,13 @@ class TemporalAutoencoder(nn.Cell):
             raise NotImplementedError
         else:
             param_dict = ms.load_checkpoint(ckpt_path)
+
+            # remove the added prefix in the trained checkpoint
+            pnames = list(param_dict.keys())
+            for pn in pnames:
+                new_pn = pn.replace("autoencoder.", "").replace("_backbone.", "")
+                param_dict[new_pn] = param_dict.pop(pn)
+
             param_not_load, ckpt_not_load = ms.load_param_into_net(self, param_dict, strict_load=True)
             if param_not_load or ckpt_not_load:
                 print(f"{param_not_load} in network is not loaded")
