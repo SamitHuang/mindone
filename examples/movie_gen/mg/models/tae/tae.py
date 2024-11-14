@@ -83,6 +83,9 @@ class TemporalAutoencoder(nn.Cell):
         self.sample_deterministic = sample_deterministic
         self.discard_spurious_frames = True
 
+        if pretrained is not None:
+            self.load_pretrained(pretrained)
+
         if use_recompute:
             # self.recompute(self.encoder)
             # self.recompute(self.quant_conv)

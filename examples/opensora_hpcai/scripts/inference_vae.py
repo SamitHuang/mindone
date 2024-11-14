@@ -98,7 +98,7 @@ def main(args):
     logger.info(f"Loaded checkpoint from  {args.ckpt_path}")
 
     # if args.eval_loss:
-    #    lpips_loss_fn = LPIPS()
+    #     lpips_loss_fn = LPIPS()
 
     if args.dtype != "fp32":
         amp_level = "O2"
@@ -195,9 +195,14 @@ def main(args):
 
             if args.eval_loss:
                 recon_loss = np.abs((x - recons).asnumpy())
-                lpips_loss = lpips_loss_fn(x, recons).asnumpy()
+
+                # FIXME
+                # lpips_loss = lpips_loss_fn(x, recons).asnumpy()
+                lpips_loss = np.abs((x - recons).asnumpy())
+
                 mean_recon += recon_loss.mean()
                 mean_lpips += lpips_loss.mean()
+                logger.info(f"cur recon mean: {mean_recon / (step+1):.4f}")
 
             if args.save_vis:
                 save_fn = os.path.join(

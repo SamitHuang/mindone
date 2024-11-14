@@ -1,9 +1,8 @@
 # model
-freeze_vae_2d: False
-pretrained_model_path: ""
+pretrained_model_path: "models/tae_vae2d.ckpt"
 
 # loss
-perceptual_loss_weight: 0.1
+perceptual_loss_weight: 1.0  # diff from opensora
 kl_loss_weight: 1.e-6
 use_outlier_penalty_loss: True
 mixed_strategy: "mixed_video_image"
@@ -43,4 +42,4 @@ use_ema: False
 output_path: "outputs/tae_train"
 
 # ms settting
-jit_level: O1
+jit_level: O0

@@ -92,6 +92,9 @@ class GeneratorWithLoss(nn.Cell):
             weighted_kl_loss = self.kl_weight * kl_loss
         else:
             weighted_kl_loss = 0
+        
+        print("weighted_nll_loss", weighted_nll_loss )
+        print("weighted_kl_loss ", weighted_kl_loss)
 
         return nll_loss, weighted_nll_loss, weighted_kl_loss
 

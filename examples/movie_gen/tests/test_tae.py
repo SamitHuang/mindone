@@ -29,7 +29,7 @@ def get_input_image(img_path="../videocomposer/demo_video/moon_on_water.jpg",
 
     # read image using PIL and preprocess
     image = Image.open(img_path).convert('RGB')
-    image = image.resize(target_size, Image.ANTIALIAS)
+    image = image.resize(target_size)
     pixel_values = np.array(image, dtype=np.float32)
     pixel_values = (pixel_values / 127.5 - 1.0).astype(np.float32)
 
@@ -250,7 +250,7 @@ def test_sd3d5_vae():
 
 
 if __name__ == "__main__":
-    ms.set_context(mode=1)
+    ms.set_context(mode=0)
 
     # test_conv25d()
     # test_resnetblock()
