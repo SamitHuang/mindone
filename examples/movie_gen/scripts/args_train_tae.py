@@ -59,6 +59,7 @@ def parse_train_args(parser):
         type=str,
         help="Specify the pretrained model path",
     )
+    parser.add_argument("--recons_pixel_mse", default=False, type=str2bool, help="whether use pixel-wise MSE to compute reconstruction loss. If False, use original frame-wise MAE loss. default: False")
     parser.add_argument("--perceptual_loss_weight", default=0.1, type=float, help="perceptual (lpips) loss weight")
     parser.add_argument("--kl_loss_weight", default=1.0e-6, type=float, help="KL loss weight")
     parser.add_argument(

@@ -216,6 +216,7 @@ def main(args):
         kl_weight=args.kl_loss_weight,
         perceptual_weight=args.perceptual_loss_weight,
         use_outlier_penalty_loss=args.use_outlier_penalty_loss,
+        recons_pixel_mse=args.recons_pixel_mse,
         dtype=args.dtype,
     )
 

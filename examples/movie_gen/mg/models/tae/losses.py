@@ -19,6 +19,7 @@ class GeneratorWithLoss(nn.Cell):
         kl_weight=1.0e-06,
         perceptual_weight=1.0,
         logvar_init=0.0,
+        recons_pixel_mse=False,
         use_outlier_penalty_loss=True,
         opl_weight=1e5,
         dtype=ms.float32,
@@ -38,6 +39,7 @@ class GeneratorWithLoss(nn.Cell):
         self.perceptual_weight = perceptual_weight
         self.use_outlier_penalty_loss = use_outlier_penalty_loss
         self.opl_weight = opl_weight
+        self.recons_pixel_mse = recons_pixel_mse
 
     def kl(self, mean, logvar):
         # cast to fp32 to avoid overflow in exp and sum ops.
@@ -52,7 +54,7 @@ class GeneratorWithLoss(nn.Cell):
         return kl_loss
 
     def vae_loss_fn(
-        self, x, recons, mean, logvar, nll_weights=None, no_perceptual=False, no_kl=False, pixelwise_mean=False
+        self, x, recons, mean, logvar, nll_weights=None, no_perceptual=False, no_kl=False, recons_pixel_mse=False
     ):
         """
         return:
@@ -67,7 +69,7 @@ class GeneratorWithLoss(nn.Cell):
 
         # reconstruction loss in pixels
         # FIXME: debugging: use pixelwise mean to reduce loss scale
-        if pixelwise_mean:
+        if recons_pixel_mse:
             rec_loss = ((x - recons) ** 2).mean()
         else:
             rec_loss = ops.abs(x - recons)
@@ -121,7 +123,7 @@ class GeneratorWithLoss(nn.Cell):
         # TODO: loss dtype setting
         # x: (b 3 t h w)
         _, weighted_nll_loss, weighted_kl_loss = self.vae_loss_fn(
-            x, x_rec, posterior_mean, posterior_logvar, no_perceptual=False
+            x, x_rec, posterior_mean, posterior_logvar, no_perceptual=False, recons_pixel_mse=self.recons_pixel_mse,
         )
         loss = weighted_nll_loss + weighted_kl_loss
 
