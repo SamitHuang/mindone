@@ -20,16 +20,20 @@ sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
 
 from opensora.acceleration.parallel_states import set_sequence_parallel_group
 from opensora.datasets.aspect import ASPECT_RATIO_MAP, ASPECT_RATIOS, get_image_size, get_num_frames
+from opensora.models.cogvideox import CogVideoX_2B, CogVideoX_5B, CogVideoX_5B_v1_5
 from opensora.models.stdit import STDiT2_XL_2, STDiT3_XL_2, STDiT_XL_2
 from opensora.models.text_encoder.t5 import get_text_encoder_and_tokenizer
+from opensora.models.vae import CogVideoX_VAE
 from opensora.models.vae.vae import SD_CONFIG, OpenSoraVAE_V1_2, VideoAutoencoderKL
-from opensora.pipelines import InferPipeline, InferPipelineFiTLike
+from opensora.pipelines import InferPipeline, InferPipelineCogVideoX, InferPipelineFiTLike
 from opensora.utils.amp import auto_mixed_precision
 from opensora.utils.cond_data import get_references, read_captions_from_csv, read_captions_from_txt
 from opensora.utils.model_utils import WHITELIST_OPS, _check_cfgs_in_parser, str2bool
 from opensora.utils.util import IMG_FPS, apply_mask_strategy, process_mask_strategies, process_prompts
+from transformers import AutoTokenizer
 
 from mindone.data.data_split import distribute_samples
+from mindone.transformers import T5EncoderModel
 from mindone.utils.logger import set_logger
 from mindone.utils.misc import to_abspath
 from mindone.utils.seed import set_random_seed
@@ -186,22 +190,26 @@ def main(args):
             config=SD_CONFIG, ckpt_path=args.vae_checkpoint, micro_batch_size=args.vae_micro_batch_size
         )
     elif args.vae_type == "OpenSoraVAE_V1_2":
+        assert os.path.exists(args.vae_checkpoint), f"vae checkopint {args.vae_checkpoint} NOT found"
         vae = OpenSoraVAE_V1_2(
             micro_batch_size=args.vae_micro_batch_size,
             micro_frame_size=args.vae_micro_frame_size,
             ckpt_path=args.vae_checkpoint,
             freeze_vae_2d=True,
         )
+    elif args.vae_type == "CogVideoX-VAE":
+        vae = CogVideoX_VAE(dtype=dtype_map[args.vae_dtype])
+        vae.load_from_checkpoint(args.vae_checkpoint)
     else:
         raise ValueError(f"Unknown VAE type: {args.vae_type}")
 
     vae = vae.set_train(False)
-    if args.vae_dtype in ["fp16", "bf16"]:
+    if args.vae_dtype in ["fp16", "bf16"] and args.vae_type != "CogVideoX-VAE":
         vae = auto_mixed_precision(
             vae, amp_level=args.amp_level, dtype=dtype_map[args.vae_dtype], custom_fp32_cells=[nn.GroupNorm]
         )
 
-    VAE_Z_CH = vae.out_channels
+    VAE_Z_CH = vae.latent_channels if args.vae_type == "CogVideoX-VAE" else vae.out_channels
     if args.image_size is not None:
         img_h, img_w = args.image_size if isinstance(args.image_size, list) else (args.image_size, args.image_size)
     else:
@@ -253,6 +261,30 @@ def main(args):
         model_extra_args["qk_norm"] = True
         logger.info(f"{model_name} init")
         latte_model = STDiT3_XL_2(**model_extra_args)
+    elif args.model_version == "CogVideoX-2B":
+        model_name = "CogVideoX-2B"
+        logger.info(f"{model_name} init")
+        latte_model = CogVideoX_2B(
+            enable_flash_attention=args.enable_flash_attention,
+            enable_sequence_parallelism=args.enable_sequence_parallelism,
+            dtype=dtype_map[args.dtype],
+        )
+    elif args.model_version == "CogVideoX-5B":
+        model_name = "CogVideoX-5B"
+        logger.info(f"{model_name} init")
+        latte_model = CogVideoX_5B(
+            enable_flash_attention=args.enable_flash_attention,
+            enable_sequence_parallelism=args.enable_sequence_parallelism,
+            dtype=dtype_map[args.dtype],
+        )
+    elif args.model_version == "CogVideoX-5B-v1.5":
+        model_name = "CogVideoX-5B-v1.5"
+        logger.info(f"{model_name} init")
+        latte_model = CogVideoX_5B_v1_5(
+            enable_flash_attention=args.enable_flash_attention,
+            enable_sequence_parallelism=args.enable_sequence_parallelism,
+            dtype=dtype_map[args.dtype],
+        )
     else:
         raise ValueError(f"Unknown model version: {args.model_version}")
 
@@ -267,31 +299,48 @@ def main(args):
         else:
             logger.warning(msg)
 
-    if args.dtype in ["fp16", "bf16"]:
+    if args.dtype in ["fp16", "bf16"] and "CogVideoX" not in args.model_version:
         latte_model = auto_mixed_precision(
             latte_model, amp_level=args.amp_level, dtype=dtype_map[args.dtype], custom_fp32_cells=WHITELIST_OPS
         )
 
     if args.ckpt_path:
         logger.info(f"Loading ckpt {args.ckpt_path} into {model_name}")
-        assert os.path.exists(args.ckpt_path), f"{args.ckpt_path} not found."
-        latte_model.load_from_checkpoint(args.ckpt_path)
+        if "CogVideoX" in args.model_version:
+            latte_model.load_from_checkpoint(args.ckpt_path)
+        else:
+            assert os.path.exists(args.ckpt_path[0]), f"{args.ckpt_path[0]} not found."
+            latte_model.load_from_checkpoint(args.ckpt_path[0])
     else:
         logger.warning(f"{model_name} uses random initialization!")
 
     # 2.3 text encoder
+    num_prompts = len(captions)
     if args.text_embed_folder is None:
-        text_encoder, tokenizer = get_text_encoder_and_tokenizer(
-            "t5", args.t5_model_dir, model_max_length=args.model_max_length
-        )
-        num_prompts = len(captions)
-        text_tokens, mask = zip(
-            *[text_encoder.get_text_tokens_and_mask(caption, return_tensor=False) for caption in captions]
-        )
-        text_tokens, mask = Tensor(text_tokens, dtype=ms.int32), Tensor(mask, dtype=ms.uint8)
+        if args.t5_model == "integrated":
+            text_encoder, tokenizer = get_text_encoder_and_tokenizer(
+                "t5", args.t5_model_dir, model_max_length=args.model_max_length
+            )
+            text_tokens, mask = zip(
+                *[text_encoder.get_text_tokens_and_mask(caption, return_tensor=False) for caption in captions]
+            )
+            text_tokens, mask = Tensor(text_tokens, dtype=ms.int32), Tensor(mask, dtype=ms.uint8)
+            null_text_tokens, _ = text_encoder.get_text_tokens_and_mask("", return_tensor=True)
+        else:
+            text_tokenizer = AutoTokenizer.from_pretrained(args.t5_model_dir, model_max_length=args.model_max_length)
+            text_encoder = T5EncoderModel.from_pretrained(args.t5_model_dir, mindspore_dtype=dtype_map[args.t5_dtype])
+            encodings = [
+                text_tokenizer(caption, padding="max_length", truncation=True, return_tensors="np")
+                for caption in captions
+            ]
+            text_tokens, mask = zip(*[(encoding.input_ids, encoding.attention_mask) for encoding in encodings])
+            text_tokens, mask = Tensor(text_tokens, dtype=ms.int32), Tensor(mask, dtype=ms.uint8)
+            null_text_tokens = text_tokenizer("", padding="max_length", truncation=True, return_tensors="np").input_ids
+            null_text_tokens = Tensor(null_text_tokens, dtype=ms.int32)
+
         text_emb = None
         # TODO: use FA in T5
-        if args.t5_dtype in ["fp16", "bf16"]:
+        if args.t5_dtype in ["fp16", "bf16"] and args.t5_model == "integrated":
             if args.t5_dtype == "fp16":
                 logger.warning(
                     "T5 dtype is fp16, which may lead to video color vibration. Suggest to use bf16 or fp32."
@@ -329,6 +378,7 @@ def main(args):
         raise ValueError("No text prompts provided for Text-to-Video generation.")
 
     # 3. build inference pipeline
+
     pipeline_kwargs = dict(
         scale_factor=args.sd_scale_factor,
         num_inference_steps=args.sampling_steps,
@@ -336,6 +386,15 @@ def main(args):
         guidance_channels=args.guidance_channels,
         sampling=args.sampling,
         micro_batch_size=args.vae_micro_batch_size,
+        diffusion_config=dict(
+            learn_sigma=args.learn_sigma,
+            noise_schedule=args.noise_schedule,
+            predict_velocity=args.v_pred,
+            beta_start=args.beta_start,
+            beta_end=args.beta_end,
+            snr_shift_scale=args.snr_shift_scale,
+            rescale_betas_zero_snr=args.rescale_betas_zero_snr,
+        ),
     )
     if args.pre_patchify:
         additional_pipeline_kwargs = dict(
@@ -351,7 +410,13 @@ def main(args):
         pipeline_kwargs.update(additional_pipeline_kwargs)
 
     # TODO: need to adapt new vae to FiT
-    pipeline_ = InferPipelineFiTLike if args.pre_patchify else InferPipeline
+    if args.pre_patchify:
+        pipeline_ = InferPipelineFiTLike
+    elif "CogVideoX" in args.model_version:
+        pipeline_ = InferPipelineCogVideoX
+    else:
+        pipeline_ = InferPipeline
+
     pipeline = pipeline_(latte_model, vae, text_encoder=text_encoder, **pipeline_kwargs)
 
     # 3.1. Support for multi-resolution (OpenSora v1.1 and above)
@@ -453,6 +518,7 @@ def main(args):
                 inputs["text_tokens"] = text_tokens[i : i + ns, loop_i]
                 inputs["text_emb"] = None
                 inputs["mask"] = mask[i : i + ns, loop_i]
+                inputs["null_text_tokens"] = null_text_tokens
             else:
                 inputs["text_tokens"] = None
                 inputs["text_emb"] = text_emb[i : i + ns]
@@ -476,7 +542,7 @@ def main(args):
                 videos.append(to_numpy(samples)[:, args.condition_frame_length if loop_i > 0 else 0 :])
             batch_time = time.time() - start_time
             logger.info(
-                f"Batch time cost: {batch_time:.3f}s, sampling speed: {args.sampling_steps * ns / batch_time:.2f} step/s"
+                f"Batch time cost: {batch_time:.3f}s, sampling speed: {args.sampling_steps * ns / batch_time:.4f} step/s"
             )
 
         latents = np.concatenate(latents, axis=2)
@@ -520,7 +586,11 @@ def parse_args():
         help="path to load a config yaml file that describes the setting which will override the default arguments",
     )
     parser.add_argument(
-        "--model_version", default="v1", type=str, choices=["v1", "v1.1", "v1.2"], help="OpenSora model version."
+        "--model_version",
+        default="v1",
+        type=str,
+        choices=["v1", "v1.1", "v1.2", "CogVideoX-2B", "CogVideoX-5B", "CogVideoX-5B", "CogVideoX-5B-v1.5"],
+        help="OpenSora model version.",
     )
     parser.add_argument("--image_size", type=int, nargs="+", help="image size in [256, 512]")
     parser.add_argument("--resolution", type=str, help=f"Supported video resolutions: {list(ASPECT_RATIOS.keys())}")
@@ -538,7 +608,8 @@ def parse_args():
     parser.add_argument(
         "--ckpt_path",
         type=str,
-        default="",
+        default=None,
+        nargs="+",
         help="latte checkpoint path. If specified, will load from it, otherwise, will use random initialization",
     )
     parser.add_argument("--t5_model_dir", default=None, type=str, help="the T5 cache folder path")
@@ -554,7 +625,7 @@ def parse_args():
     parser.add_argument(
         "--vae_type",
         type=str,
-        choices=["OpenSora-VAE-v1.2", "VideoAutoencoderKL"],
+        choices=["OpenSora-VAE-v1.2", "VideoAutoencoderKL", "CogVideoX-VAE"],
         help="If None, use VideoAutoencoderKL, which is a spatial VAE from SD, for opensora v1.0 and v1.1. \
                 If OpenSora-VAE-v1.2, will use 3D VAE (spatial + temporal), typically for opensora v1.2",
     )
@@ -652,6 +723,9 @@ def parse_args():
         help="what data type to use for VAE. Default is `fp32`, which corresponds to ms.float32",
     )
     parser.add_argument(
+        "--t5_model", default="integrated", choices=["integrated", "transformers"], help="use which T5 model."
+    )
+    parser.add_argument(
         "--t5_dtype",
         default="fp32",
         type=str,
@@ -716,6 +790,15 @@ def parse_args():
         choices=["ddpm", "ddim", "rflow"],
         help="Which sampling technique to use.",
     )
+
+    parser.add_argument("--learn_sigma", type=str2bool, default=True, help="using learned sigma")
+    parser.add_argument("--noise_schedule", default="linear", help="Noise schedule for betas")
+    parser.add_argument("--v_pred", type=str2bool, default=False, help="Use v-prediction in sampling.")
+    parser.add_argument("--beta_start", type=float, default=0.0001, help="beta start value.")
+    parser.add_argument("--beta_end", type=float, default=0.02, help="beta end value.")
+    parser.add_argument("--snr_shift_scale", type=float, help="SNR shift scale.")
+    parser.add_argument("--rescale_betas_zero_snr", type=str2bool, default=False, help="Rescale beta to zero SNR.")
+
     parser.add_argument("--pre_patchify", default=False, type=str2bool, help="Patchify the latent before inference.")
     parser.add_argument("--max_image_size", default=512, type=int, help="Max image size for patchified latent.")
     parser.add_argument("--max_num_frames", default=16, type=int, help="Max number of frames for patchified latent.")
@@ -732,7 +815,12 @@ def parse_args():
             parser.set_defaults(**cfg)
     args = parser.parse_args()
     # convert to absolute path, necessary for modelarts
-    args.ckpt_path = to_abspath(abs_path, args.ckpt_path)
+    if isinstance(args.ckpt_path, str):
+        args.ckpt_path = [args.ckpt_path]
+    elif args.ckpt_path is None:
+        args.ckpt_path = []
+
+    args.ckpt_path = [to_abspath(abs_path, x) for x in args.ckpt_path]
     args.vae_checkpoint = to_abspath(abs_path, args.vae_checkpoint)
     args.prompt_path = to_abspath(abs_path, args.prompt_path)
     args.output_path = to_abspath(abs_path, args.output_path)

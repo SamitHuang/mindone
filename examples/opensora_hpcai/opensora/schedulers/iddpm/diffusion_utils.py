@@ -40,15 +40,7 @@ def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_time
     See get_named_beta_schedule() for the new library of schedules.
     """
     if beta_schedule == "quad":
-        betas = (
-            np.linspace(
-                beta_start**0.5,
-                beta_end**0.5,
-                num_diffusion_timesteps,
-                dtype=np.float64,
-            )
-            ** 2
-        )
+        betas = np.linspace(beta_start**0.5, beta_end**0.5, num_diffusion_timesteps, dtype=np.float64) ** 2
     elif beta_schedule == "linear":
         betas = np.linspace(beta_start, beta_end, num_diffusion_timesteps, dtype=np.float64)
     elif beta_schedule == "warmup10":
@@ -65,7 +57,7 @@ def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_time
     return betas
 
 
-def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
+def get_named_beta_schedule(schedule_name, num_diffusion_timesteps, beta_start: float = 0.0001, beta_end: float = 0.02):
     """
     Get a pre-defined beta schedule for the given name.
     The beta schedule library consists of beta schedules which remain similar
@@ -79,8 +71,16 @@ def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
         scale = 1000 / num_diffusion_timesteps
         return get_beta_schedule(
             "linear",
-            beta_start=scale * 0.0001,
-            beta_end=scale * 0.02,
+            beta_start=scale * beta_start,
+            beta_end=scale * beta_end,
+            num_diffusion_timesteps=num_diffusion_timesteps,
+        )
+    elif schedule_name == "quad":
+        scale = 1000 / num_diffusion_timesteps
+        return get_beta_schedule(
+            "quad",
+            beta_start=scale * beta_start,
+            beta_end=scale * beta_end,
             num_diffusion_timesteps=num_diffusion_timesteps,
         )
     elif schedule_name == "squaredcos_cap_v2":
@@ -139,6 +139,7 @@ class ModelMeanType(enum.Enum):
     PREVIOUS_X = enum.auto()  # the model predicts x_{t-1}
     START_X = enum.auto()  # the model predicts x_0
     EPSILON = enum.auto()  # the model predicts epsilon
+    VELOCITY = enum.auto()  # the model predicts velocity
 
 
 class ModelVarType(enum.Enum):
@@ -234,3 +235,13 @@ def discretized_gaussian_log_likelihood(x, *, means, log_scales):
     )
     # assert log_probs.shape == x.shape
     return log_probs
+
+
+def rescale_zero_terminal_snr(alphas_cumprod: np.ndarray) -> np.ndarray:
+    alphas_bar_sqrt = np.sqrt(alphas_cumprod)
+    alphas_bar_sqrt_0 = alphas_bar_sqrt[0].item()
+    alphas_bar_sqrt_T = alphas_bar_sqrt[-1].item()
+    alphas_bar_sqrt -= alphas_bar_sqrt_T
+    alphas_bar_sqrt *= alphas_bar_sqrt_0 / (alphas_bar_sqrt_0 - alphas_bar_sqrt_T)
+    alphas_bar = alphas_bar_sqrt**2
+    return alphas_bar

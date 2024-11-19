@@ -17,8 +17,9 @@ mindone_lib_path = os.path.abspath(os.path.join(__dir__, "../../../"))
 sys.path.insert(0, mindone_lib_path)
 sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
 
+from opensora.models.vae import CogVideoX_VAE
 from opensora.models.vae.vae import SD_CONFIG, AutoencoderKL
-from opensora.utils.model_utils import _check_cfgs_in_parser, str2bool
+from opensora.utils.model_utils import _check_cfgs_in_parser
 
 from mindone.utils.logger import set_logger
 from mindone.utils.misc import to_abspath
@@ -52,12 +53,21 @@ def main(args):
 
     # 2. model initiate and weight loading
     logger.info("vae init")
-    vae = AutoencoderKL(
-        SD_CONFIG,
-        4,
-        ckpt_path=args.vae_checkpoint,
-    )
-    vae = vae.set_train(False)
+    dtype_map = {"fp16": ms.float16, "bf16": ms.bfloat16, "fp32": ms.float32}
+    if args.vae_type == "CogVideoX-VAE":
+        vae = CogVideoX_VAE(dtype=dtype_map[args.dtype])
+        vae.load_from_checkpoint(args.vae_checkpoint)
+        vae.set_train(False)
+        vae.enable_slicing()
+        vae.enable_tiling()
+    else:
+        vae = AutoencoderKL(
+            SD_CONFIG,
+            4,
+            ckpt_path=args.vae_checkpoint,
+        )
+        vae = vae.set_train(False)
+
     for param in vae.get_parameters():  # freeze vae
         param.requires_grad = False
 
@@ -163,11 +173,13 @@ def parse_args():
         default="samples",
         help="output dir to save the generated videos",
     )
+    parser.add_argument("--vae_type", type=str, choices=["VideoAutoencoderKL", "CogVideoX-VAE"])
     parser.add_argument(
-        "--use_fp16",
-        default=False,
-        type=str2bool,
-        help="whether use fp16.",
+        "--dtype",
+        default="fp32",
+        type=str,
+        choices=["bf16", "fp16", "fp32"],
+        help="what data type to use for latte. Default is `fp32`, which corresponds to ms.float16",
     )
     parser.add_argument(
         "--save_format",

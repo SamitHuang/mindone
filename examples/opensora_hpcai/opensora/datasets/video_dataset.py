@@ -116,6 +116,7 @@ class VideoDataset:
         resize_by_max_value=False,
         transform_name="center",
         filter_data: bool = False,
+        dtype: np.dtype = np.float32,
     ):
         logger.info(f"loading annotations from {csv_path} ...")
         self.dataset = self._read_data(video_folder, csv_path, video_column, filter_data)
@@ -126,6 +127,7 @@ class VideoDataset:
         self.return_frame_data = return_frame_data
         self.sample_stride = sample_stride
         self.micro_batch_size = micro_batch_size
+        self.dtype = dtype
 
         if resize_by_max_value:
             if isinstance(sample_size, (tuple, list)):
@@ -206,7 +208,9 @@ class VideoDataset:
 
         bs = micro_batch_size
         for i in range(0, video_length, bs):
-            frame_indice = list(range(i, min(i + bs, video_length), sample_stride))
+            frame_indice = list(range(i, min(i + bs, min(video_length, 77)), sample_stride))
+            if len(frame_indice) == 0:
+                return
             pixel_values = video_reader.get_batch(frame_indice).asnumpy()  # shape: (f, h, w, c)
             ori_size = pixel_values.shape[-3:-1]
             if do_transform:
@@ -215,6 +219,9 @@ class VideoDataset:
                 # efficient implement
                 pixel_values = np.divide(pixel_values, 127.5, dtype=np.float32)
                 pixel_values = np.subtract(pixel_values, 1.0, dtype=np.float32)
+
+                if pixel_values.dtype != self.dtype:
+                    pixel_values = pixel_values.astype(self.dtype)
 
             yield pixel_values, fps, ori_size
 
@@ -234,6 +241,9 @@ class VideoDataset:
                 fps = fps
                 ori_size = ori_size
             all_frames = np.concatenate(all_frames, axis=0)
+
+            if all_frames.dtype != self.dtype:
+                all_frames = all_frames.astype(self.dtype)
 
             return video_path, caption, all_frames, fps, ori_size
         else:
@@ -274,6 +284,7 @@ def create_dataloader(
 
     dl = dataloader.batch(
         batch_size,
+        num_parallel_workers=num_parallel_workers,
         drop_remainder=drop_remainder,
     )
     if return_dataset:

@@ -19,6 +19,7 @@ sys.path.insert(0, mindone_lib_path)
 sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
 
 from opensora.datasets.video_dataset import create_dataloader
+from opensora.models.vae import CogVideoX_VAE
 from opensora.models.vae.vae import SD_CONFIG, AutoencoderKL
 from opensora.utils.amp import auto_mixed_precision
 from opensora.utils.model_utils import str2bool  # _check_cfgs_in_parser
@@ -127,13 +128,14 @@ def main(args):
         resize_by_max_value=args.resize_by_max_value,
         transform_name=args.transform_name,
         filter_data=args.filter_data,
+        dtype=np.float16 if args.dtype == "fp16" else np.float32,
     )
     dataloader, ds = create_dataloader(
         ds_config,
         args.batch_size,
         ds_name="video",
-        num_parallel_workers=16,
-        max_rowsize=256,
+        num_parallel_workers=args.num_parallel_workers,
+        max_rowsize=-1,
         shuffle=False,  # be in order
         device_num=device_num,
         rank_id=rank_id,
@@ -145,21 +147,28 @@ def main(args):
 
     # model initiate and weight loading
     logger.info("vae init")
-    VAE_Z_CH = SD_CONFIG["z_channels"]
-    vae = AutoencoderKL(
-        SD_CONFIG,
-        VAE_Z_CH,
-        ckpt_path=args.vae_checkpoint,
-    )
-    vae = vae.set_train(False)
-    dtype_map = {"fp16": ms.float16, "bf16": ms.bfloat16}
-    if args.dtype in ["fp16", "bf16"]:
-        vae = auto_mixed_precision(
-            vae,
-            amp_level=args.amp_level,
-            dtype=dtype_map[args.vae_dtype],
-            custom_fp32_cells=[nn.GroupNorm],
+    dtype_map = {"fp16": ms.float16, "bf16": ms.bfloat16, "fp32": ms.float32}
+    if args.vae_type == "CogVideoX-VAE":
+        vae = CogVideoX_VAE(dtype=dtype_map[args.dtype])
+        vae.load_from_checkpoint(args.vae_checkpoint)
+        vae.set_train(False)
+        vae.enable_slicing()
+        vae.enable_tiling()
+    else:
+        VAE_Z_CH = SD_CONFIG["z_channels"]
+        vae = AutoencoderKL(
+            SD_CONFIG,
+            VAE_Z_CH,
+            ckpt_path=args.vae_checkpoint,
         )
+        vae = vae.set_train(False)
+        if args.dtype in ["fp16", "bf16"]:
+            vae = auto_mixed_precision(
+                vae,
+                amp_level=args.amp_level,
+                dtype=dtype_map[args.dtype],
+                custom_fp32_cells=[nn.GroupNorm],
+            )
 
     logger.info("Start VAE embedding...")
 
@@ -174,15 +183,15 @@ def main(args):
         if args.save_distribution:
             np.savez(
                 npz_fp,
-                latent_mean=mean.astype(np.float32),
-                latent_std=std.astype(np.float32),
+                latent_mean=mean,
+                latent_std=std,
                 fps=fps,
                 ori_size=ori_size,
             )
         else:
             np.savez(
                 npz_fp,
-                latent_mean=video_latent_mean.astype(np.float32),
+                latent_mean=video_latent_mean,
                 fps=fps,
                 ori_size=ori_size,
             )
@@ -224,16 +233,30 @@ def main(args):
 
                     x = frame_data[i]
                     bs = args.vae_micro_batch_size
-                    for j in range(0, x.shape[0], bs):
-                        x_bs = x[j : min(j + bs, x.shape[0])]
-                        mean, std = ms.ops.stop_gradient(vae.encode_with_moments_output(ms.Tensor(x_bs, ms.float32)))
-                        video_latent_mean.append(mean.asnumpy())
-                        if args.save_distribution:
-                            video_latent_std.append(std.asnumpy())
+                    if args.vae_type != "CogVideoX-VAE":
+                        for j in range(0, x.shape[0], bs):
+                            x_bs = x[j : min(j + bs, x.shape[0])]
+                            mean, std = ms.ops.stop_gradient(
+                                vae.encode_with_moments_output(ms.Tensor(x_bs, dtype_map[args.dtype]))
+                            )
+                            video_latent_mean.append(mean.asnumpy())
+                            if args.save_distribution:
+                                video_latent_std.append(std.asnumpy())
 
-                    video_latent_mean = np.concatenate(video_latent_mean, axis=0)
-                    if args.save_distribution:
-                        video_latent_std = np.concatenate(video_latent_std, axis=0)
+                        video_latent_mean = np.concatenate(video_latent_mean, axis=0)
+                        if args.save_distribution:
+                            video_latent_std = np.concatenate(video_latent_std, axis=0)
+                    else:
+                        frame_data = np.transpose(frame_data, (0, 2, 1, 3, 4))
+                        video_latent_mean, video_latent_std = vae.encode_with_moments_output(
+                            ms.Tensor(frame_data, dtype_map[args.dtype])
+                        )
+                        video_latent_mean = video_latent_mean.swapaxes(1, 2)
+                        video_latent_std = video_latent_std.swapaxes(1, 2)
+                        save_output(
+                            video_path, video_latent_mean[0].asnumpy(), video_latent_std[0].asnumpy(), fps, ori_size
+                        )
+                        break
 
                     save_output(video_path, video_latent_mean, video_latent_std, fps, ori_size)
             else:
@@ -254,7 +277,9 @@ def main(args):
                     for x_bs, fps, ori_size in ds.get_video_frames_in_batch(
                         abs_video_path, micro_batch_size=args.vae_micro_batch_size, sample_stride=args.frame_stride
                     ):
-                        mean, std = ms.ops.stop_gradient(vae.encode_with_moments_output(ms.Tensor(x_bs, ms.float32)))
+                        mean, std = ms.ops.stop_gradient(
+                            vae.encode_with_moments_output(ms.Tensor(x_bs, dtype_map[args.dtype]))
+                        )
                         video_latent_mean.append(mean.asnumpy())
                         if args.save_distribution:
                             video_latent_std.append(std.asnumpy())
@@ -337,6 +362,7 @@ def parse_args():
         type=str2bool,
         help="whether to enable flash attention. Default is False",
     )
+    parser.add_argument("--vae_type", type=str, choices=["VideoAutoencoderKL", "CogVideoX-VAE"])
     parser.add_argument(
         "--dtype",
         default="fp32",
@@ -385,6 +411,7 @@ def parse_args():
     )
     parser.add_argument("--batch_size", default=1, type=int, help="batch size")
     parser.add_argument("--resize_by_max_value", default=False, type=str2bool, help="resize the image by max instead.")
+    parser.add_argument("--num_parallel_workers", default=16, type=int, help="number of workers for dataloader")
 
     default_args = parser.parse_args()
     __dir__ = os.path.dirname(os.path.abspath(__file__))

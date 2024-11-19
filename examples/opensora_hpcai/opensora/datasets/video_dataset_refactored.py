@@ -6,7 +6,7 @@ import random
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -18,6 +18,7 @@ from mindspore.dataset.vision import CenterCrop, Inter, Normalize
 
 from mindone.data.video_reader import VideoReader as VideoReader_CV2
 
+from ..models.layers.rotary_embedding import get_3d_rotary_pos_embed
 from .bucket import Bucket
 from .transforms import BucketResizeAndCrop, BucketResizeCrop, Resize, ResizeAndCrop
 
@@ -67,22 +68,20 @@ class VideoDatasetRefactored(BaseDataset):
         vae_downsample_rate: float = 8.0,
         vae_scale_factor: float = 0.18215,
         sample_n_frames: int = 16,
+        sample_n_latent_frames: Optional[int] = None,
         sample_stride: int = 1,
         frames_mask_generator: Optional[Callable[[int], np.ndarray]] = None,
         t_compress_func: Optional[Callable[[int], int]] = None,
         pre_patchify: bool = False,
-        patch_size: Tuple[int, int, int] = (1, 2, 2),
-        embed_dim: int = 1152,
-        num_heads: int = 16,
         max_target_size: int = 512,
-        input_sq_size: int = 512,
-        in_channels: int = 4,
         buckets: Optional[Bucket] = None,
         filter_data: bool = False,
         apply_train_transforms: bool = False,
         target_size: Optional[Tuple[int]] = None,
         tokenizer=None,
         video_backend: str = "cv2",
+        model_config: Optional[Dict[str, Any]] = None,
+        dtype: np.dtype = np.float32,
         *,
         output_columns: List[str],
     ):
@@ -95,7 +94,11 @@ class VideoDatasetRefactored(BaseDataset):
             )
 
         self._data = self._read_data(video_folder, csv_path, text_emb_folder, vae_latent_folder, filter_data)
-        self._frames = sample_n_frames
+        self._frames = (
+            sample_n_latent_frames
+            if sample_n_latent_frames is not None and vae_latent_folder is not None
+            else sample_n_frames
+        )
         self._stride = sample_stride
         self._min_length = (self._frames - 1) * self._stride + 1
         self._text_emb_folder = text_emb_folder
@@ -103,9 +106,12 @@ class VideoDatasetRefactored(BaseDataset):
         self._vae_downsample_rate = vae_downsample_rate
         self._vae_scale_factor = vae_scale_factor
         self._fmask_gen = frames_mask_generator
-        self._t_compress_func = t_compress_func or (lambda x: x)
+        self._dtype = dtype
+        self._t_compress_func = lambda x: x if t_compress_func is None else t_compress_func
         self._pre_patchify = pre_patchify
         self._buckets = buckets
+
+        self._init_model_args(model_config)
 
         self.output_columns = output_columns
         if self._buckets is not None:
@@ -113,16 +119,13 @@ class VideoDatasetRefactored(BaseDataset):
             self.output_columns += ["bucket_id"]  # pass bucket id information to transformations
 
         if self._pre_patchify:
-            self._patch_size = patch_size
-            assert self._patch_size[0] == 1
-            self._embed_dim = embed_dim
-            self._num_heads = num_heads
-            self._input_sq_size = input_sq_size
+            assert self._patch_size is not None and self._patch_size[0] == 1
+            assert self._in_channels is not None
 
             max_size = int(max_target_size / self._vae_downsample_rate)
             max_length = max_size**2 // np.prod(self._patch_size[1:]).item()
             self.pad_info = {
-                "video": ([self._frames, max_length, in_channels * np.prod(self._patch_size).item()], 0),
+                "video": ([self._frames, max_length, self._in_channels * np.prod(self._patch_size).item()], 0),
                 "spatial_pos": ([max_length, self._embed_dim], 0),
                 "spatial_mask": ([max_length], 0),
                 "temporal_pos": ([self._frames, self._embed_dim // self._num_heads], 0),
@@ -141,7 +144,7 @@ class VideoDatasetRefactored(BaseDataset):
         # decord has better performance and may incur memory leak for high-resolution videos
         self.video_backend = video_backend
 
-        self.apply_train_transforms = apply_train_transforms
+        self.apply_train_transforms = apply_train_transforms and (vae_latent_folder is None)
         if self.apply_train_transforms:
             self.pixel_transforms = create_train_transforms(target_size, buckets=buckets)
             if "bucket_id" in self.output_columns:
@@ -151,6 +154,19 @@ class VideoDatasetRefactored(BaseDataset):
         # prepare replacement data in case the loading of a sample fails
         self._prev_ok_sample = self._get_replacement()
         self._require_update_prev = False
+
+    def _init_model_args(self, model_config: Optional[Dict[str, Any]]) -> None:
+        if model_config is None:
+            return
+        self._embed_dim = model_config.get("embed_dim", None)
+        self._num_heads = model_config.get("num_heads", None)
+        self._in_channels = model_config.get("in_channels", None)
+        self._patch_size = model_config.get("patch_size", None)
+        self._input_sq_size = model_config.get("input_sq_size", None)
+        self._sample_width = model_config.get("sample_width", None)
+        self._sample_height = model_config.get("sample_height", None)
+        self._use_rotary_positional_embeddings = model_config.get("use_rotary_positional_embeddings", False)
+        self._rope_grid_type = model_config.get("rope_grid_type", None)
 
     @staticmethod
     def _read_data(
@@ -246,8 +262,13 @@ class VideoDatasetRefactored(BaseDataset):
             batch_index = np.linspace(start_pos, start_pos + self._min_length - 1, num_frames, dtype=int)
 
             latent_mean, latent_std = latent_mean[batch_index], latent_std[batch_index]
-            vae_latent = latent_mean + latent_std * np.random.standard_normal(latent_mean.shape)
-            video = (vae_latent * self._vae_scale_factor).astype(np.float32)
+            vae_latent = np.random.normal(loc=latent_mean, scale=latent_std, size=latent_mean.shape)
+            video = vae_latent * self._vae_scale_factor
+
+            data["height"] = np.array(video.shape[-2] * self._vae_downsample_rate, dtype=np.float32)
+            data["width"] = np.array(video.shape[-1] * self._vae_downsample_rate, dtype=np.float32)
+            # NOTE: here ar = h / w, aligned to torch, while the common practice is w / h
+            data["ar"] = np.array(video.shape[-2] / video.shape[-1], dtype=np.float32)
 
         else:
             if self.video_backend == "decord":
@@ -344,7 +365,19 @@ class VideoDatasetRefactored(BaseDataset):
             data["width"] = np.array(clip.shape[-1], dtype=np.float32)
             # NOTE: here ar = h / w, aligned to torch, while the common practice is w / h
             data["ar"] = np.array(clip.shape[-2] / clip.shape[-1], dtype=np.float32)
-            data["video"] = clip
+
+            if self._dtype != np.float32:
+                data["video"] = clip.astype(self._dtype)
+            else:
+                data["video"] = clip
+
+        if self._use_rotary_positional_embeddings:
+            # for cogvideo-x
+            t, _, h, w = data["video"].shape
+            if self._vae_latent_folder is None:
+                t = self._t_compress_func(t)
+                h, w = h // self._vae_downsample_rate, w // self._vae_downsample_rate
+            data["image_rotary_emb"] = self._prepare_rotary_positional_embeddings(int(h), int(w), t)
 
         final_outputs = tuple(data.pop(c) for c in self.output_columns)
         del data
@@ -397,6 +430,43 @@ class VideoDatasetRefactored(BaseDataset):
         temporal_mask = np.ones(temporal_pos.shape[0], dtype=np.uint8)
 
         return latent, spatial_pos, spatial_mask, temporal_pos, temporal_mask
+
+    def _prepare_rotary_positional_embeddings(self, height: int, width: int, num_frames: int) -> np.ndarray:
+        grid_height = height // self._patch_size[2]
+        grid_width = width // self._patch_size[1]
+        base_size_width = self._sample_width // self._patch_size[1]
+        base_size_height = self._sample_height // self._patch_size[2]
+        base_num_frames = (num_frames + self._patch_size[0] - 1) // self._patch_size[0]
+
+        grid_crops_coords = self._get_resize_crop_region_for_grid(
+            (grid_height, grid_width), base_size_width, base_size_height
+        )
+        freqs_cos, freqs_sin = get_3d_rotary_pos_embed(
+            embed_dim=self._embed_dim // self._num_heads,
+            crops_coords=grid_crops_coords,
+            grid_size=(grid_height, grid_width),
+            temporal_size=base_num_frames,
+            grid_type=self._rope_grid_type,
+            max_size=(base_size_height, base_size_width),
+        )
+
+        return np.stack([freqs_cos, freqs_sin])
+
+    def _get_resize_crop_region_for_grid(self, src, tgt_width, tgt_height):
+        tw = tgt_width
+        th = tgt_height
+        h, w = src
+        r = h / w
+        if r > (th / tw):
+            resize_height = th
+            resize_width = int(round(th / h * w))
+        else:
+            resize_width = tw
+            resize_height = int(round(tw / w * h))
+
+        crop_top = int(round((th - resize_height) / 2.0))
+        crop_left = int(round((tw - resize_width) / 2.0))
+        return (crop_top, crop_left), (crop_top + resize_height, crop_left + resize_width)
 
     def __len__(self):
         return len(self._data)
@@ -546,6 +616,7 @@ def create_dataloader(
             dataloader = dataloader.batch(
                 batch_size,
                 drop_remainder=drop_remainder,
+                num_parallel_workers=num_parallel_workers,
             )
 
     return dataloader

@@ -21,7 +21,9 @@ from opensora.datasets.text_dataset import create_dataloader
 from opensora.models.text_encoder.t5 import get_text_encoder_and_tokenizer
 from opensora.utils.cond_data import read_captions_from_csv, read_captions_from_txt
 from opensora.utils.model_utils import str2bool  # _check_cfgs_in_parser
+from transformers import AutoTokenizer
 
+from mindone.transformers import T5EncoderModel
 from mindone.utils.amp import auto_mixed_precision
 from mindone.utils.logger import set_logger
 from mindone.utils.misc import to_abspath
@@ -128,13 +130,19 @@ def main(args):
 
     # model initiate and weight loading
     ckpt_path = args.t5_model_dir
-    text_encoder, tokenizer = get_text_encoder_and_tokenizer("t5", ckpt_path, model_max_length=args.model_max_length)
+    dtype_map = {"fp16": ms.float16, "bf16": ms.bfloat16, "fp32": ms.float32}
+    if args.t5_model == "integrated":
+        text_encoder, tokenizer = get_text_encoder_and_tokenizer(
+            "t5", ckpt_path, model_max_length=args.model_max_length
+        )
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(ckpt_path, model_max_length=args.model_max_length)
+        text_encoder = T5EncoderModel.from_pretrained(ckpt_path, mindspore_dtype=dtype_map[args.dtype])
     text_encoder.set_train(False)
     for param in text_encoder.get_parameters():  # freeze latte_model
         param.requires_grad = False
 
-    dtype_map = {"fp16": ms.float16, "bf16": ms.bfloat16}
-    if args.dtype in ["fp16", "bf16"]:
+    if args.dtype in ["fp16", "bf16"] and args.t5_model == "integrated":
         text_encoder = auto_mixed_precision(text_encoder, amp_level=args.amp_level, dtype=dtype_map[args.dtype])
 
     # infer
@@ -155,8 +163,20 @@ def main(args):
             captions = [str(captions[i]) for i in range(len(captions))]
             # print(captions)
 
-            text_tokens, mask = text_encoder.get_text_tokens_and_mask(captions, return_tensor=True)
-            text_emb = text_encoder(text_tokens, mask)
+            if args.t5_model == "integrated":
+                text_tokens, mask = text_encoder.get_text_tokens_and_mask(captions, return_tensor=True)
+                if args.require_mask:
+                    text_emb = text_encoder(text_tokens, mask)
+                else:
+                    text_emb = text_encoder(text_tokens)
+            else:
+                encodings = tokenizer(captions, padding="max_length", truncation=True, return_tensors="np")
+                text_tokens, mask = encodings.input_ids, encodings.attention_mask
+                text_tokens, mask = ms.Tensor(text_tokens), ms.Tensor(mask)
+                if args.require_mask:
+                    text_emb = text_encoder(text_tokens, mask)[0]
+                else:
+                    text_emb = text_encoder(text_tokens)[0]
 
             end_time = time.time()
             time_cost = end_time - start_time
@@ -291,6 +311,10 @@ def parse_args():
         help="A list of text captions to be generated with",
     )
     parser.add_argument("--batch_size", default=8, type=int, help="batch size")
+    parser.add_argument(
+        "--t5_model", default="integrated", choices=["integrated", "transformers"], help="use which T5 model."
+    )
+    parser.add_argument("--require_mask", default=True, type=str2bool, help="add mask for text encoding")
 
     default_args = parser.parse_args()
     __dir__ = os.path.dirname(os.path.abspath(__file__))

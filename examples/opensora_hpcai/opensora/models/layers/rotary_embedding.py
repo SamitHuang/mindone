@@ -2,7 +2,7 @@
 Source: https://github.com/lucidrains/rotary-embedding-torch/
 """
 from math import pi
-from typing import Optional
+from typing import Optional, Tuple, Union
 
 try:
     from typing import Literal
@@ -164,3 +164,108 @@ def precompute_freqs_cis(seq_len: int, dim: int, theta: float = 10000.0) -> np.n
     embeddings = np.outer(positional_ids, indices)
     embeddings = np.repeat(embeddings, 2, axis=-1)
     return embeddings
+
+
+def get_1d_rotary_pos_embed(
+    dim: int,
+    pos: Union[np.ndarray, int],
+    theta: float = 10000.0,
+    use_real=False,
+    linear_factor=1.0,
+    ntk_factor=1.0,
+    repeat_interleave_real=True,
+    freqs_dtype=np.float32,
+) -> np.ndarray:
+    assert dim % 2 == 0
+
+    if isinstance(pos, int):
+        pos = np.arange(pos)
+
+    theta = theta * ntk_factor
+    freqs = 1.0 / (theta ** (np.arange(0, dim, 2, dtype=freqs_dtype)[: (dim // 2)] / dim)) / linear_factor  # [D/2]
+    freqs = np.outer(pos, freqs)  # type: ignore   # [S, D/2]
+    if use_real and repeat_interleave_real:
+        # flux, hunyuan-dit, cogvideox
+        freqs_cos = np.repeat(np.cos(freqs), 2, axis=1).astype(np.float32)  # [S, D]
+        freqs_sin = np.repeat(np.sin(freqs), 2, axis=1).astype(np.float32)  # [S, D]
+        return freqs_cos, freqs_sin
+    elif use_real:
+        # stable audio
+        freqs_cos = np.concatenate([np.cos(freqs), np.cos(freqs)], axis=-1).astype(np.float32)  # [S, D]
+        freqs_sin = np.concatenate([np.sin(freqs), np.sin(freqs)], axis=-1).astype(np.float32)  # [S, D]
+        return freqs_cos, freqs_sin
+    else:
+        # lumina
+        raise ValueError("Complex rope is not supported yet.")
+
+
+def get_3d_rotary_pos_embed(
+    embed_dim,
+    crops_coords,
+    grid_size,
+    temporal_size,
+    use_real: bool = True,
+    grid_type: Literal["linspace", "slice"] = "linspace",
+    max_size: Optional[Tuple[int, int]] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    if use_real is not True:
+        raise ValueError(" `use_real = False` is not currently supported for get_3d_rotary_pos_embed")
+    start, stop = crops_coords
+
+    if grid_type == "linspace":
+        grid_size_h, grid_size_w = grid_size
+        grid_h = np.linspace(start[0], stop[0], grid_size_h, endpoint=False, dtype=np.float32)
+        grid_w = np.linspace(start[1], stop[1], grid_size_w, endpoint=False, dtype=np.float32)
+        grid_t = np.linspace(0, temporal_size, temporal_size, endpoint=False, dtype=np.float32)
+    elif grid_type == "slice":
+        max_h, max_w = max_size
+        grid_size_h, grid_size_w = grid_size
+        grid_h = np.arange(max_h, dtype=np.float32)
+        grid_w = np.arange(max_w, dtype=np.float32)
+        grid_t = np.arange(temporal_size, dtype=np.float32)
+    else:
+        raise ValueError(f"Unsupported grid_type `{grid_type}`.")
+
+    # Compute dimensions for each axis
+    dim_t = embed_dim // 4
+    dim_h = embed_dim // 8 * 3
+    dim_w = embed_dim // 8 * 3
+
+    # Temporal frequencies
+    freqs_t = get_1d_rotary_pos_embed(dim_t, grid_t, use_real=True)
+    # Spatial frequencies for height and width
+    freqs_h = get_1d_rotary_pos_embed(dim_h, grid_h, use_real=True)
+    freqs_w = get_1d_rotary_pos_embed(dim_w, grid_w, use_real=True)
+
+    # BroadCast and concatenate temporal and spaial frequencie (height and width) into a 3d tensor
+    def combine_time_height_width(freqs_t, freqs_h, freqs_w):
+        freqs_t = np.broadcast_to(
+            freqs_t[:, None, None, :], (freqs_t.shape[0], grid_size_h, grid_size_w, freqs_t.shape[1])
+        )  # temporal_size, grid_size_h, grid_size_w, dim_t
+        freqs_h = np.broadcast_to(
+            freqs_h[None, :, None, :], (temporal_size, freqs_h.shape[0], grid_size_w, freqs_h.shape[1])
+        )  # temporal_size, grid_size_h, grid_size_2, dim_h
+        freqs_w = np.broadcast_to(
+            freqs_w[None, None, :, :], (temporal_size, grid_size_h, freqs_w.shape[0], freqs_w.shape[1])
+        )  # temporal_size, grid_size_h, grid_size_2, dim_w
+
+        freqs = np.concatenate(
+            [freqs_t, freqs_h, freqs_w], axis=-1
+        )  # temporal_size, grid_size_h, grid_size_w, (dim_t + dim_h + dim_w)
+        freqs = np.reshape(
+            freqs, (temporal_size * grid_size_h * grid_size_w, -1)
+        )  # (temporal_size * grid_size_h * grid_size_w), (dim_t + dim_h + dim_w)
+        return freqs
+
+    t_cos, t_sin = freqs_t  # both t_cos and t_sin has shape: temporal_size, dim_t
+    h_cos, h_sin = freqs_h  # both h_cos and h_sin has shape: grid_size_h, dim_h
+    w_cos, w_sin = freqs_w  # both w_cos and w_sin has shape: grid_size_w, dim_w
+
+    if grid_type == "slice":
+        t_cos, t_sin = t_cos[:temporal_size], t_sin[:temporal_size]
+        h_cos, h_sin = h_cos[:grid_size_h], h_sin[:grid_size_h]
+        w_cos, w_sin = w_cos[:grid_size_w], w_sin[:grid_size_w]
+
+    cos = combine_time_height_width(t_cos, h_cos, w_cos)
+    sin = combine_time_height_width(t_sin, h_sin, w_sin)
+    return cos, sin

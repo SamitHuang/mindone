@@ -1,0 +1,43 @@
+model_version: CogVideoX-5B
+ckpt_path:
+  - "models/CogVideoX-5b/transformer/diffusion_pytorch_model-00001-of-00002.safetensors"
+  - "models/CogVideoX-5b/transformer/diffusion_pytorch_model-00002-of-00002.safetensors"
+
+t5_model: transformers
+t5_model_dir: "models/t5-v1_1-xxl/"
+t5_dtype: bf16
+
+vae_type: "CogVideoX-VAE"
+vae_checkpoint: "models/CogVideoX-5b/vae/diffusion_pytorch_model.safetensors"
+vae_dtype: fp16
+sd_scale_factor: 0.7
+
+image_size: [ 480, 720 ]
+num_frames: 49
+enable_flash_attention: True
+model_max_length: 226
+dtype: bf16
+batch_size: 1
+
+# sampling
+sampling_steps: 50
+guidance_scale: 6.0
+seed: 42
+sampling: ddim
+learn_sigma: False
+noise_schedule: quad
+v_pred: True
+beta_start: 0.00085
+beta_end: 0.012
+snr_shift_scale: 1.0
+rescale_betas_zero_snr: True
+
+# ms
+mode: 1
+jit_level: O0
+
+# other
+save_format: gif
+
+captions:
+  - "A panda, dressed in a small, red jacket and a tiny hat, sits on a wooden stool in a serene bamboo forest. The panda's fluffy paws strum a miniature acoustic guitar, producing soft, melodic tunes. Nearby, a few other pandas gather, watching curiously and some clapping in rhythm. Sunlight filters through the tall bamboo, casting a gentle glow on the scene. The panda's face is expressive, showing concentration and joy as it plays. The background includes a small, flowing stream and vibrant green foliage, enhancing the peaceful and magical atmosphere of this unique musical performance."

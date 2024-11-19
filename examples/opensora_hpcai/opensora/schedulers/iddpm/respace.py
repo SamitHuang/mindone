@@ -81,6 +81,9 @@ class SpacedDiffusion(GaussianDiffusion):
                 last_alpha_cumprod = alpha_cumprod
                 self.timestep_map.append(i)
         kwargs["betas"] = np.array(new_betas)
+        # betas has already be scaled & normalzied in base_diffusion, no need to do it twice.
+        kwargs["snr_shift_scale"] = None
+        kwargs["rescale_betas_zero_snr"] = False
         super().__init__(**kwargs)
 
     def p_mean_variance(self, model, *args, **kwargs):  # pylint: disable=signature-differs

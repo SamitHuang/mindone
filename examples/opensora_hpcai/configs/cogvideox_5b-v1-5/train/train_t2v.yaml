@@ -1,0 +1,59 @@
+# model
+model_version: CogVideoX-5B-v1.5
+
+model_max_length: 224
+
+noise_scheduler: ddpm
+noise_schedule: quad
+v_pred: True
+beta_start: 0.00085
+beta_end: 0.012
+rescale_betas_zero_snr: True
+
+vae_type: "CogVideoX-VAE"
+# vae_checkpoint: "models/CogVideoX-1.5-5b/vae/diffusion_pytorch_model.safetensors"
+vae_dtype: fp32
+sd_scale_factor: 0.7
+
+enable_flash_attention: True
+use_recompute: True
+
+# data
+image_size: [ 768, 1360 ]
+num_frames: 77
+num_latent_frames: 20  # (frames - 1) // 4 + 1
+num_parallel_workers: 1
+prefetch_size: 1
+max_rowsize: -1
+
+# precision
+dtype: bf16
+loss_scaler_type: static
+init_loss_scale: 1
+
+# mindspore params, refer to https://www.mindspore.cn/docs/zh-CN/r2.4.0/api_python/mindspore/mindspore.set_context.html
+mode: 0
+jit_level: "O1"
+
+# training hyper-params
+scheduler: "constant"
+start_learning_rate: 1.e-4
+end_learning_rate: 1.e-4
+warmup_steps: 1000
+
+batch_size: 1
+clip_grad: True
+max_grad_norm: 1.0
+use_ema: True
+
+optim: "adamw_re"
+optim_eps: 1.e-8
+weight_decay: 1.e-4
+betas: [0.9, 0.95]
+
+epochs: 10000
+ckpt_save_interval: 20
+ckpt_max_keep: 3
+
+mask_ratios:
+  identity: 1.0

@@ -1,9 +1,11 @@
-from typing import Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 try:
     from typing import Literal
 except ImportError:
     from typing_extensions import Literal  # FIXME: python 3.7
+
+import logging
 
 import numpy as np
 
@@ -11,13 +13,17 @@ import mindspore as ms
 from mindspore import Tensor, ops
 
 from mindone.models.modules.pos_embed import get_2d_sincos_pos_embed
+from mindone.transformers import T5EncoderModel
 
-from ..models.layers.rotary_embedding import precompute_freqs_cis
+from ..models.layers.rotary_embedding import get_3d_rotary_pos_embed, precompute_freqs_cis
+from ..models.vae import AutoencoderKLCogVideoX
 from ..models.vae.vae import VideoAutoencoderKL, VideoAutoencoderPipeline
 from ..schedulers.iddpm import create_diffusion
 from ..schedulers.rectified_flow import RFLOW
 
-__all__ = ["InferPipeline", "InferPipelineFiTLike"]
+__all__ = ["InferPipeline", "InferPipelineFiTLike", "InferPipelineCogVideoX"]
+
+_logger = logging.getLogger()
 
 
 class InferPipeline:
@@ -43,6 +49,7 @@ class InferPipeline:
         num_inference_steps=50,
         sampling: Literal["ddpm", "ddim", "rflow"] = "ddpm",
         micro_batch_size=None,
+        diffusion_config: Optional[Dict[str, Any]] = None,
     ):
         super().__init__()
         self.model = model
@@ -58,7 +65,10 @@ class InferPipeline:
             self.use_cfg = False
 
         self.text_encoder = text_encoder
-        self.diffusion = create_diffusion(str(num_inference_steps))
+
+        if diffusion_config is None:
+            diffusion_config = dict()
+        self.diffusion = create_diffusion(str(num_inference_steps), **diffusion_config)
 
         if sampling.lower() == "ddim":
             self.sampling_func = self.diffusion.ddim_sample_loop
@@ -145,7 +155,10 @@ class InferPipeline:
 
     def get_condition_embeddings(self, text_tokens, **kwargs):
         # text conditions inputs for cross-attention
-        text_emb = ops.stop_gradient(self.text_encoder(text_tokens, **kwargs))
+        if isinstance(self.text_encoder, T5EncoderModel):
+            text_emb = ops.stop_gradient(self.text_encoder(text_tokens, attention_mask=kwargs.get("mask", None)))[0]
+        else:
+            text_emb = ops.stop_gradient(self.text_encoder(text_tokens, **kwargs))
 
         return text_emb
 
@@ -408,5 +421,140 @@ class InferPipelineFiTLike(InferPipeline):
                 # out: (b T H W C)
                 images = self.vae_decode_video(latents)
             return images, latents
+        else:
+            return None, latents
+
+
+class InferPipelineCogVideoX(InferPipeline):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        assert isinstance(self.vae, AutoencoderKLCogVideoX)
+        self.vae.enable_slicing()
+        self.vae.enable_tiling()
+
+    def vae_decode_video(self, x: Tensor) -> Tensor:
+        """
+        Args:
+            x: (b t c h w), denoised latent
+        Return:
+            y: (b f H W 3), batch of images, normalized to [0, 1]
+        """
+        y = ops.stop_gradient(self.vae.decode(x.to(self.vae.dtype)) / self.vae.scaling_factor)
+        y = ops.clip_by_value((y + 1.0) / 2.0, clip_value_min=0.0, clip_value_max=1.0)
+        # (b 3 t h w) -> (b t h w 3)
+        y = ops.transpose(y, (0, 2, 3, 4, 1))
+        return y
+
+    def data_prepare(self, inputs):
+        x = inputs["noise"]
+
+        if inputs["text_emb"] is None:
+            text_tokens = inputs["text_tokens"]
+            text_emb = self.get_condition_embeddings(text_tokens).to(ms.float32)
+        else:
+            text_emb = inputs["text_emb"]
+
+        if self.use_cfg:
+            if inputs.get("null_text_emb", None) is None:
+                null_text_tokens = ops.broadcast_to(inputs["null_text_tokens"], text_tokens.shape)
+                null_text_emb = self.get_condition_embeddings(null_text_tokens).to(ms.float32)
+            else:
+                null_text_emb = inputs["null_text_emb"]
+
+            y = ops.cat([text_emb, null_text_emb], axis=0)
+            x_in = ops.concat([x] * 2, axis=0)
+            assert y.shape[0] == x_in.shape[0], "shape mismatch!"
+        else:
+            x_in = x
+            y = text_emb
+
+        return x_in, y
+
+    def get_resize_crop_region_for_grid(self, src, tgt_width, tgt_height):
+        tw = tgt_width
+        th = tgt_height
+        h, w = src
+        r = h / w
+        if r > (th / tw):
+            resize_height = th
+            resize_width = int(round(th / h * w))
+        else:
+            resize_width = tw
+            resize_height = int(round(tw / w * h))
+
+        crop_top = int(round((th - resize_height) / 2.0))
+        crop_left = int(round((tw - resize_width) / 2.0))
+        return (crop_top, crop_left), (crop_top + resize_height, crop_left + resize_width)
+
+    def prepare_rotary_positional_embeddings(self, height: int, width: int, num_frames: int) -> np.ndarray:
+        grid_height = height // self.model.patch_size[1]
+        grid_width = width // self.model.patch_size[2]
+        base_size_width = self.model.sample_width // self.model.patch_size[2]
+        base_size_height = self.model.sample_height // self.model.patch_size[1]
+        base_num_frames = (num_frames + self.model.patch_size[0] - 1) // self.model.patch_size[0]
+
+        grid_crops_coords = self.get_resize_crop_region_for_grid(
+            (grid_height, grid_width), base_size_width, base_size_height
+        )
+        freqs_cos, freqs_sin = get_3d_rotary_pos_embed(
+            embed_dim=self.model.hidden_size // self.model.num_heads,
+            crops_coords=grid_crops_coords,
+            grid_size=(grid_height, grid_width),
+            temporal_size=base_num_frames,
+            grid_type=self.model.rope_grid_type,
+            max_size=(base_size_height, base_size_width),
+        )
+
+        return np.stack([freqs_cos, freqs_sin])[None]
+
+    def __call__(
+        self,
+        inputs: dict,
+        additional_kwargs: Optional[dict] = None,
+        **kwargs,
+    ) -> Tuple[Union[Tensor, None], Tensor]:
+        z, y = self.data_prepare(inputs)
+
+        if self.model.use_rotary_positional_embeddings:
+            image_rotary_emb = self.prepare_rotary_positional_embeddings(z.shape[-2], z.shape[-1], z.shape[-3])
+            image_rotary_emb = Tensor(np.tile(image_rotary_emb, (z.shape[0], 1, 1, 1)))
+        else:
+            image_rotary_emb = None
+
+        model_kwargs = dict(y=y, image_rotary_emb=image_rotary_emb)
+
+        if additional_kwargs is not None:
+            model_kwargs.update(additional_kwargs)
+
+        if self.use_cfg:
+            model_kwargs.update({"cfg_scale": self.guidance_rescale, "cfg_channel": self.guidance_channels})
+            latents = self.sampling_func(
+                self.model.construct_with_cfg,
+                z.shape,
+                z,
+                clip_denoised=False,
+                model_kwargs=model_kwargs,
+                progress=True,
+            )
+            latents, _ = latents.chunk(2, axis=0)
+        else:
+            latents = self.sampling_func(
+                self.model,
+                z.shape,
+                z,
+                clip_denoised=False,
+                model_kwargs=model_kwargs,
+                progress=True,
+            )
+
+        if self.vae is not None:
+            # latents: (b c t h w)
+            # out: (b T H W C)
+            try:
+                images = self.vae_decode_video(latents)
+                return images, latents
+            except Exception as e:
+                _logger.warning(f"Cannot decode video. {repr(e)}.")
+                return None, latents
         else:
             return None, latents
