@@ -1,6 +1,8 @@
 # diffusers/models/transformers/cogvideox_transformer_3d.py -- v0.31.0
 import logging
 from typing import List, Literal, Optional, Tuple, Union
+import math
+import numbers
 
 import numpy as np
 from opensora.acceleration.communications import AlltoAll, GatherFowardSplitBackward, SplitFowardGatherBackward
@@ -13,7 +15,10 @@ import mindspore.mint.nn.functional as F
 import mindspore.nn as nn
 import mindspore.ops as ops
 from mindspore import Parameter, Tensor
+
+from mindspore.common.initializer import initializer
 from mindspore.communication import get_group_size
+
 from mindspore.ops.operations.nn_ops import FlashAttentionScore
 
 __all__ = ["CogVideoXTransformer3DModel", "CogVideoX_2B", "CogVideoX_5B", "CogVideoX_5B_v1_5"]
@@ -161,7 +166,7 @@ class QKVAlltoALL(AlltoAll):
         q, k, v = x.chunk(3, axis=0)
         return q, k, v
 
-
+'''
 class FP32LayerNorm(mint.nn.LayerNorm):
     def construct(self, input: Tensor) -> Tensor:
         dtype = input.dtype
@@ -169,6 +174,31 @@ class FP32LayerNorm(mint.nn.LayerNorm):
             input.to(ms.float32), self.normalized_shape, self.weight.to(ms.float32), self.bias.to(ms.float32), self.eps
         ).to(dtype)
         return y
+'''
+
+class FP32LayerNorm(nn.Cell):
+    def __init__(self, normalized_shape, eps=1e-5, elementwise_affine: bool = True, dtype=ms.float32):
+        super().__init__()
+        if isinstance(normalized_shape, numbers.Integral):
+            normalized_shape = (normalized_shape,)
+        self.normalized_shape = tuple(normalized_shape)
+        self.eps = eps
+        self.elementwise_affine = elementwise_affine
+        if self.elementwise_affine:
+            self.weight = Parameter(initializer("ones", normalized_shape, dtype=dtype))
+            self.bias = Parameter(initializer("zeros", normalized_shape, dtype=dtype))
+        else:
+            self.weight = ops.ones(normalized_shape, dtype=dtype)
+            self.bias = ops.zeros(normalized_shape, dtype=dtype)
+
+    def construct(self, x: Tensor):
+        normalized_shape = x.shape[-1:]
+        # mint layer_norm fuses the operations in layer normorlization and it's faster than ops.LayerNorm
+        ori_dtype = x.dtype
+        x = mint.nn.functional.layer_norm(x.to(ms.float32), normalized_shape, self.weight.to(ms.float32), self.bias.to(ms.float32), self.eps).to(ori_dtype)
+
+        return x
+
 
 
 class ApproximateGELU(nn.Cell):
@@ -212,7 +242,7 @@ class AdaLayerNorm(nn.Cell):
         output_dim = output_dim or embedding_dim * 2
         self.silu = nn.SiLU()
         self.linear = mint.nn.Linear(embedding_dim, output_dim, dtype=dtype)
-        self.norm = FP32LayerNorm(output_dim // 2, norm_eps, norm_elementwise_affine, dtype=dtype)
+        self.norm = FP32LayerNorm((output_dim // 2,), norm_eps, norm_elementwise_affine, dtype=dtype)
 
     def construct(self, x: Tensor, temb: Tensor) -> Tensor:
         temb = self.linear(self.silu(temb))
@@ -237,7 +267,7 @@ class CogVideoXLayerNormZero(nn.Cell):
 
         self.silu = nn.SiLU()
         self.linear = mint.nn.Linear(conditioning_dim, 6 * embedding_dim, bias=bias, dtype=dtype)
-        self.norm = FP32LayerNorm(embedding_dim, eps=eps, elementwise_affine=elementwise_affine, dtype=dtype)
+        self.norm = FP32LayerNorm((embedding_dim,), eps=eps, elementwise_affine=elementwise_affine, dtype=dtype)
 
     def construct(self, hidden_states: Tensor, encoder_hidden_states: Tensor, temb: Tensor) -> Tuple[Tensor, Tensor]:
         shift, scale, gate, enc_shift, enc_scale, enc_gate = self.linear(self.silu(temb)).chunk(6, axis=1)
@@ -271,8 +301,8 @@ class Attention(nn.Cell):
             self.norm_q = nn.Identity()
             self.norm_k = nn.Identity()
         elif qk_norm == "layer_norm":
-            self.norm_q = FP32LayerNorm(dim_head, eps=eps, elementwise_affine=True, dtype=dtype)
-            self.norm_k = FP32LayerNorm(dim_head, eps=eps, elementwise_affine=True, dtype=dtype)
+            self.norm_q = FP32LayerNorm((dim_head,), eps=eps, elementwise_affine=True, dtype=dtype)
+            self.norm_k = FP32LayerNorm((dim_head,), eps=eps, elementwise_affine=True, dtype=dtype)
         else:
             raise ValueError(f"unknown qk_norm: {qk_norm}. Should be None,'layer_norm'")
 
@@ -350,8 +380,8 @@ class SequenceParallelAttention(nn.Cell):
             self.norm_q = nn.Identity()
             self.norm_k = nn.Identity()
         elif qk_norm == "layer_norm":
-            self.norm_q = FP32LayerNorm(dim_head, eps=eps, elementwise_affine=True, dtype=dtype)
-            self.norm_k = FP32LayerNorm(dim_head, eps=eps, elementwise_affine=True, dtype=dtype)
+            self.norm_q = FP32LayerNorm((dim_head,), eps=eps, elementwise_affine=True, dtype=dtype)
+            self.norm_k = FP32LayerNorm((dim_head,), eps=eps, elementwise_affine=True, dtype=dtype)
         else:
             raise ValueError(f"unknown qk_norm: {qk_norm}. Should be None,'layer_norm'")
 
@@ -1016,7 +1046,7 @@ class CogVideoXTransformer3DModel(nn.Cell):
                 for _ in range(num_layers)
             ]
         )
-        self.norm_final = FP32LayerNorm(inner_dim, norm_eps, norm_elementwise_affine, dtype=dtype)
+        self.norm_final = FP32LayerNorm((inner_dim,), norm_eps, norm_elementwise_affine, dtype=dtype)
 
         # 4. Output blocks
         self.norm_out = AdaLayerNorm(
@@ -1047,6 +1077,8 @@ class CogVideoXTransformer3DModel(nn.Cell):
     def construct(
         self, x: Tensor, timestep: Tensor, y: Tensor, image_rotary_emb: Optional[Tensor] = None, **kwargs
     ) -> Tensor:
+        print('x shape', x.shape)
+
         hidden_states = ops.transpose(x, (0, 2, 1, 3, 4)).to(self.dtype)  # n, t, c, h, w
         encoder_hidden_states = y.to(self.dtype)
 
@@ -1184,9 +1216,9 @@ def CogVideoX_2B(from_pretrained: Optional[str] = None, **kwargs) -> CogVideoXTr
 
 
 def CogVideoX_5B(from_pretrained: Optional[str] = None, **kwargs) -> CogVideoXTransformer3DModel:
-    model = CogVideoXTransformer3DModel(
-        num_attention_heads=48, num_layers=42, use_rotary_positional_embeddings=True, **kwargs
-    )
+    # FIXME: debugging
+    model = CogVideoXTransformer3DModel(num_attention_heads=48, num_layers=42, use_rotary_positional_embeddings=True, **kwargs)
+    # model = CogVideoXTransformer3DModel(num_attention_heads=12, num_layers=42, use_rotary_positional_embeddings=True, **kwargs)
 
     if from_pretrained is not None:
         model.load_from_checkpoint(from_pretrained)

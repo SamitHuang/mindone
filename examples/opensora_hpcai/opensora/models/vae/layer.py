@@ -6,69 +6,10 @@ from mindspore.common.initializer import initializer
 from mindspore.common.parameter import Parameter
 from mindspore.ops import group_norm
 
-
+'''
 class GroupNorm(mint.nn.GroupNorm):
-    r"""
-    Group Normalization over a mini-batch of inputs.
-
-    Group Normalization is widely used in recurrent neural networks. It applies
-    normalization on a mini-batch of inputs for each single training case as described
-    in the paper `Group Normalization <https://arxiv.org/pdf/1803.08494.pdf>`_.
-
-    Group Normalization divides the channels into groups and computes within each group
-    the mean and variance for normalization, and it performs very stable over a wide
-    range of batch size. :math:`\gamma` and :math:`\beta` are trainable scale and shift.
-    It can be described using the following formula:
-
-    .. math::
-        y = \frac{x - \mathrm{E}[x]}{\sqrt{\mathrm{Var}[x] + \epsilon}} * \gamma + \beta
-
-    where :math:`\gamma` is `weight`, :math:`\beta` is `bias`, and :math:`\epsilon` is `eps`.
-
-    Args:
-        num_groups (int): The number of groups to be divided along the channel dimension.
-        num_channels (int): The number of input channels.
-        eps (float, optional): A value added to the denominator for numerical stability. Default: ``1e-05`` .
-        affine (bool, optional): The parameters, such as :math:`\gamma` and :math:`\beta`, are learnable
-            when set to ``true`` . Default: ``True`` .
-        dtype (:class:`mindspore.dtype`, optional): Dtype of Parameters. Default: ``None`` .
-
-    Inputs:
-        - **input** (Tensor) - The input feature with shape :math:`(N, C, *)`, where :math:`*` means, any number of
-          additional dimensions.
-
-    Outputs:
-        Tensor, the normalized and scaled offset tensor, has the same shape and data type as the `x`.
-
-    Raises:
-        TypeError: If `num_groups` or `num_channels` is not an int.
-        TypeError: If `eps` is not a float.
-        TypeError: If `affine` is not a bool.
-        ValueError: If `num_groups` or `num_channels` is less than 1.
-        ValueError: If `num_channels` is not divided by `num_groups`.
-
-    Supported Platforms:
-        ``Ascend``
-
-    Examples:
-        >>> import mindspore as ms
-        >>> import numpy as np
-        >>> group_norm_op = ms.mint.nn.GroupNorm(2, 2)
-        >>> x = ms.Tensor(np.ones([1, 2, 4, 4], np.float32))
-        >>> output = group_norm_op(x)
-        >>> print(output)
-        [[[[0. 0. 0. 0.]
-           [0. 0. 0. 0.]
-           [0. 0. 0. 0.]
-           [0. 0. 0. 0.]]
-          [[0. 0. 0. 0.]
-           [0. 0. 0. 0.]
-           [0. 0. 0. 0.]
-           [0. 0. 0. 0.]]]]
-    """
-
+    
     def __init__(self, num_groups, num_channels, eps=1e-05, affine=True, dtype=None):
-        """Initialize GroupNorm."""
         super(mint.nn.GroupNorm, self).__init__()
         ms_dtype = mstype.float32 if dtype is None else dtype
         gamma_init = "ones"
@@ -103,3 +44,4 @@ class GroupNorm(mint.nn.GroupNorm):
     def construct(self, input):
         output = self._cal_output(input)
         return output
+'''

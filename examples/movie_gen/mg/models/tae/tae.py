@@ -84,7 +84,7 @@ class TemporalAutoencoder(nn.Cell):
         self.discard_spurious_frames = True
 
         if use_recompute:
-            # self.recompute(self.encoder)
+            self.recompute(self.encoder)
             # self.recompute(self.quant_conv)
             # self.recompute(self.post_quant_conv)
             self.recompute(self.decoder)

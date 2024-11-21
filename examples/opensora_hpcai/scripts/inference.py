@@ -220,6 +220,74 @@ def main(args):
     num_frames = get_num_frames(args.num_frames)
     latent_size = vae.get_latent_size((num_frames, img_h, img_w))
 
+    # 2.3 text encoder
+    num_prompts = len(captions)
+    if args.text_embed_folder is None:
+        # import pdb; pdb.set_trace()
+        if args.t5_model == "integrated":
+            text_encoder, tokenizer = get_text_encoder_and_tokenizer(
+                "t5", args.t5_model_dir, model_max_length=args.model_max_length
+            )
+            text_tokens, mask = zip(
+                *[text_encoder.get_text_tokens_and_mask(caption, return_tensor=False) for caption in captions]
+            )
+            text_tokens, mask = Tensor(text_tokens, dtype=ms.int32), Tensor(mask, dtype=ms.uint8)
+            null_text_tokens, _ = text_encoder.get_text_tokens_and_mask("", return_tensor=True)
+        else:
+            # text_tokenizer = AutoTokenizer.from_pretrained(args.t5_model_dir, revision="refs/pr/3", model_max_length=args.model_max_length, local_files_only=True)
+            # text_encoder = T5EncoderModel.from_pretrained(args.t5_model_dir, revision="refs/pr/3", mindspore_dtype=dtype_map[args.t5_dtype], local_files_only=True)
+            text_tokenizer = AutoTokenizer.from_pretrained(args.t5_model_dir, model_max_length=args.model_max_length, local_files_only=True)
+            text_encoder = T5EncoderModel.from_pretrained(args.t5_model_dir,  mindspore_dtype=dtype_map[args.t5_dtype], local_files_only=True)
+            encodings = [
+                text_tokenizer(caption, padding="max_length", truncation=True, return_tensors="np")
+                for caption in captions
+            ]
+            text_tokens, mask = zip(*[(encoding.input_ids, encoding.attention_mask) for encoding in encodings])
+            text_tokens, mask = Tensor(text_tokens, dtype=ms.int32), Tensor(mask, dtype=ms.uint8)
+            null_text_tokens = text_tokenizer("", padding="max_length", truncation=True, return_tensors="np").input_ids
+            null_text_tokens = Tensor(null_text_tokens, dtype=ms.int32)
+
+        text_emb = None
+        # TODO: use FA in T5
+        if args.t5_dtype in ["fp16", "bf16"] and args.t5_model == "integrated":
+            if args.t5_dtype == "fp16":
+                logger.warning(
+                    "T5 dtype is fp16, which may lead to video color vibration. Suggest to use bf16 or fp32."
+                )
+            text_encoder = auto_mixed_precision(
+                text_encoder, amp_level="O2", dtype=dtype_map[args.t5_dtype], custom_fp32_cells=WHITELIST_OPS
+            )
+        logger.info(f"Num tokens: {mask.asnumpy().sum(2)}")
+    else:
+        assert not args.use_parallel, "parallel inference is not supported for t5 cached sampling currently."
+        if args.model_version != "v1":
+            logger.warning("For embedded captions, only one prompt per video is supported at this moment.")
+
+        embed_paths = sorted(glob.glob(os.path.join(args.text_embed_folder, "*.npz")))
+        prompt_prefix = []
+        text_tokens, mask, text_emb = [], [], []
+        for fp in embed_paths:
+            prompt_prefix.append(os.path.basename(fp)[:-4])
+            dat = np.load(fp)
+            text_tokens.append(dat["tokens"])
+            mask.append(dat["mask"])
+            text_emb.append(dat["text_emb"])
+        text_tokens = np.concatenate(text_tokens)
+        mask = np.concatenate(mask)
+        text_emb = np.concatenate(text_emb)
+        logger.info(f"Num tokens: {mask.sum(1)}")
+
+        num_prompts = text_emb.shape[0]
+        text_tokens = ms.Tensor(text_tokens)
+        mask = ms.Tensor(mask, dtype=ms.uint8)
+        text_emb = ms.Tensor(text_emb, dtype=ms.float32)
+        text_encoder = None
+
+    if (args.model_version == "v1" or args.reference_path is None) and num_prompts < 1:
+        raise ValueError("No text prompts provided for Text-to-Video generation.")
+
+
+
     # 2.2 latte
     patchify_conv3d_replace = "linear" if args.pre_patchify else args.patchify
     model_extra_args = dict(
@@ -313,69 +381,6 @@ def main(args):
             latte_model.load_from_checkpoint(args.ckpt_path[0])
     else:
         logger.warning(f"{model_name} uses random initialization!")
-
-    # 2.3 text encoder
-    num_prompts = len(captions)
-    if args.text_embed_folder is None:
-        if args.t5_model == "integrated":
-            text_encoder, tokenizer = get_text_encoder_and_tokenizer(
-                "t5", args.t5_model_dir, model_max_length=args.model_max_length
-            )
-            text_tokens, mask = zip(
-                *[text_encoder.get_text_tokens_and_mask(caption, return_tensor=False) for caption in captions]
-            )
-            text_tokens, mask = Tensor(text_tokens, dtype=ms.int32), Tensor(mask, dtype=ms.uint8)
-            null_text_tokens, _ = text_encoder.get_text_tokens_and_mask("", return_tensor=True)
-        else:
-            text_tokenizer = AutoTokenizer.from_pretrained(args.t5_model_dir, model_max_length=args.model_max_length)
-            text_encoder = T5EncoderModel.from_pretrained(args.t5_model_dir, mindspore_dtype=dtype_map[args.t5_dtype])
-            encodings = [
-                text_tokenizer(caption, padding="max_length", truncation=True, return_tensors="np")
-                for caption in captions
-            ]
-            text_tokens, mask = zip(*[(encoding.input_ids, encoding.attention_mask) for encoding in encodings])
-            text_tokens, mask = Tensor(text_tokens, dtype=ms.int32), Tensor(mask, dtype=ms.uint8)
-            null_text_tokens = text_tokenizer("", padding="max_length", truncation=True, return_tensors="np").input_ids
-            null_text_tokens = Tensor(null_text_tokens, dtype=ms.int32)
-
-        text_emb = None
-        # TODO: use FA in T5
-        if args.t5_dtype in ["fp16", "bf16"] and args.t5_model == "integrated":
-            if args.t5_dtype == "fp16":
-                logger.warning(
-                    "T5 dtype is fp16, which may lead to video color vibration. Suggest to use bf16 or fp32."
-                )
-            text_encoder = auto_mixed_precision(
-                text_encoder, amp_level="O2", dtype=dtype_map[args.t5_dtype], custom_fp32_cells=WHITELIST_OPS
-            )
-        logger.info(f"Num tokens: {mask.asnumpy().sum(2)}")
-    else:
-        assert not args.use_parallel, "parallel inference is not supported for t5 cached sampling currently."
-        if args.model_version != "v1":
-            logger.warning("For embedded captions, only one prompt per video is supported at this moment.")
-
-        embed_paths = sorted(glob.glob(os.path.join(args.text_embed_folder, "*.npz")))
-        prompt_prefix = []
-        text_tokens, mask, text_emb = [], [], []
-        for fp in embed_paths:
-            prompt_prefix.append(os.path.basename(fp)[:-4])
-            dat = np.load(fp)
-            text_tokens.append(dat["tokens"])
-            mask.append(dat["mask"])
-            text_emb.append(dat["text_emb"])
-        text_tokens = np.concatenate(text_tokens)
-        mask = np.concatenate(mask)
-        text_emb = np.concatenate(text_emb)
-        logger.info(f"Num tokens: {mask.sum(1)}")
-
-        num_prompts = text_emb.shape[0]
-        text_tokens = ms.Tensor(text_tokens)
-        mask = ms.Tensor(mask, dtype=ms.uint8)
-        text_emb = ms.Tensor(text_emb, dtype=ms.float32)
-        text_encoder = None
-
-    if (args.model_version == "v1" or args.reference_path is None) and num_prompts < 1:
-        raise ValueError("No text prompts provided for Text-to-Video generation.")
 
     # 3. build inference pipeline
 

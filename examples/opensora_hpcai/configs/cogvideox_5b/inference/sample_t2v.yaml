@@ -4,7 +4,7 @@ ckpt_path:
   - "models/CogVideoX-5b/transformer/diffusion_pytorch_model-00002-of-00002.safetensors"
 
 t5_model: transformers
-t5_model_dir: "models/t5-v1_1-xxl/"
+t5_model_dir: "models/models--DeepFloyd--t5-v1_1-xxl"
 t5_dtype: bf16
 
 vae_type: "CogVideoX-VAE"

@@ -23,5 +23,7 @@ python scripts/train_tae.py \
 --output_path=$output_dir \
 --epochs=2000 --ckpt_save_interval=50 \
 
+# --use_recompute=True \
+
 # --use_parallel=True \
 

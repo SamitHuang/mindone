@@ -1,5 +1,10 @@
 # model
 model_version: CogVideoX-5B-v1.5
+pretrained_model_path:
+  - "models/CogVideoX-1.5-5b/transformer/diffusion_pytorch_model-00001-of-00003.safetensors"
+  - "models/CogVideoX-1.5-5b/transformer/diffusion_pytorch_model-00002-of-00003.safetensors"
+  - "models/CogVideoX-1.5-5b/transformer/diffusion_pytorch_model-00003-of-00003.safetensors"
+
 
 model_max_length: 224
 
@@ -11,7 +16,7 @@ beta_end: 0.012
 rescale_betas_zero_snr: True
 
 vae_type: "CogVideoX-VAE"
-# vae_checkpoint: "models/CogVideoX-1.5-5b/vae/diffusion_pytorch_model.safetensors"
+vae_checkpoint: "models/CogVideoX-1.5-5b/vae/diffusion_pytorch_model.safetensors"
 vae_dtype: fp32
 sd_scale_factor: 0.7
 
