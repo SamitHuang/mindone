@@ -9,7 +9,7 @@ from .dataset import BaseDataset
 
 def create_dataloader(
     dataset: BaseDataset,
-    batch_size: int = 1,
+    batch_size: Union[int, dict] = 1,
     transforms: Optional[Union[List[dict], dict]] = None,
     project_columns: Optional[List[str]] = None,
     shuffle: bool = False,

@@ -185,13 +185,18 @@ class ImageVideoDataset(BaseDataset):
             data["video"] = vae_latent * self._vae_scale_factor
 
         else:
+            min_length = self._min_length
+            if data["video"].lower().endswith("_img"):
+                data["video"] = data["video"][:-4]
+                num_frames = 1
+                min_length = 1
+
             if data["video"].lower().endswith(IMAGE_EXT):
                 num_frames = 1
                 data["fps"] = np.array(120, dtype=np.float32)  # FIXME: extract as IMG_FPS
                 data["video"] = cv2.cvtColor(cv2.imread(data["video"]), cv2.COLOR_BGR2RGB)
             else:
                 with VideoReader(data["video"]) as reader:
-                    min_length = self._min_length
                     if thw is not None:
                         num_frames, *data["size"] = thw
                         min_length = (num_frames - 1) * self._stride + 1

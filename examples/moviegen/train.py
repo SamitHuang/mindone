@@ -6,6 +6,7 @@ from typing import Tuple, Union
 from jsonargparse import ActionConfigFile, ArgumentParser
 from jsonargparse.typing import path_type
 
+import mindspore as ms
 from mindspore import GRAPH_MODE, Model, Symbol, Tensor, amp
 from mindspore import dtype as mstype
 from mindspore import get_context, nn, set_seed
@@ -74,6 +75,12 @@ def main(args):
     device_id, rank_id, device_num = init_train_env(**args.env)
     mode = get_context("mode")  # `init_train_env()` may change the mode during debugging
 
+    # set_dynamic_mode(True)
+    # TODO: only enable for mixed image and video training
+    if mode == 0:
+        ms.set_context(jit_syntax_level=ms.STRICT)
+        ms.set_context(graph_kernel_flags="--disable_packet_ops=Reshape")
+
     # 1.1 init model parallel
     shard_rank_id = rank_id
     if (shards := args.train.model_parallel.model_parallel_shards) > 1:
@@ -141,7 +148,7 @@ def main(args):
     # if bucketing is used in Graph mode, activate dynamic inputs
     if mode == GRAPH_MODE and isinstance(args.dataloader.batch_size, dict):
         bs = Symbol(unique=True)
-        video = Tensor(shape=[bs, None, 3, None, None], dtype=mstype.float32)
+        video = Tensor(shape=[bs, None, 3,  args.dataset.target_size[0], args.dataset.target_size[1]], dtype=mstype.float32)
         # FIXME: fix sequence length
         ul2_emb = Tensor(shape=[bs, 300, 4096], dtype=mstype.float32)
         byt5_emb = Tensor(shape=[bs, 100, 1472], dtype=mstype.float32)

@@ -65,7 +65,7 @@ class LlamaDecoderLayer(nn.Cell):
     ) -> None:
         super().__init__()
 
-        self.self_attn = Llama_ATTENTION_CLASSES[attn_implementation](
+        self.self_attn = LlamaFlashAttention(
             hidden_size=hidden_size,
             num_attention_heads=num_attention_heads,
             num_key_value_heads=num_key_value_heads,
@@ -74,7 +74,7 @@ class LlamaDecoderLayer(nn.Cell):
             dtype=dtype,
         )
 
-        self.cross_attn = Llama_ATTENTION_CLASSES[attn_implementation](
+        self.cross_attn = LlamaFlashAttention(
             hidden_size=hidden_size,
             num_attention_heads=num_attention_heads,
             num_key_value_heads=num_key_value_heads,
@@ -426,10 +426,13 @@ class LlamaModel(nn.Cell):
         p0, p1, p2 = self.patch_size[0], self.patch_size[1], self.patch_size[2]
         nt, nh, nw = t // p0, h // p1, w // p2
 
+<<<<<<< HEAD
         # assert nt < self.max_length[0]
         # assert nh < self.max_length[1]
         # assert nw < self.max_length[2]
 
+=======
+>>>>>>> 9523fd81... adapt to dynamic shape in graph mode, 1p verified
         t_inds = mint.arange(nt, dtype=ms.int64)
         h_inds = mint.arange(nh, dtype=ms.int64)
         w_inds = mint.arange(nw, dtype=ms.int64)
@@ -472,6 +475,7 @@ class LlamaModel(nn.Cell):
         byt5_emb: (N, L3, 1472) ByT5 text embeddings
         """
         _, t, _, h, w = latent_embedding.shape
+        print('debug: ', latent_embedding.shape)
 
         # create position embedding to be shared across the decoder layers
         position_embedding = self.learnable_position_embedding(latent_embedding)
@@ -492,7 +496,6 @@ class LlamaModel(nn.Cell):
 
         # 3.1.6 Sequence Parallelism Start
         if self.model_parallelism:
-            # assert hidden_states.shape[1] % self.group_size == 0
             hidden_states = self.split_forward_gather_backward(hidden_states)
             position_embedding = self.split_forward_gather_backward(position_embedding)
 
@@ -552,6 +555,8 @@ def llama3_1B(from_pretrained=None, **kwargs):
         intermediate_size=4096,
         num_attention_heads=16,
         num_hidden_layers=24,
+        # debug
+        # num_hidden_layers=1,
         num_key_value_heads=16,
         rms_norm_eps=1e-05,
         **kwargs,
