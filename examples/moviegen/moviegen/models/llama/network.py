@@ -426,13 +426,6 @@ class LlamaModel(nn.Cell):
         p0, p1, p2 = self.patch_size[0], self.patch_size[1], self.patch_size[2]
         nt, nh, nw = t // p0, h // p1, w // p2
 
-<<<<<<< HEAD
-        # assert nt < self.max_length[0]
-        # assert nh < self.max_length[1]
-        # assert nw < self.max_length[2]
-
-=======
->>>>>>> 9523fd81... adapt to dynamic shape in graph mode, 1p verified
         t_inds = mint.arange(nt, dtype=ms.int64)
         h_inds = mint.arange(nh, dtype=ms.int64)
         w_inds = mint.arange(nw, dtype=ms.int64)
