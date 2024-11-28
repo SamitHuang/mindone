@@ -97,6 +97,7 @@ def rearrange_out(x, t):
 def main(args):
     ascend_config = {"precision_mode": "must_keep_origin_dtype"}
     ms.set_context(mode=args.mode, ascend_config=ascend_config)
+    ms.set_context(jit_config={"jit_level": args.jit_level})
     set_logger(name="", output_dir=args.output_path, rank=0)
 
     # build model
@@ -155,6 +156,10 @@ def main(args):
     num_batches = dataset.get_dataset_size()
 
     ds_iter = dataset.create_dict_iterator(1)
+    
+    if args.dynamic_shape: 
+        videos = ms.Tensor(shape=[None, 3, None, 256, 256], dtype=ms.float32)
+        model.set_inputs(videos)
 
     logger.info("Inferene begins")
     mean_infer_time = 0
@@ -166,6 +171,12 @@ def main(args):
     for step, data in tqdm(enumerate(ds_iter)):
         x = data["video"]
         start_time = time.time()
+        
+        # debug
+        # if args.dynamic_shape:
+        #    if step % 2 == 0:
+        #        x = x[:, :, : x.shape[2]//2]
+        #    print('x shape: ', x.shape)
         
         if args.encode_only:
             z = model.encode(x)
@@ -304,8 +315,11 @@ def parse_args():
         type=str2bool,
         help="If True, save z distribution, mean and logvar. Otherwise, save z after sampling.",
     )
+    parser.add_argument("--dynamic_shape", default=False, type=str2bool, help="whether input shape to the network is dynamic")
+
     # ms related
     parser.add_argument("--mode", default=0, type=int, help="Specify the mode: 0 for graph mode, 1 for pynative mode")
+    parser.add_argument("--jit_level", default="O0", type=str, help="O0 kbk, O1 dvm, O2 ge")
     parser.add_argument(
         "--dtype",
         default="fp32",
