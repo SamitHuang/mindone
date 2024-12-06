@@ -42,10 +42,11 @@ Change mixed_256x256x16.yaml to mixed_256x256x32.yaml for training on 32 frames.
 
 Train on 80 samples of mixkit-100 (train set), test on the other 20 samples (test set)
 
-256x256x16, 1p, FP32, 2.05 s/step, test set psnr 28.5
 
-256x256x32, 1p, BF16, 2.49 s/step, test set psnr 28.3
-
+| Resolution | NPUs | Precision | Time (s/step) | PSNR (test set) |
+|------------|------|-----------|---------------|-----------------|
+| 256x256x16 | 1    | FP32      | 2.05          | 28.5            |
+| 256x256x32 | 1    | BF16      | 2.49          | 28.9            |
 
 ### Inference
 
