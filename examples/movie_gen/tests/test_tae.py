@@ -290,7 +290,7 @@ if __name__ == "__main__":
     # test_spatial_attn()
     # test_temporal_attn()
     # test_spatial_downsample()
-    test_temporal_downsample()
+    # test_temporal_downsample()
     # test_encoder()
 
     # test_temporal_upsample()
@@ -302,4 +302,4 @@ if __name__ == "__main__":
     # test_tae_tile()
     # test_blend()
 
-    # test_sd3d5_vae()
+    test_sd3d5_vae()

@@ -356,6 +356,7 @@ class TemporalDownsample(nn.Cell):
 class TemporalUpsample(nn.Cell):
     def __init__(self, in_channels, manual_pad=True):
         super().__init__()
+        self.manual_pad = manual_pad
         # to support danamic shape in graph mode
         if not self.manual_pad:
             self.conv = nn.Conv1d(in_channels, in_channels, kernel_size=3, stride=1, pad_mode="same", has_bias=True, bias_init='zeros')
