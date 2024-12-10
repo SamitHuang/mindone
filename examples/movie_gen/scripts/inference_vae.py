@@ -13,7 +13,6 @@ import numpy as np
 
 from mindspore import nn, ops
 
-
 __dir__ = os.path.dirname(os.path.abspath(__file__))
 mindone_dir = os.path.abspath(os.path.join(__dir__, "../../../"))
 sys.path.insert(0, mindone_dir)
@@ -33,8 +32,8 @@ sys.path.insert(0, mindone_lib_path)
 sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
 
 from mg.datasets.tae_dataset import create_dataloader
-from mg.models.tae.tae import TemporalAutoencoder
 from mg.models.tae.lpips import LPIPS
+from mg.models.tae.tae import TemporalAutoencoder
 
 from mindone.utils.amp import auto_mixed_precision
 from mindone.utils.config import instantiate_from_config, str2bool
@@ -86,6 +85,7 @@ def rearrange_in(x):
     x = ops.reshape(x, (b * t, h, w, c))
     return x
 
+
 def rearrange_out(x, t):
     bt, c, h, w = x.shape
     b = bt // t
@@ -97,19 +97,20 @@ def rearrange_out(x, t):
 def main(args):
     ascend_config = {"precision_mode": "must_keep_origin_dtype"}
     ms.set_context(mode=args.mode, ascend_config=ascend_config)
+    ms.set_context(jit_config={"jit_level": args.jit_level})
     set_logger(name="", output_dir=args.output_path, rank=0)
 
     # build model
     model = TemporalAutoencoder(
         pretrained=args.ckpt_path,
         use_tile=args.enable_tile,
-        )
+    )
 
     model.set_train(False)
     logger.info(f"Loaded checkpoint from  {args.ckpt_path}")
 
     if args.eval_loss:
-       lpips_loss_fn = LPIPS()
+        lpips_loss_fn = LPIPS()
 
     if args.dtype != "fp32":
         amp_level = "O2"
@@ -156,6 +157,10 @@ def main(args):
 
     ds_iter = dataset.create_dict_iterator(1)
 
+    if args.dynamic_shape:
+        videos = ms.Tensor(shape=[None, 3, None, 256, 256], dtype=ms.float32)
+        model.set_inputs(videos)
+
     logger.info("Inferene begins")
     mean_infer_time = 0
     mean_psnr = 0
@@ -166,7 +171,13 @@ def main(args):
     for step, data in tqdm(enumerate(ds_iter)):
         x = data["video"]
         start_time = time.time()
-        
+
+        # debug
+        # if args.dynamic_shape:
+        #    if step % 2 == 0:
+        #        x = x[:, :, : x.shape[2]//2]
+        #    print('x shape: ', x.shape)
+
         if args.encode_only:
             z = model.encode(x)
         else:
@@ -205,7 +216,7 @@ def main(args):
 
             if args.eval_loss:
                 recon_loss = np.abs((x - recons).asnumpy())
-               
+
                 t = x.shape[2]
                 x = rearrange_in(x)
                 # lpips_loss = lpips_loss_fn(x, recons).asnumpy()
@@ -286,7 +297,9 @@ def parse_args():
     parser.add_argument("--save_vis", default=True, type=str2bool, help="whether save reconstructed images")
     parser.add_argument("--use_temporal_vae", default=True, type=str2bool, help="if False, just use spatial vae")
     parser.add_argument("--encode_only", default=False, type=str2bool, help="only encode to save z or distribution")
-    parser.add_argument("--enable_tile", default=False, type=str2bool, help="enable temporal tiling with linear blending for decoder")
+    parser.add_argument(
+        "--enable_tile", default=False, type=str2bool, help="enable temporal tiling with linear blending for decoder"
+    )
     parser.add_argument("--video_column", default="video", type=str, help="name of column for videos saved in csv file")
     parser.add_argument(
         "--mixed_strategy",
@@ -304,8 +317,13 @@ def parse_args():
         type=str2bool,
         help="If True, save z distribution, mean and logvar. Otherwise, save z after sampling.",
     )
+    parser.add_argument(
+        "--dynamic_shape", default=False, type=str2bool, help="whether input shape to the network is dynamic"
+    )
+
     # ms related
     parser.add_argument("--mode", default=0, type=int, help="Specify the mode: 0 for graph mode, 1 for pynative mode")
+    parser.add_argument("--jit_level", default="O0", type=str, help="O0 kbk, O1 dvm, O2 ge")
     parser.add_argument(
         "--dtype",
         default="fp32",

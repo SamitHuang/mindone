@@ -1,5 +1,4 @@
 import logging
-import functools
 
 import numpy as np
 from packaging import version
@@ -53,6 +52,7 @@ class GroupNorm5d(nn.GroupNorm):
 
         return out
 
+
 def Normalize(in_channels, num_groups=32):
     if version.parse(ms.__version__) >= version.parse("2.3.1"):
         return nn.GroupNorm(num_groups=num_groups, num_channels=in_channels, eps=1e-6, affine=True)
@@ -63,14 +63,16 @@ def Normalize(in_channels, num_groups=32):
 def rearrange_in_spatial(x):
     # (b t c h w) -> (b*t c h w)
     B, T, C, H, W = x.shape
-    x = ops.reshape(x, (B*T, C, H, W))
+    x = ops.reshape(x, (B * T, C, H, W))
     return x
+
 
 def rearrange_out_spatial(x, T):
     # (b*t c h w) -> (b t c h w)
     BT, C, H, W = x.shape
-    x = ops.reshape(x, (BT//T, T, C, H, W))
+    x = ops.reshape(x, (BT // T, T, C, H, W))
     return x
+
 
 def rearrange_in_temporal(x):
     # (b t c h w) -> (b*h*w c t)
@@ -78,14 +80,15 @@ def rearrange_in_temporal(x):
     # (b t c h w) -> (b h w c t)
     x = ops.transpose(x, (0, 3, 4, 2, 1))
     # (b h w c t) -> (b*h*w c t)
-    x = ops.reshape(x, (B*H*W, C, T))
+    x = ops.reshape(x, (B * H * W, C, T))
     return x
+
 
 def rearrange_out_temporal(x, H, W):
     # (b*h*w c t) -> (b t c h w)
     BHW, C, T = x.shape
     # (b*h*w c t) -> (b h w c t)
-    x = ops.reshape(x, (BHW // (H*W), H, W, C, T))
+    x = ops.reshape(x, (BHW // (H * W), H, W, C, T))
     # (b h w c t) -> (b t c h w)
     x = ops.transpose(x, (0, 4, 3, 1, 2))
     return x
@@ -95,7 +98,9 @@ class TemporalConv1d(nn.Cell):
     r"""
     Temporal conv1d with symmetrical replicate padding
     """
-    def __init__(self,
+
+    def __init__(
+        self,
         in_channels,
         out_channels,
         kernel_size,
@@ -105,12 +110,14 @@ class TemporalConv1d(nn.Cell):
         # dilation=1,
         has_bias=True,
         **kwargs,
-        ):
+    ):
         # assert dilation ==1
-        assert stride == 1, 'not supported for stride > 1'
+        assert stride == 1, "not supported for stride > 1"
         # TODO; consider stride
-        self.pad = nn.Pad(paddings=((2, (kernel_size-1)//2)), mode="SYMMETRIC")
-        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, pad_mode="valid", has_bias=True)
+        self.pad = nn.Pad(paddings=((2, (kernel_size - 1) // 2)), mode="SYMMETRIC")
+        self.conv = nn.Conv1d(
+            in_channels, out_channels, kernel_size=kernel_size, stride=stride, pad_mode="valid", has_bias=True
+        )
 
     def construct(self, x):
         r"""
@@ -134,6 +141,7 @@ class Conv2_5d(nn.Cell):
     r"""
     Conv2.5d, a 2D spatial convolution followed by 1D temporal convolution
     """
+
     def __init__(
         self,
         in_channels,
@@ -147,32 +155,55 @@ class Conv2_5d(nn.Cell):
         **kwargs,
     ):
         super().__init__()
-        assert stride==1
-        assert dilation==1
+        assert stride == 1
+        assert dilation == 1
         # spatial conv
-        self.conv_spat = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, pad_mode=pad_mode, padding=padding, has_bias=has_bias)
+        self.conv_spat = nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            pad_mode=pad_mode,
+            padding=padding,
+            has_bias=has_bias,
+        )
 
         # temporal conv
         if kernel_size > 1:
             # symmetric padding + conv1d
-            assert kernel_size == 3, 'symmetric padding currently only support kernel size 3'
-            self.conv_temp = nn.Conv1d(out_channels, out_channels, kernel_size=kernel_size, stride=stride, pad_mode="valid", has_bias=has_bias, bias_init='zeros')
+            assert kernel_size == 3, "symmetric padding currently only support kernel size 3"
+            self.conv_temp = nn.Conv1d(
+                out_channels,
+                out_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                pad_mode="valid",
+                has_bias=has_bias,
+                bias_init="zeros",
+            )
             self.pad = symmetric_pad1d
             self.use_pad = True
         else:
             self.use_pad = False
-            self.conv_temp = nn.Conv1d(out_channels, out_channels, kernel_size=kernel_size, stride=stride, pad_mode="valid", has_bias=has_bias, bias_init='zeros')
+            self.conv_temp = nn.Conv1d(
+                out_channels,
+                out_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                pad_mode="valid",
+                has_bias=has_bias,
+                bias_init="zeros",
+            )
 
-        self.init_temporal_weight('centric')
+        self.init_temporal_weight("centric")
 
     def construct(self, x):
-        '''
+        """
         Parameters:
             x: (b c t h w)
         Returns:
             (b c t h w)
-        '''
-
+        """
 
         B, Ci, T, Hi, Wi = x.shape
         # (b c t h w) -> (b t c h w)
@@ -180,7 +211,7 @@ class Conv2_5d(nn.Cell):
 
         # spatial conv2d
         # (b t c h w) -> (b*t c h w)
-        x = ops.reshape(x, (B*T, Ci, Hi, Wi))
+        x = ops.reshape(x, (B * T, Ci, Hi, Wi))
 
         x = self.conv_spat(x)
 
@@ -191,7 +222,7 @@ class Conv2_5d(nn.Cell):
         # temporal conv1d
         # (b t c h w) -> (b*h*w c t)
         x = ops.transpose(x, (0, 3, 4, 2, 1))  # (b t c h w) -> (b h w c t)
-        x = ops.reshape(x, (B*Ho*Wo, Co, T))
+        x = ops.reshape(x, (B * Ho * Wo, Co, T))
 
         if self.use_pad:
             # import pdb; pdb.set_trace()
@@ -209,11 +240,11 @@ class Conv2_5d(nn.Cell):
 
         return x
 
-    def init_temporal_weight(self, method='centric'):
-        if method == 'normal':
+    def init_temporal_weight(self, method="centric"):
+        if method == "normal":
             return
 
-        elif method == 'centric':
+        elif method == "centric":
             # temporal conv kernel: (cout, cin, 1, ks)
             # ks=1 or 3, cin == cout
             w = self.conv_temp.weight
@@ -223,7 +254,7 @@ class Conv2_5d(nn.Cell):
 
             # only the middle element of the kernel is 1 so that the output is the same input in initialization
             for i in range(ch):
-                value[i, i, 0, ks//2] = 1
+                value[i, i, 0, ks // 2] = 1
             w.set_data(ms.Tensor(value, dtype=ms.float32))
 
             # bias is initialized to zero in layer def
@@ -241,15 +272,15 @@ class SpatialUpsample(nn.Cell):
             )
 
     def construct(self, x):
-        '''
+        """
         x: (b c t h w)
         return: (b c t h w)
-        '''
+        """
         B, Ci, T, Hi, Wi = x.shape
         # (b c t h w) -> (b t c h w)
         x = ops.transpose(x, (0, 2, 1, 3, 4))
         # (b t c h w) -> (b*t c h w)
-        x = ops.reshape(x, (B*T, Ci, Hi, Wi))
+        x = ops.reshape(x, (B * T, Ci, Hi, Wi))
 
         in_shape = x.shape[-2:]
         out_shape = tuple(2 * x for x in in_shape)
@@ -282,7 +313,7 @@ class SpatialDownsample(nn.Cell):
         # TODO: reduce transpose and reshape op
         B, C, T, H, W = x.shape
         x = ops.transpose(x, (0, 2, 1, 3, 4))
-        x = ops.reshape(x, (B*T, C, H, W))
+        x = ops.reshape(x, (B * T, C, H, W))
 
         if self.with_conv:
             x = self.pad(x)
@@ -304,33 +335,39 @@ class TemporalDownsample(nn.Cell):
         self.ks = 3
         self.ch = in_channels
         self.conv = nn.Conv1d(
-            in_channels, in_channels, kernel_size=self.ks, stride=2, pad_mode="valid", padding=0, has_bias=True, bias_init='zeros',
+            in_channels,
+            in_channels,
+            kernel_size=self.ks,
+            stride=2,
+            pad_mode="valid",
+            padding=0,
+            has_bias=True,
+            bias_init="zeros",
         )
         # tail padding, pad with
         self.time_pad = self.ks - 1
         self.init_weight("centric")
 
-    def init_weight(self, method='mean'):
-        if method == 'normal':
+    def init_weight(self, method="mean"):
+        if method == "normal":
             # default conv init
             return
 
         # no way to reserve complete input since stride 2
         w = self.conv.weight
         value = np.zeros(tuple(w.shape))
-        if method == 'mean':
+        if method == "mean":
             # initially, it's a mean filter for temporal downsampling
             for i in range(self.ch):
-                value[i, i, 0, :] = 1/self.ks  # (cout, cin, 1, ks)
-        elif method == 'centric':
+                value[i, i, 0, :] = 1 / self.ks  # (cout, cin, 1, ks)
+        elif method == "centric":
             # a centric filter for temporal downsampling
             for i in range(self.ch):
-                value[i, i, 0, self.ks//2] = 1  # (cout, cin, 1, ks)
+                value[i, i, 0, self.ks // 2] = 1  # (cout, cin, 1, ks)
         else:
             raise NotImplementedError
 
         w.set_data(ms.Tensor(value, dtype=ms.float32))
-
 
     def construct(self, x):
         # x (b c t h w)
@@ -338,7 +375,7 @@ class TemporalDownsample(nn.Cell):
         # -> (bhw c t)
         B, C, T, H, W = x.shape
         x = ops.transpose(x, (0, 3, 4, 1, 2))
-        x = ops.reshape(x, (B*H*W, C, T))
+        x = ops.reshape(x, (B * H * W, C, T))
 
         # symmetric padding
         x = symmetric_pad1d(x)
@@ -356,28 +393,32 @@ class TemporalDownsample(nn.Cell):
 class TemporalUpsample(nn.Cell):
     def __init__(self, in_channels, manual_pad=True):
         super().__init__()
+        self.manual_pad = manual_pad
         # to support danamic shape in graph mode
         if not self.manual_pad:
-            self.conv = nn.Conv1d(in_channels, in_channels, kernel_size=3, stride=1, pad_mode="same", has_bias=True, bias_init='zeros')
+            self.conv = nn.Conv1d(
+                in_channels, in_channels, kernel_size=3, stride=1, pad_mode="same", has_bias=True, bias_init="zeros"
+            )
         else:
-            self.conv = nn.Conv1d(in_channels, in_channels, kernel_size=3, stride=1, pad_mode="valid", has_bias=True, bias_init='zeros')
-
+            self.conv = nn.Conv1d(
+                in_channels, in_channels, kernel_size=3, stride=1, pad_mode="valid", has_bias=True, bias_init="zeros"
+            )
 
         # TODO: init conv weight so that it pass in image mode
         self.ch = in_channels
-        self.init_weight('centric')
+        self.init_weight("centric")
 
-    def init_weight(self, method='centric'):
-        if method == 'normal':
+    def init_weight(self, method="centric"):
+        if method == "normal":
             return
 
         # init so that the output is the same as vae2d for image input
         w = self.conv.weight
         value = np.zeros(tuple(w.shape))
-        if method == 'centric':
+        if method == "centric":
             # consider image input, make sure it's the same
             for i in range(self.ch):
-                value[i, i, 0, 1] = 1 # (cout, cin, 1, ks)
+                value[i, i, 0, 1] = 1  # (cout, cin, 1, ks)
             w.set_data(ms.Tensor(value, dtype=ms.float32))
         else:
             raise NotImplementedError
@@ -385,7 +426,7 @@ class TemporalUpsample(nn.Cell):
     def construct(self, x):
         # x (b c t h w)
         B, C, T0, H, W = x.shape
-        x = ops.reshape(x, (B, C, T0, H*W))
+        x = ops.reshape(x, (B, C, T0, H * W))
 
         # NOTE: bf16 only support 4D interpolate
         # x = ops.interpolate(x, scale_factor=(2.0, 1.0), mode="nearest")
@@ -395,12 +436,12 @@ class TemporalUpsample(nn.Cell):
         # x (b c t hw) -> (bhw c t)
         T = T0 * 2
         x = ops.transpose(x, (0, 3, 1, 2))
-        x = ops.reshape(x, (B*H*W, C, T))
+        x = ops.reshape(x, (B * H * W, C, T))
 
         if self.manual_pad:
             # work with pad_mode = valid, kernel_size=1
-            pad_t_l = ops.zeros((B*H*W, C, 1), x.dtype)
-            pad_t_r = ops.zeros((B*H*W, C, 1), x.dtype)
+            pad_t_l = ops.zeros((B * H * W, C, 1), x.dtype)
+            pad_t_r = ops.zeros((B * H * W, C, 1), x.dtype)
             x = ops.cat([pad_t_l, x, pad_t_r], 2)
 
         x = self.conv(x)
@@ -427,11 +468,17 @@ class ResnetBlock(nn.Cell):
         self.in_channels = in_channels
         out_channels = in_channels if out_channels is None else out_channels
         self.out_channels = out_channels
-        assert conv_shortcut==False
+        assert not conv_shortcut
 
         self.norm1 = Normalize(in_channels)
         self.conv1 = Conv2_5d(
-            in_channels, out_channels, kernel_size=3, stride=1, pad_mode="pad", padding=1, has_bias=True,
+            in_channels,
+            out_channels,
+            kernel_size=3,
+            stride=1,
+            pad_mode="pad",
+            padding=1,
+            has_bias=True,
         )
 
         if temb_channels > 0:
@@ -439,7 +486,13 @@ class ResnetBlock(nn.Cell):
         self.norm2 = Normalize(out_channels)
         self.dropout = nn.Dropout(p=dropout)
         self.conv2 = Conv2_5d(
-            out_channels, out_channels, kernel_size=3, stride=1, pad_mode="pad", padding=1, has_bias=True,
+            out_channels,
+            out_channels,
+            kernel_size=3,
+            stride=1,
+            pad_mode="pad",
+            padding=1,
+            has_bias=True,
         )
         if self.in_channels != self.out_channels:
             # TODO:
@@ -478,7 +531,7 @@ class SpatialAttnBlock(nn.Cell):
         self.proj_out = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, pad_mode="valid", has_bias=True)
 
         self.hidden_dim = in_channels
-        self.scale = ms.Tensor(self.hidden_dim**(-0.5), dtype=ms.float32)
+        self.scale = ms.Tensor(self.hidden_dim ** (-0.5), dtype=ms.float32)
 
     def construct(self, x):
         # x (b c t h w)
@@ -488,7 +541,7 @@ class SpatialAttnBlock(nn.Cell):
         # rearrange to spatial sequence (b c t h w) -> (bt c h w)
         T = x.shape[2]
         h_ = ops.transpose(h_, (0, 2, 1, 3, 4))
-        h_ = ops.reshape(h_, (h_.shape[0]*h_.shape[1], h_.shape[2], h_.shape[3], h_.shape[4] ))
+        h_ = ops.reshape(h_, (h_.shape[0] * h_.shape[1], h_.shape[2], h_.shape[3], h_.shape[4]))
 
         q = self.q(h_)
         k = self.k(h_)
@@ -515,7 +568,7 @@ class SpatialAttnBlock(nn.Cell):
 
         # rearrange back
         # -> (b t c h w)
-        h_ = ops.reshape(h_, (b//T, T, c, h, w))
+        h_ = ops.reshape(h_, (b // T, T, c, h, w))
         h_ = ops.transpose(h_, (0, 2, 1, 3, 4))
 
         return x + h_
@@ -534,7 +587,7 @@ class SpatialAttnBlockV2(nn.Cell):
         self.v = nn.Dense(in_channels, in_channels, has_bias=True)
         self.proj_out = nn.Dense(in_channels, in_channels, has_bias=True)
 
-        self.scale = ms.Tensor(in_channels**(-0.5), dtype=ms.float32)   # hidden_dim = in_channels
+        self.scale = ms.Tensor(in_channels ** (-0.5), dtype=ms.float32)  # hidden_dim = in_channels
 
     def construct(self, x):
         # x (b c t h w)
@@ -544,7 +597,7 @@ class SpatialAttnBlockV2(nn.Cell):
         # rearrange h_ to (b*t h*w c)
         B, C, T, H, W = h_.shape
         h_ = ops.transpose(h_, (0, 2, 3, 4, 1))
-        h_ = ops.reshape(h_, (B*T, H*W, C))
+        h_ = ops.reshape(h_, (B * T, H * W, C))
 
         q = self.q(h_)
         k = self.k(h_)
@@ -559,7 +612,7 @@ class SpatialAttnBlockV2(nn.Cell):
         attn = ops.softmax(m, axis=-1).astype(v.dtype)  # (bt nq nk)
 
         # attend to values (nk = nv)
-        h_ = self.bmm(attn, v)     # (bt nq c) = (bt hw c)
+        h_ = self.bmm(attn, v)  # (bt nq c) = (bt hw c)
         h_ = self.proj_out(h_)
 
         # rearrange back to input shape
@@ -577,12 +630,12 @@ class TemporalAttnBlock(nn.Cell):
         # TODO: instead of GroupNorm, LayerNorm is better for tiling
         self.norm = Normalize(in_channels)
         # TODO: compare conv1d with Dense on performance
-        self.to_q = nn.Dense(in_channels, in_channels,  has_bias=has_bias)
-        self.to_k = nn.Dense(in_channels, in_channels,  has_bias=has_bias)
-        self.to_v = nn.Dense(in_channels, in_channels,  has_bias=has_bias)
+        self.to_q = nn.Dense(in_channels, in_channels, has_bias=has_bias)
+        self.to_k = nn.Dense(in_channels, in_channels, has_bias=has_bias)
+        self.to_v = nn.Dense(in_channels, in_channels, has_bias=has_bias)
         self.proj_out = nn.Dense(in_channels, in_channels, has_bias=has_bias)
 
-        self.scale = ms.Tensor(in_channels**(-0.5), dtype=ms.float32)   # hidden_dim = in_channels
+        self.scale = ms.Tensor(in_channels ** (-0.5), dtype=ms.float32)  # hidden_dim = in_channels
 
     def construct(self, x):
         # x (b c t h w)
@@ -593,7 +646,7 @@ class TemporalAttnBlock(nn.Cell):
         # (b c t h w) -> (b*h*w t c) = (B S H)
         B, C, T, H, W = h_.shape
         h_ = ops.transpose(h_, (0, 3, 4, 2, 1))
-        h_ = ops.reshape(h_, (B*H*W, T, C))
+        h_ = ops.reshape(h_, (B * H * W, T, C))
 
         # projection
         q = self.to_q(h_)  # (bhw t c)
@@ -626,16 +679,17 @@ def make_attn(in_channels, attn_type="vanilla"):
     print(f"making attention of type '{attn_type}' with {in_channels} in_channels")
     if attn_type == "vanilla":
         return nn.SequentialCell(
-                SpatialAttnBlock(in_channels),
-                TemporalAttnBlock(in_channels),
-                )
-    elif attn_type == 'spat_only':
+            SpatialAttnBlock(in_channels),
+            TemporalAttnBlock(in_channels),
+        )
+    elif attn_type == "spat_only":
         # to ensure naming consistency
         return nn.SequentialCell(
-                SpatialAttnBlock(in_channels),
-                )
+            SpatialAttnBlock(in_channels),
+        )
     else:
         raise NotImplementedError
+
 
 # used in vae
 class Encoder(nn.Cell):
@@ -669,7 +723,13 @@ class Encoder(nn.Cell):
 
         # downsampling
         self.conv_in = Conv2_5d(
-            in_channels, ch, kernel_size=3, stride=1, pad_mode='pad', padding=1, has_bias=True,
+            in_channels,
+            ch,
+            kernel_size=3,
+            stride=1,
+            pad_mode="pad",
+            padding=1,
+            has_bias=True,
         )
 
         curr_res = resolution
@@ -736,12 +796,12 @@ class Encoder(nn.Cell):
         )
 
     def construct(self, x):
-        '''
+        """
         Args:
             x: (b c t h w)
         Returns:
             (b c t h w)
-        '''
+        """
         # spatial and temporal conv
         hs = self.conv_in(x)
 
@@ -788,7 +848,7 @@ class Decoder(nn.Cell):
         tanh_out=False,
         use_linear_attn=False,
         attn_type="vanilla",
-        temporal_upsample_level=(1,2,3),  # same as spatial
+        temporal_upsample_level=(1, 2, 3),  # same as spatial
         **ignorekwargs,
     ):
         super().__init__()
@@ -810,19 +870,13 @@ class Decoder(nn.Cell):
         _logger.debug("Working with z of shape {} = {} dimensions.".format(self.z_shape, np.prod(self.z_shape)))
 
         # z to block_in
-        self.conv_in = Conv2_5d(
-            z_channels, block_in, kernel_size=3, stride=1, pad_mode="pad", padding=1, has_bias=True
-        )
+        self.conv_in = Conv2_5d(z_channels, block_in, kernel_size=3, stride=1, pad_mode="pad", padding=1, has_bias=True)
 
         # middle
         self.mid = nn.Cell()
-        self.mid.block_1 = ResnetBlock(
-            in_channels=block_in, out_channels=block_in, dropout=dropout
-        )
+        self.mid.block_1 = ResnetBlock(in_channels=block_in, out_channels=block_in, dropout=dropout)
         self.mid.attn_1 = make_attn(block_in, attn_type=attn_type)
-        self.mid.block_2 = ResnetBlock(
-            in_channels=block_in, out_channels=block_in, dropout=dropout
-        )
+        self.mid.block_2 = ResnetBlock(in_channels=block_in, out_channels=block_in, dropout=dropout)
 
         # upsampling
         self.up = nn.CellList(auto_prefix=False)
@@ -866,12 +920,12 @@ class Decoder(nn.Cell):
         self.conv_out = Conv2_5d(block_in, out_ch, kernel_size=3, stride=1, pad_mode="pad", padding=1, has_bias=True)
 
     def construct(self, z):
-        '''
+        """
         Args:
             x: (b c t h w)
         Returns:
             (b c t h w)
-        '''
+        """
 
         # z to block_in
         h = self.conv_in(z)

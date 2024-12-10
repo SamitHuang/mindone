@@ -1,14 +1,15 @@
-import numpy as np
 import sys
+
+import numpy as np
 from PIL import Image
-sys.path.insert(0, '.')
+
+sys.path.insert(0, ".")
 
 from mg.models.tae.modules import (
     Conv2_5d,
     Decoder,
     Encoder,
     ResnetBlock,
-    SpatialAttnBlock,
     SpatialAttnBlockV2,
     SpatialDownsample,
     SpatialUpsample,
@@ -16,19 +17,17 @@ from mg.models.tae.modules import (
     TemporalDownsample,
     TemporalUpsample,
 )
+from mg.models.tae.sd3_vae import SD3d5_VAE
 from mg.models.tae.tae import SDXL_CONFIG, TAE_CONFIG, TemporalAutoencoder
-from mg.models.tae.sd3_vae import SD3d5_CONFIG, SD3d5_VAE
 
 import mindspore as ms
 
 
-def get_input_image(img_path="../videocomposer/demo_video/moon_on_water.jpg",
-                    W=128,
-                    H=128):
+def get_input_image(img_path="../videocomposer/demo_video/moon_on_water.jpg", W=128, H=128):
     target_size = (H, W)
 
     # read image using PIL and preprocess
-    image = Image.open(img_path).convert('RGB')
+    image = Image.open(img_path).convert("RGB")
     image = image.resize(target_size)
     pixel_values = np.array(image, dtype=np.float32)
     pixel_values = (pixel_values / 127.5 - 1.0).astype(np.float32)
@@ -37,7 +36,8 @@ def get_input_image(img_path="../videocomposer/demo_video/moon_on_water.jpg",
 
     return pixel_values
 
-def save_output_image(image_array, output_path='tests/tmp_output.png'):
+
+def save_output_image(image_array, output_path="tests/tmp_output.png"):
     image_array = image_array.transpose((1, 2, 0))
     image_array = ((image_array + 1) * 127.5).astype(np.uint8)
     image_array = np.clip(image_array, 0, 255)
@@ -45,7 +45,7 @@ def save_output_image(image_array, output_path='tests/tmp_output.png'):
     image = Image.fromarray(image_array)
 
     image.save(output_path)
-    print(f'image saved in {output_path}')
+    print(f"image saved in {output_path}")
 
 
 def test_conv25d():
@@ -81,13 +81,11 @@ def test_resnetblock():
 
 def test_spatial_attn():
     in_shape = (B, C, T, H, W) = (1, 64, 4, 32, 32)
-    cout = C
     x = np.random.normal(size=in_shape).astype(np.float32)
 
     # TODO: compare time cost for v1 and v2
     # sa = SpatialAttnBlock(C)
     sa = SpatialAttnBlockV2(C)
-
 
     x = ms.Tensor(x)
     y = sa(x)
@@ -98,12 +96,10 @@ def test_spatial_attn():
 
 def test_temporal_attn():
     in_shape = (B, C, T, H, W) = (1, 64, 4, 32, 32)
-    cout = C
     x = np.random.normal(size=in_shape).astype(np.float32)
 
     # TODO: compare time cost for v1 and v2
     ta = TemporalAttnBlock(C)
-
 
     x = ms.Tensor(x)
     y = ta(x)
@@ -198,6 +194,7 @@ def test_tae_encode():
 
     print(y.shape)
 
+
 def test_tae_decode():
     # in_shape = (B, C, T, H, W) = (1, 3, 1, 64, 64)
     in_shape = (B, C, T, H, W) = (1, 4, 1, 8, 8)
@@ -211,7 +208,7 @@ def test_tae_decode():
 
 
 def test_tae_rec():
-    TAE_CONFIG['attn_type'] = 'spat_only'
+    TAE_CONFIG["attn_type"] = "spat_only"
     tae = TemporalAutoencoder(config=TAE_CONFIG)
     tae.load_pretrained("models/tae_vae2d.ckpt")
 
@@ -225,7 +222,8 @@ def test_tae_rec():
     y = tae(x)
 
     print(y[0].shape)
-    save_output_image(y[0].numpy()[0, :, 0, :, :], 'tests/tmp_tae_output.png')
+    save_output_image(y[0].numpy()[0, :, 0, :, :], "tests/tmp_tae_output.png")
+
 
 def test_sd3d5_vae():
     vae = SD3d5_VAE(sample_deterministic=True)
@@ -248,10 +246,10 @@ def test_sd3d5_vae():
 
     print(recons.sum())
 
+
 def test_blend():
     ms.set_context(mode=1)
-    tae = TemporalAutoencoder(config=TAE_CONFIG, use_tile=True,
-        encode_tile=32, decode_tile=32, decode_overlap=16)
+    tae = TemporalAutoencoder(config=TAE_CONFIG, use_tile=True, encode_tile=32, decode_tile=32, decode_overlap=16)
 
     in_shape = (B, C, T, H, W) = (1, 1, 12, 1, 1)
     x = np.random.normal(size=in_shape).astype(np.float32)
@@ -263,8 +261,7 @@ def test_blend():
 
 
 def test_tae_tile():
-    tae = TemporalAutoencoder(config=TAE_CONFIG, use_tile=True,
-        encode_tile=32, decode_tile=32, decode_overlap=16)
+    tae = TemporalAutoencoder(config=TAE_CONFIG, use_tile=True, encode_tile=32, decode_tile=32, decode_overlap=16)
 
     # in_shape = (B, C, T, H, W) = (1, 3, 16, 64, 64)
     in_shape = (B, C, T, H, W) = (1, 3, 96, 32, 32)
@@ -280,8 +277,6 @@ def test_tae_tile():
     # check correctness of blend
 
 
-
-
 if __name__ == "__main__":
     ms.set_context(mode=1)
 
@@ -290,7 +285,7 @@ if __name__ == "__main__":
     # test_spatial_attn()
     # test_temporal_attn()
     # test_spatial_downsample()
-    test_temporal_downsample()
+    # test_temporal_downsample()
     # test_encoder()
 
     # test_temporal_upsample()
@@ -302,4 +297,4 @@ if __name__ == "__main__":
     # test_tae_tile()
     # test_blend()
 
-    # test_sd3d5_vae()
+    test_sd3d5_vae()

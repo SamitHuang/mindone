@@ -21,8 +21,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
 from args_train_tae import parse_args
 from mg.datasets.tae_dataset import create_dataloader
 from mg.models.tae.losses import GeneratorWithLoss
+from mg.models.tae.modules import SpatialDownsample, SpatialUpsample, TemporalDownsample, TemporalUpsample
 from mg.models.tae.tae import TemporalAutoencoder
-from mg.models.tae.modules import  SpatialUpsample, SpatialDownsample, TemporalUpsample, TemporalDownsample 
 
 from mindone.trainers.callback import EvalSaveCallback, OverflowMonitor, ProfilerCallback
 from mindone.trainers.checkpoint import CheckpointManager, resume_train_network
@@ -63,7 +63,6 @@ def init_env(
     parallel_mode: str = "data",
     jit_level: str = "O2",
     global_bf16: bool = False,
-    dynamic_shape: bool = False,
     debug: bool = False,
 ) -> Tuple[int, int]:
     """
@@ -134,9 +133,6 @@ def init_env(
         # only effective in GE mode, i.e. jit_level: O2
         ms.set_context(ascend_config={"precision_mode": "allow_mix_precision_bf16"})
 
-    if dynamic_shape:
-        print("Dynamic shape mode enabled, repeat_interleave/split/chunk will be called from mint module")
-        set_dynamic_mode(True)
 
     return rank_id, device_num
 
@@ -152,7 +148,6 @@ def main(args):
         parallel_mode=args.parallel_mode,
         jit_level=args.jit_level,
         global_bf16=args.global_bf16,
-        dynamic_shape=(args.mixed_strategy == "mixed_video_random"),
         debug=args.debug,
     )
     set_logger(name="", output_dir=args.output_path, rank=rank_id, log_level=eval(args.log_level))
@@ -195,7 +190,7 @@ def main(args):
     ae = TemporalAutoencoder(
         pretrained=args.pretrained_model_path,
         use_recompute=args.use_recompute,
-        )
+    )
 
     if args.use_discriminator:
         logging.error("Discriminator is not used or supported in OpenSora v1.2")
@@ -209,8 +204,9 @@ def main(args):
             ae,
             args.amp_level,
             dtype,
-            custom_fp32_cells= [SpatialDownsample, SpatialUpsample, TemporalDownsample, TemporalUpsample] if args.vae_keep_updown_fp32 else [] + \
-            ([nn.GroupNorm] if args.vae_keep_gn_fp32 else []),
+            custom_fp32_cells=[SpatialDownsample, SpatialUpsample, TemporalDownsample, TemporalUpsample]
+            if args.vae_keep_updown_fp32
+            else [] + ([nn.GroupNorm] if args.vae_keep_gn_fp32 else []),
             # custom_fp32_cells=[nn.GroupNorm, SpatialUpsample] if args.vae_keep_gn_fp32 else [SpatialUpsample],
         )
 

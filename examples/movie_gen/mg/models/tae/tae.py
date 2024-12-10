@@ -1,8 +1,9 @@
-import mindspore as ms
 import math
-from mindspore import nn, ops
-from .modules import Conv2_5d, Encoder, Decoder
 
+import mindspore as ms
+from mindspore import nn, ops
+
+from .modules import Conv2_5d, Decoder, Encoder
 
 SDXL_CONFIG = {
     "double_z": True,
@@ -16,7 +17,7 @@ SDXL_CONFIG = {
     "attn_resolutions": [],
     "dropout": 0.0,
     "use_post_quant_conv": True,
-    "use_quant_conv": True
+    "use_quant_conv": True,
 }
 
 # modify based on SD3d5_CONFIG
@@ -38,7 +39,6 @@ TAE_CONFIG = {
     "attn_type": "vanilla",
     "temporal_downsample_level": [0, 1, 2],
     "temporal_upsample_level": [3, 2, 1],
-
 }
 
 
@@ -55,13 +55,13 @@ class TemporalAutoencoder(nn.Cell):
         self,
         config: dict = TAE_CONFIG,
         pretrained: str = None,
-        use_recompute: bool=False,
-        sample_deterministic: bool=False,
-        use_tile: bool=False,
-        encode_tile: int=32,
-        encode_overlap: int=0,
-        decode_tile: int=32,
-        decode_overlap: int=16,
+        use_recompute: bool = False,
+        sample_deterministic: bool = False,
+        use_tile: bool = False,
+        encode_tile: int = 32,
+        encode_overlap: int = 0,
+        decode_tile: int = 32,
+        decode_overlap: int = 16,
     ):
         super().__init__()
 
@@ -69,14 +69,14 @@ class TemporalAutoencoder(nn.Cell):
         self.encoder = Encoder(**config)
 
         # quant and post quant
-        embed_dim = config['z_channels']
-        if config['use_quant_conv']:
+        embed_dim = config["z_channels"]
+        if config["use_quant_conv"]:
             self.quant_conv = Conv2_5d(2 * embed_dim, 2 * embed_dim, 1, pad_mode="valid", has_bias=True)
-        if config['use_post_quant_conv']:
+        if config["use_post_quant_conv"]:
             self.post_quant_conv = Conv2_5d(embed_dim, embed_dim, 1, pad_mode="valid", has_bias=True)
 
-        self.use_quant_conv = config['use_quant_conv']
-        self.use_post_quant_conv = config['use_post_quant_conv']
+        self.use_quant_conv = config["use_quant_conv"]
+        self.use_post_quant_conv = config["use_post_quant_conv"]
 
         # decoder
         self.decoder = Decoder(**config)
@@ -90,13 +90,17 @@ class TemporalAutoencoder(nn.Cell):
 
         # tile
         self.encode_tile = encode_tile
-        self.time_compress  = 2**len(config['temporal_downsample_level']) # 8
+        self.time_compress = 2 ** len(config["temporal_downsample_level"])  # 8
         self.encode_overlap = encode_overlap
         self.use_tile = use_tile
         if use_tile:
-            assert (self.encode_tile % self.time_compress == 0) and (self.encode_tile > 0), f'num tile frames should be divisable by {self.time_compress} and non-zero'
-            assert self.encode_overlap % self.time_compress == 0, f'overlap frames should be divisable by {self.time_compress}'
-            assert self.encode_overlap == 0, 'not supported'
+            assert (self.encode_tile % self.time_compress == 0) and (
+                self.encode_tile > 0
+            ), f"num tile frames should be divisable by {self.time_compress} and non-zero"
+            assert (
+                self.encode_overlap % self.time_compress == 0
+            ), f"overlap frames should be divisable by {self.time_compress}"
+            assert self.encode_overlap == 0, "not supported"
 
         self.decode_tile = decode_tile
         self.decode_overlap = decode_overlap
@@ -109,7 +113,6 @@ class TemporalAutoencoder(nn.Cell):
         if pretrained is not None:
             self.load_pretrained(pretrained)
 
-
     def recompute(self, b):
         if not b._has_config_recompute:
             b.recompute()
@@ -117,7 +120,6 @@ class TemporalAutoencoder(nn.Cell):
             self.recompute(b[-1])
         else:
             b.add_flags(output_no_recompute=True)
-
 
     def _encode(self, x):
         # return latent distribution, N(mean, logvar)
@@ -158,13 +160,14 @@ class TemporalAutoencoder(nn.Cell):
 
         return z, posterior_mean, posterior_logvar
 
-    def decode(self, z: ms.Tensor, target_num_frames: int=None) -> ms.Tensor:
+    def decode(self, z: ms.Tensor, target_num_frames: int = None) -> ms.Tensor:
         r"""
         Decode a batch of latents to videos
 
         Args:
             x (Tensor): input latent tensor of shape (b z t' h' w')
-            target_num_frames (int): target number of frames for output, if None, all the decoded frames will be reserved. Otherwise, the previous this number of frames will be reserved.
+            target_num_frames (int): target number of frames for output, if None, all the decoded frames will be reserved. \
+                    Otherwise, the previous this number of frames will be reserved.
 
         Returns:
             z (Tensor): the decoded videos of shape (b c t h w)
@@ -203,13 +206,14 @@ class TemporalAutoencoder(nn.Cell):
         # TODO: merge mean, logvar for different slices for training tae with tile
         return z_out, mean, logvar
 
-    def decode_with_tile(self, z: ms.Tensor, target_num_frames: int=None) -> ms.Tensor:
+    def decode_with_tile(self, z: ms.Tensor, target_num_frames: int = None) -> ms.Tensor:
         r"""
         Decode a batch of latents to videos with tiling
 
         Args:
             x (Tensor): input latent tensor of shape (b z t' h' w')
-            target_num_frames (int): target number of frames for output, if None, all the decoded frames will be reserved. Otherwise, the previous this number of frames will be reserved.
+            target_num_frames (int): target number of frames for output, if None, all the decoded frames will be reserved. \
+                    Otherwise, the previous this number of frames will be reserved.
 
         Returns:
             z (Tensor): the decoded videos of shape (b c t h w)
@@ -221,7 +225,7 @@ class TemporalAutoencoder(nn.Cell):
         in_len = z.shape[2]
         num_slices = (in_len - tl) // stride + 1
         if (in_len - tl) % stride != 0 and (in_len - tl) + stride < in_len:
-           num_slices += 1
+            num_slices += 1
 
         # ms graph mode requires an init x_out
         x_out = self.decode(z[:, :, :tl])
@@ -263,8 +267,8 @@ class TemporalAutoencoder(nn.Cell):
         num_slices = math.ceil(in_len / slice_len)
         stride = slice_len - overlap_len
 
-        out_len = ((num_slices-1) * slice_len) - (num_slices - 2) * overlap_len
-        last_slice_len = in_len - (num_slices -1 ) * slice_len
+        out_len = ((num_slices - 1) * slice_len) - (num_slices - 2) * overlap_len
+        last_slice_len = in_len - (num_slices - 1) * slice_len
         out_len += last_slice_len - overlap_len
 
         out_tensor = ops.zeros((B, C, out_len, H, W), ms.float32)
@@ -272,18 +276,17 @@ class TemporalAutoencoder(nn.Cell):
 
         for i in range(num_slices):
             # get the slice form the concatnated latent
-            cur_slice = x[:, :, i*slice_len:(i+1)*slice_len]
+            cur_slice = x[:, :, i * slice_len : (i + 1) * slice_len]
             cur_len = cur_slice.shape[2]
 
             # put the slice into the right position of output tensor
             start = i * stride
-            out_tensor[:, :, start:start+cur_len] += cur_slice
-            out_cnt[:, :, start:start+cur_len] += 1
+            out_tensor[:, :, start : start + cur_len] += cur_slice
+            out_cnt[:, :, start : start + cur_len] += 1
 
         out_tensor = out_tensor / out_cnt
 
         return out_tensor
-
 
     def construct(self, x: ms.Tensor) -> ms.Tensor:
         r"""
@@ -311,16 +314,15 @@ class TemporalAutoencoder(nn.Cell):
             recons = self.decode(z)
 
         if self.discard_spurious_frames and (recons.shape[-3] != x.shape[-3]):
-            recons = recons[:, :, :x.shape[-3], :, :]
+            recons = recons[:, :, : x.shape[-3], :, :]
 
         return recons, z, posterior_mean, posterior_logvar
 
-
-    def load_pretrained(self, ckpt_path:str):
-
-        if ckpt_path.endswith('safetensors'):
+    def load_pretrained(self, ckpt_path: str):
+        if ckpt_path.endswith("safetensors"):
             # load vae parameters from safetensors into my mindspore model
             import safetensors
+
             ckpt = safetensors.safe_open(ckpt_path, framework="pt")
             state_dict = {}
             for key in ckpt.keys():
@@ -341,5 +343,4 @@ class TemporalAutoencoder(nn.Cell):
                 print(f"{param_not_load} in network is not loaded")
                 print(f"{ckpt_not_load} in checkpoint is not loaded!")
 
-        print('TAE checkpoint loaded')
-
+        print("TAE checkpoint loaded")

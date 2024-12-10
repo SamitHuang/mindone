@@ -19,7 +19,7 @@ We use SD3.5 VAE to initialize the spatial layers of TAE, considering they have 
 2. Inflate VAE checkpoint for TAE initialization by
 
 ```shell
-python inflate_vae_to_tae.py --src /path/to/sd3.5_vae/diffusion_pytorch_model.safetensors --target models/tae_vae2d.ckpt 
+python inflate_vae_to_tae.py --src /path/to/sd3.5_vae/diffusion_pytorch_model.safetensors --target models/tae_vae2d.ckpt
 ```
 
 ### Prepare datasets
@@ -50,7 +50,7 @@ python scripts/train_tae.py \
 --video_folder /path/to/video_root_folder  \
 ```
 
-Different from the paper, we found that OPL loss doesn't benefit the training outcome in our ablation study (reducing in lower PSNR decreased). Thus we disable OPL loss by default. You may enable it by appending `--use_outlier_penalty_loss True` 
+Different from the paper, we found that OPL loss doesn't benefit the training outcome in our ablation study (reducing in lower PSNR decreased). Thus we disable OPL loss by default. You may enable it by appending `--use_outlier_penalty_loss True`
 
 For more details on the arguments, please run `python scripts/train_tae.py --help`
 
@@ -75,19 +75,26 @@ The reconstructed videos will be saved in `samples/recons`.
 
 Here, we report the training performance and evaluation results on the UCF-101 dataset.
 
+<<<<<<< HEAD
 Experiments are tested on ascend 910* with mindspore 2.3.1 graph mode.
 
 | model name      |  cards | batch size | resolution |  precision | jit level |   graph compile | s/step     | PSNR | SSIM | recipe |
 | :--:         | :---:   | :--:       | :--:       |  :--:       | :--:       | :--:      |:--:    | :--:   |:--:   |
 | TAE  |  1     | 1      | 256x256x32   |  bf16    |   O0  | 2 mins |   2.18     | 31.35     |   0.92       |  [config](configs/tae/train/mixed_256x256x32.yaml) |
+=======
+>>>>>>> 095f170b1a4b3b2d638eed9376f14e86304d285c
 
+| Resolution | NPUs | Precision | Time (s/step) | PSNR (test set) |
+|------------|------|-----------|---------------|-----------------|
+| 256x256x16 | 1    | FP32      | 2.05          | 28.5            |
+| 256x256x32 | 1    | BF16      | 2.49          | 28.9            |
 
-### Usages for Latent Diffusion Models 
+### Usages for Latent Diffusion Models
 
 <details>
 <summary>View more</summary>
 
-#### Encoding video 
+#### Encoding video
 
 ```python
 from mg.models.tae.tae import TemporalAutoencoder, TAE_CONFIG
@@ -103,7 +110,7 @@ z, _, _ = tae.encode(x)
 
 
 # you may scale z by:
-# z = TAE_CONFIG['scaling_factor'] * (z - TAE_CONFIG['shift_factor']) 
+# z = TAE_CONFIG['scaling_factor'] * (z - TAE_CONFIG['shift_factor'])
 
 ```
 
@@ -119,7 +126,7 @@ For detailed arguments, please refer to the docstring in [tae.py](mg/models/tae/
 # z - a batch of video latent, shape (b c t h w)
 x = tae.decode(z)
 
-# for image decoding, set num_target_frames to discard the spurious frames 
+# for image decoding, set num_target_frames to discard the spurious frames
 x = tae.decode(z, num_target_frames=1)
 ```
 

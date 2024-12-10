@@ -1,6 +1,4 @@
 import argparse
-import logging
-
 
 def remove_pname_prefix(param_dict, prefix="network."):
     # replace the prefix of param dict
