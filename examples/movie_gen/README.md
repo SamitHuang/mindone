@@ -1,7 +1,7 @@
-# Movie Gen Video
+# Movie Gen Video based on MindSpore
 
 
-## TAE
+## Temporal Autoencoder (TAE) 
 
 
 ### Requirements
