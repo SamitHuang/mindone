@@ -75,19 +75,12 @@ The reconstructed videos will be saved in `samples/recons`.
 
 Here, we report the training performance and evaluation results on the UCF-101 dataset.
 
-<<<<<<< HEAD
 Experiments are tested on ascend 910* with mindspore 2.3.1 graph mode.
 
 | model name      |  cards | batch size | resolution |  precision | jit level |   graph compile | s/step     | PSNR | SSIM | recipe |
-| :--:         | :---:   | :--:       | :--:       |  :--:       | :--:       | :--:      |:--:    | :--:   |:--:   |
+| :--:         | :---:   | :--:       | :--:       |  :--:       | :--:       | :--:      |:--:    | :--:   |:--:   |:--:   |
 | TAE  |  1     | 1      | 256x256x32   |  bf16    |   O0  | 2 mins |   2.18     | 31.35     |   0.92       |  [config](configs/tae/train/mixed_256x256x32.yaml) |
-=======
->>>>>>> 095f170b1a4b3b2d638eed9376f14e86304d285c
 
-| Resolution | NPUs | Precision | Time (s/step) | PSNR (test set) |
-|------------|------|-----------|---------------|-----------------|
-| 256x256x16 | 1    | FP32      | 2.05          | 28.5            |
-| 256x256x32 | 1    | BF16      | 2.49          | 28.9            |
 
 ### Usages for Latent Diffusion Models
 
