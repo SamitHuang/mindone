@@ -1,6 +1,6 @@
 # HunyuanVideo: A Systematic Framework For Large Video Generation Model
 
-Here we provide an efficient MindSpore implementation of [HunyuanVideo](https://github.com/Tencent/HunyuanVideo), an open-source project that aims to foster large video generation model.
+Here we provide an efficient MindSpore implementation of [HunyuanVideo](https://github.com/Tencent/HunyuanVideo), an open-source project that aims to foster large-scale video generation model.
 
 This repository is built on the models and code released by Tencent HunyuanVideo. We are grateful for their exceptional work and generous contribution to open source.
 
@@ -30,9 +30,7 @@ pip install -r requirements.txt
 
 ## 🧱 Prepare Pretrained Models
 
-The details of download pretrained models are shown [here](ckpts/README.md).
-
-Please download all checkpoints and convert them into MindSpore checkpoints following this [instruction](./ckpts/README.md).
+Please download the pretrained models and optionally convert them to safetensors format following this [instruction](./ckpts/README.md).
 
 ## 📀 Inference
 
