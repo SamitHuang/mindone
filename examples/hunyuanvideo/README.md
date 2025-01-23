@@ -25,7 +25,7 @@ This repository is built on the models and code released by Tencent HunyuanVideo
 | 2.4.1     |  24.1.0     |7.35.23    |   8.0.RC3   |
 
 ```
-pip install -r requirements.txt 
+pip install -r requirements.txt
 ```
 
 ## 🧱 Prepare Pretrained Models
@@ -35,18 +35,26 @@ Please download the pretrained models and optionally convert them to safetensors
 ## 📀 Inference
 
 
+``` bash
+python sample_video.py \
+    --video-size 544 960 \
+    --video-length 129 \
+    --infer-steps 50 \
+    --flow-reverse \
+    --seed-type 'fixed' \
+    --seed 1 \
+    --save-path ./results \
+    --dit-weight "ckpts/hunyuan-video-t2v-720p/transformers/mp_rank_00_model_states.pt" \
+    --prompt "text-prompt" \
+    --text-embed-path /path/to/text_embeddings.npz \
+
+```
+
+Please run `python sample_video.py --help` to see more arguments.
 
 
-## 🔑 Training 
+We also support run video reconstruction using the CausalVAE, please use the following command:
 
-
-
-
-## 3D VAE
-
-### Reconstruction
-
-To run a video reconstruction using the CausalVAE, please use the following command:
 ```bash
 python hyvideo/rec_video.py \
   --video_path input_video.mp4 \
@@ -55,7 +63,23 @@ python hyvideo/rec_video.py \
   --width 640 \
   --num_frames 33 \
 ```
-The reconstructed video is saved under `./samples/`.
+The reconstructed video is saved under `./samples/`. To run video reconstruction on a given folder of input videos, please see `hyvideo/rec_video_folder.py` for more information.
+
+
+## 🔑 Training
+
+### Dataset Preparation
+
+To prepare the dataset for training HuyuanVideo, please refer to the [dataset format](./hyvideo/dataset/README.md).
+
+
+### Training
+
+To train HunyuanVideo, we use ZeRO3 and data parallelism to enable parallel training on 8 devices. Please run the following command:
+
+```bash
+bash scripts/train_t2v_zero3.sh
+```
 
 
 ### Evaluation
@@ -77,3 +101,19 @@ Afterwards, you can evaluate the PSNR via:
 ```bash
 bash hyvideo/eval/scripts/cal_psnr.sh
 ```
+
+## Embedding Cache
+
+### Text embedding cache
+
+```bash
+cd hyvideo
+python run_text_encoder.py
+```
+
+### Video embedding cache
+
+
+## Acknowledgements
+
+We would like to thank the contributors to the [HunyuanVideo](https://arxiv.org/abs/2412.03603), [SD3](https://huggingface.co/stabilityai/stable-diffusion-3-medium), [FLUX](https://github.com/black-forest-labs/flux), [Llama](https://github.com/meta-llama/llama), [LLaVA](https://github.com/haotian-liu/LLaVA), [diffusers](https://github.com/huggingface/diffusers) and [HuggingFace](https://huggingface.co) repositories, for their open research and exploration.
