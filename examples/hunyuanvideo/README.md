@@ -36,7 +36,7 @@ Please download the pretrained models and optionally convert them to safetensors
 
 
 ``` bash
-python sample_video.py \
+python hyvideo/sample_video.py \
     --video-size 544 960 \
     --video-length 129 \
     --infer-steps 50 \
@@ -47,10 +47,10 @@ python sample_video.py \
     --dit-weight "ckpts/hunyuan-video-t2v-720p/transformers/mp_rank_00_model_states.pt" \
     --prompt "text-prompt" \
     --text-embed-path /path/to/text_embeddings.npz \
-
+    --vae-tiling=True \
 ```
 
-Please run `python sample_video.py --help` to see more arguments.
+Please run `python hyvideo/sample_video.py --help` to see more arguments. Another example is provided in `scripts/run_t2v_sample.sh`.
 
 
 We also support run video reconstruction using the CausalVAE, please use the following command:
