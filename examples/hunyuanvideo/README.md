@@ -11,6 +11,7 @@ This repository is built on the models and code released by Tencent HunyuanVideo
   - [x] Inference
   - [x] Training (SFT)
   - [ ] LoRA fine-tune
+  - [x] 3D VAE Inference and Training
   - [ ] Web Demo (Gradio)
   - [ ] Multi-NPU parallel inference
 - HunyuanVideo (Image-to-Video Model)
@@ -34,9 +35,10 @@ Please download the pretrained models and optionally convert them to safetensors
 
 ## 📀 Inference
 
+Currently, we support text-to-video generation with text embedding pre-computing. Please refer [Text embedding cache](#text-embedding-cache) to prepare the embedding before running the t2v generation.
 
 ``` bash
-python hyvideo/sample_video.py \
+python sample_video.py \
     --video-size 544 960 \
     --video-length 129 \
     --infer-steps 50 \
@@ -50,20 +52,7 @@ python hyvideo/sample_video.py \
     --vae-tiling=True \
 ```
 
-Please run `python hyvideo/sample_video.py --help` to see more arguments. Another example is provided in `scripts/run_t2v_sample.sh`.
-
-
-We also support run video reconstruction using the CausalVAE, please use the following command:
-
-```bash
-python hyvideo/rec_video.py \
-  --video_path input_video.mp4 \
-  --rec_path rec.mp4 \
-  --height 360 \
-  --width 640 \
-  --num_frames 33 \
-```
-The reconstructed video is saved under `./samples/`. To run video reconstruction on a given folder of input videos, please see `hyvideo/rec_video_folder.py` for more information.
+Please run `python sample_video.py --help` to see more arguments. An example is provided in `scripts/run_t2v_sample.sh`.
 
 
 ## 🔑 Training
@@ -73,38 +62,49 @@ The reconstructed video is saved under `./samples/`. To run video reconstruction
 To prepare the dataset for training HuyuanVideo, please refer to the [dataset format](./hyvideo/dataset/README.md).
 
 
-### Training
+### Distributed Training
 
-To train HunyuanVideo, we use ZeRO3 and data parallelism to enable parallel training on 8 devices. Please run the following command:
+To train HunyuanVideo (13B) on multiple NPUs, we use ZeRO3 and data parallelism as follows:
 
 ```bash
 bash scripts/train_t2v_zero3.sh
 ```
 
 
-### Evaluation
+## 3D-VAE Inference and Training
 
-To evaluate VAE's PNSR, please download MCL_JCV dataset from this [URL](https://mcl.usc.edu/mcl-jcv-dataset/), and place the videos under `datasets/MCL_JCV`.
+### Video Reconstruction and Evalution
 
-Now, to run video reconstruction on a video folder, please run:
+To run video reconstruction using 3D-VAE, please use the following command:
 
 ```bash
-python hyvideo/rec_video_folder.py \
-  --real_video_dir datasets/MCL_JCV \
-  --generated_video_dir datasets/MCL_JCV_generated \
+python hyvideo/rec_video.py \
+  --video_path input_video.mp4 \
+  --rec_path rec.mp4 \
   --height 360 \
   --width 640 \
   --num_frames 33 \
 ```
 
-Afterwards, you can evaluate the PSNR via:
-```bash
-bash hyvideo/eval/scripts/cal_psnr.sh
-```
+The reconstructed video will be saved under `./samples/`.
+
+To run video reconstruction on a folder of videos, please replace the script with `hyvideo/rec_video_folder.py` and use `--real_video_dir` to parse the video folder path.
+
+To evaluate the reconsturcted videos, you may use the  `hyvideo/eval/scripts/cal_psnr.sh` script.
+
+TODOs:
+- [ ] For simplicity, remove `rec_video_folder.py` and allow evaluate a video folder in `rec_video.py` (e.g. `--real_video_dir`), and evaluate PSNR when video reconstruction finished. 
+
+### 3D-VAE Training
+
+coming soon...
+
 
 ## Embedding Cache
 
 ### Text embedding cache
+
+To generate text embeddings given an annotation file in JSON format, please use the following command:
 
 ```bash
 python hyvideo/run_text_encoder.py \
@@ -114,7 +114,7 @@ python hyvideo/run_text_encoder.py \
   --output_path /path/to/text_embed_folder \
 ```
 
-A shell script `scripts/run_text_encoder.sh` is provided as well.
+Please refer to [dataset formet](hyvideo/dataset/README.md) to write the json file.  A shell script `scripts/run_text_encoder.sh` is provided as well.
 
 ### Video embedding cache
 
