@@ -1,12 +1,104 @@
 import os
+import math
 from fractions import Fraction
-from typing import Union
+from typing import Union, Optional, Tuple
 
 import av
 import imageio
 import numpy as np
 
 __all__ = ["save_videos", "create_video_from_numpy_frames"]
+
+
+def make_grid(
+    tensor,
+    nrow = 8,
+    padding = 2,
+    normalize = False,
+    value_range: Optional[Tuple[int, int]] = None,
+    scale_each: bool = False,
+    pad_value: float = 0.0,
+):
+    """
+    Make a grid of images.
+
+    Args:
+        tensor (np array or list): 4D mini-batch Tensor of shape (B x C x H x W)
+            or a list of images all of the same size.
+        nrow (int, optional): Number of images displayed in each row of the grid.
+            The final grid size is ``(B / nrow, nrow)``. Default: ``8``.
+        padding (int, optional): amount of padding. Default: ``2``.
+        normalize (bool, optional): If True, shift the image to the range (0, 1),
+            by the min and max values specified by ``value_range``. Default: ``False``.
+        value_range (tuple, optional): tuple (min, max) where min and max are numbers,
+            then these numbers are used to normalize the image. By default, min and max
+            are computed from the tensor.
+        scale_each (bool, optional): If ``True``, scale each image in the batch of
+            images separately rather than the (min, max) over all images. Default: ``False``.
+        pad_value (float, optional): Value for the padded pixels. Default: ``0``.
+
+    Returns:
+        grid (np array): the tensor containing grid of images. if normalize, will be normalized to (0, 1)
+    """
+    # if list of tensors, convert to a 4D mini-batch Tensor
+    if isinstance(tensor, list):
+        tensor = np.stack(tensor, axis=0)
+    if tensor.ndim == 2:  # single image H x W
+        tensor = np.expand_dims(tensor, 0)
+    if tensor.ndim == 3:  # single image
+        if tensor.shape[0] == 1:  # if single-channel, convert to 3-channel
+            tensor = np.concatenate((tensor, tensor, tensor), 0)
+        tensor = np.expand_dims(tensor, 0)
+
+    if tensor.ndim == 4 and tensor.shape[1] == 1:  # single-channel images
+        tensor = np.concatenate((tensor, tensor, tensor), 1)
+
+    if normalize is True: tensor = tensor.copy()  # avoid modifying tensor in-place
+        if value_range is not None and not isinstance(value_range, tuple):
+            raise TypeError("value_range has to be a tuple (min, max) if specified. min and max are numbers")
+
+        def norm_ip(img, low, high):
+            img = np.clip(img, a_min=low, a_max=high)
+            img = np.divide(np.subtract(img, low), (max(high - low, 1e-5)))
+            return img
+
+        def norm_range(t, value_range):
+            if value_range is not None:
+                t = norm_ip(t, value_range[0], value_range[1])
+            else:
+                t = norm_ip(t, float(t.min()), float(t.max()))
+            return t
+
+        if scale_each is True:
+            for i in range(tensor.shape[0]):  # loop over mini-batch dimension
+                tensor[i] = norm_range(ttensor[i], value_range)
+        else:
+            tensor = norm_range(tensor, value_range)
+
+    if tensor.shape[0] == 1:
+        return np.squeeze(tensor, 0)
+
+    # make the mini-batch of images into a grid
+    nmaps = tensor.shape[0]
+    xmaps = min(nrow, nmaps)
+    ymaps = int(math.ceil(float(nmaps) / xmaps))
+    height, width = int(tensor.shape[2] + padding), int(tensor.shape[3] + padding)
+    num_channels = tensor.shape[1]
+    grid = np.full((num_channels, height * ymaps + padding, width * xmaps + padding), pad_value, dtype=np.float32)
+    k = 0
+    for y in range(ymaps):
+        for x in range(xmaps):
+            if k >= nmaps:
+                break
+            # Tensor.copy_() is a valid method but seems to be missing from the stubs
+            h_start = (y * height + padding)
+            h_len = (height - padding)
+            w_start = (x * width + padding)
+            w_len = (width - padding)
+            grid[:, h_start : h_start + h_len, w_start : w_start + w_len] = tensor[k]
+            k = k + 1
+    return grid
+
 
 
 def create_video_from_rgb_numpy_arrays(image_arrays, output_file, fps: Union[int, float] = 30):
