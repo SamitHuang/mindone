@@ -24,7 +24,7 @@ def make_grid(
 
     Args:
         tensor (np array or list): 4D mini-batch Tensor of shape (B x C x H x W)
-            or a list of images all of the same size.
+            or a list of images all of the same size.. typically input range is -1 to 1
         nrow (int, optional): Number of images displayed in each row of the grid.
             The final grid size is ``(B / nrow, nrow)``. Default: ``8``.
         padding (int, optional): amount of padding. Default: ``2``.
@@ -53,7 +53,8 @@ def make_grid(
     if tensor.ndim == 4 and tensor.shape[1] == 1:  # single-channel images
         tensor = np.concatenate((tensor, tensor, tensor), 1)
 
-    if normalize is True: tensor = tensor.copy()  # avoid modifying tensor in-place
+    if normalize is True:
+        tensor = tensor.copy()  # avoid modifying tensor in-place
         if value_range is not None and not isinstance(value_range, tuple):
             raise TypeError("value_range has to be a tuple (min, max) if specified. min and max are numbers")
 

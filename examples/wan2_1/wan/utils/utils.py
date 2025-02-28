@@ -1,5 +1,6 @@
 # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
 import argparse
+import numpy as np
 import binascii
 import logging
 import os
@@ -12,6 +13,7 @@ import torchvision
 import tqdm
 
 import mindspore as ms
+from mindspore import mint
 from mindspore import Parameter, Tensor
 from mindone.visualize.videos import make_grid
 
@@ -30,7 +32,8 @@ def rand_name(length=8, suffix=""):
 
 
 def cache_video(tensor, save_file=None, fps=30, suffix=".mp4", nrow=8, normalize=True, value_range=(-1, 1), retry=5):
-    tensor = tensor.float().asnumpy()
+    # import pdb; pdb.set_trace()
+    # tensor = tensor.float().asnumpy()
 
     # cache file
     cache_file = osp.join("/tmp", rand_name(suffix=suffix)) if save_file is None else save_file
@@ -40,10 +43,11 @@ def cache_video(tensor, save_file=None, fps=30, suffix=".mp4", nrow=8, normalize
     for _ in range(retry):
         try:
             # preprocess
-            tensor = np.clip(tensor, min(value_range), max(value_range))
+            tensor = mint.clip(tensor, min(value_range), max(value_range))
+            # TODO: all use ms mint or numpy ops
             tensor = np.stack(
                 [
-                    make_grid(u, nrow=nrow, normalize=normalize, value_range=value_range)
+                    make_grid(u.asnumpy(), nrow=nrow, normalize=normalize, value_range=value_range)
                     for u in tensor.unbind(2)
                 ],
                 axis=1,
