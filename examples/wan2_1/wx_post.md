@@ -66,6 +66,10 @@ prompt: Summer beach vacation style, a white cat wearing sunglasses sits on a su
 | :---:     |   :---:       | :---:    | :---:              |
 | 2.5.0     |  24.1.0     |7.35.23    |   8.0.RC3.beta1   |
 
+> Ascend cann下载：https://www.hiascend.com/developer/download/community/result
+
+> MindSpore下载：https://www.mindspore.cn/install
+
 
 ### 安装依赖
 
