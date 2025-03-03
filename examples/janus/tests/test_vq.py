@@ -3,6 +3,7 @@ import sys
 
 import numpy as np
 import PIL.Image
+from PIL import Image
 
 import mindspore as ms
 from mindspore import Tensor

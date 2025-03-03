@@ -7,11 +7,11 @@ import os.path as osp
 
 import imageio
 import ml_dtypes
+import numpy as np
 import torch
 import torchvision
 import tqdm
 from PIL import Image
-import numpy as np
 
 import mindspore as ms
 from mindspore import Parameter, Tensor
