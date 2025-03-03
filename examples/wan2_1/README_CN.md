@@ -2,7 +2,7 @@
 
 在AI视频生成领域，Wan2.1作为最新的视觉生成模型，能够根据文本、图像或其他控制信号生成视频，以其卓越表现备受关注。在VBench评测中，Wan2.1以86.22%的总分，力压Sora、HunyuanVideo等主流模型，摘得桂冠。
 
-MindSpore团队现已完成对Wan2.1的适配，并将其开源至[MindOne]((https://github.com/mindspore-lab/mindone)) GitHub仓库，结合昇腾硬件加速，为开发者提供高效体验。本文将详细介绍如何基于昇思MindSpore和单机Atlas 800T A2，完整实现Wan2.1视频生成的操作流程。
+MindSpore团队现已完成对Wan2.1的适配，并将其开源至[MindONE]((https://github.com/mindspore-lab/mindone)) 仓库，结合昇腾硬件加速，为开发者提供高效体验。本文将详细介绍如何基于昇思MindSpore和单机Atlas 800T A2，完整实现Wan2.1视频生成的部署流程。
 
 ---
 
@@ -52,7 +52,7 @@ prompt: Summer beach vacation style, a white cat wearing sunglasses sits on a su
    
 猫咪那酷萌的表情绝了! 
 
-这些都是基于MindSpore和昇腾910*硬件跑出来的，效果如何？来动手试试，生成你的专属视频吧！
+这些都是基于MindSpore和昇腾A2硬件跑出来的，效果如何？来动手试试，生成你的专属视频吧！
 
 
 ---
@@ -61,8 +61,11 @@ prompt: Summer beach vacation style, a white cat wearing sunglasses sits on a su
 
 ### 环境准备
 
-- **MindSpore**：2.5.0
-- **CANN**:  8.0.0.beta1 
+
+| mindspore | ascend driver | firmware | cann tookit/kernel |
+| :---:     |   :---:       | :---:    | :---:              |
+| 2.5.0     |  24.1.0     |7.35.23    |   8.0.RC3.beta1   |
+
 
 ### 安装依赖
 
@@ -148,26 +151,27 @@ msrun --worker_num=2 --local_worker_num=2 generate.py \
 
 ### 性能实测：昇腾硬件加速提升效率
 
-在昇腾910*和MindSpore2.5.0动态图模式下的性能测试结果如下：
+ Atlas 800T A2和MindSpore2.5.0的性能测试结果如下：
 
 |   模型  | 视频尺寸(长x宽x帧数) |     卡数 |  采样步数 | 峰值NPU内存|   生成耗时(s)  |
 |:------------:|:------------:|:------------:|:------------:|:------------:|:------------:|
 | T2V-1.3B   |      832x480x81 |  1   | 50    |  21GB    |  ~235   |
 | T2V-14B   |        1280x720x81 |  1   |  50   |  52.2GB  | ~4650    |
+| T2V-14B   |        1280x720x81 |  4   |  50   |  22.6GB  | ~1220   |
 | I2V-14B   |        832x480x81 |  1   |  40  |    50GB  | ~1150   |
 | I2V-14B   |        1280x720x81 |  4   | 40  |     25GB    | ~1000        |
 
 分析：
 
-- 1.3B模型资源占用低，生成速度快，适合轻量应用场景。
-- 14B模型支持更高分辨率，生成质量更优，多卡并行可显著提升效率。
+- **1.3B模型**：资源占用低，生成速度快，适合轻量应用场景。
+- **14B模型**：支持更高分辨率，生成质量更优；多卡并行可显著提升效率，4卡可提速**3.8倍**。
 
 
 ## 结语
 
-想把脑洞变成视频？赶紧去 MindOne GitHub 下载代码，动手试试吧！有什么问题，欢迎留言，我们会第一时间帮你解答。
+想把脑洞变成视频？赶紧去 MindONE 下载代码，动手试试吧！有什么问题，欢迎留言，我们会第一时间帮你解答。
 
-> MindOne开源链接：https://github.com/mindspore-lab/mindone/tree/master/examples/wan2_1
+> MindONE开源链接：https://github.com/mindspore-lab/mindone/tree/master/examples/wan2_1
 
 
 
