@@ -13,8 +13,8 @@
 # limitations under the License.
 """Llava model configuration"""
 
-from ...configuration_utils import PretrainedConfig
-from ...utils import logging
+from transformers.configuration_utils import PretrainedConfig
+from transformers.utils import logging
 from ..auto import CONFIG_MAPPING, AutoConfig
 
 
