@@ -48,10 +48,9 @@ def test():
     # FIXME: support mixed precision setting, to(float16) may not be what we want
     feature_only = True
     if feature_only:
-        with no_init_parameters():
-            config = LlavaConfig.from_pretrained(model_path, mindspore_dtype=ms.float16)
-            config.text_config._attn_implementation = "flash_attention_2"
-            model = LlavaForConditionalGeneration.from_pretrained(model_path, text_config=config.text_config)
+        config = LlavaConfig.from_pretrained(model_path, mindspore_dtype=ms.float16)
+        config.text_config._attn_implementation = "flash_attention_2"
+        model = LlavaForConditionalGeneration.from_pretrained(model_path, text_config=config.text_config)
         outputs = model(
             input_ids=inputs["input_ids"],
             pixel_values=inputs["pixel_values"],
