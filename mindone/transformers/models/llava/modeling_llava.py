@@ -26,7 +26,7 @@ from ...modeling_utils import MSPreTrainedModel as PreTrainedModel
 from ...activations import ACT2FN
 from ...cache_utils import Cache
 from ...modeling_outputs import ModelOutput
-from ...utils import (
+from transformers.utils import (
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
     logging,
@@ -116,10 +116,10 @@ LLAVA_START_DOCSTRING = r"""
 """
 
 
-@add_start_docstrings(
-    "The bare LLaMA Model outputting raw hidden-states without any specific head on top.",
-    LLAVA_START_DOCSTRING,
-)
+# @add_start_docstrings(
+#     "The bare LLaMA Model outputting raw hidden-states without any specific head on top.",
+#     LLAVA_START_DOCSTRING,
+# )
 class LlavaPreTrainedModel(PreTrainedModel):
     config_class = LlavaConfig
     base_model_prefix = "model"
