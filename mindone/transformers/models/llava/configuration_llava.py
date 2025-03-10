@@ -15,7 +15,7 @@
 
 from transformers.configuration_utils import PretrainedConfig
 from transformers.utils import logging
-from transformers.auto import CONFIG_MAPPING, AutoConfig
+from transformers.models.auto import CONFIG_MAPPING, AutoConfig
 
 
 logger = logging.get_logger(__name__)

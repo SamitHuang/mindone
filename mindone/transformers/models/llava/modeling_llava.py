@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
 import mindspore as ms
-import torch.utils.checkpoint
+from mindspore.common import initializer as init
 from mindspore import nn
 from mindspore import mint, ops
 
@@ -32,7 +32,14 @@ from transformers.utils import (
     logging,
     replace_return_docstrings,
 )
-from ..auto import AutoModel, AutoModelForCausalLM
+# from transformers.models.auto import AutoModel, AutoModelForCausalLM
+from ..auto import AutoModel
+from ..auto import AutoModelForCausalLM
+
+from ..clip.configuration_clip import CLIPVisionConfig
+from ..clip.modeling_clip import CLIPVisionModel
+from ..llama.modeling_llama import LlamaForCausalLM
+
 from .configuration_llava import LlavaConfig
 
 
@@ -92,7 +99,7 @@ class LlavaMultiModalProjector(nn.Cell):
         self.act = ACT2FN[config.projector_hidden_act]
         self.linear_2 = mint.nn.Linear(config.text_config.hidden_size, config.text_config.hidden_size, bias=True)
 
-    def forward(self, image_features):
+    def construct(self, image_features):
         hidden_states = self.linear_1(image_features)
         hidden_states = self.act(hidden_states)
         hidden_states = self.linear_2(hidden_states)
@@ -248,13 +255,18 @@ LLAVA_INPUTS_DOCSTRING = r"""
 class LlavaForConditionalGeneration(LlavaPreTrainedModel):
     def __init__(self, config: LlavaConfig):
         super().__init__(config)
-        self.vision_tower = AutoModel.from_config(config.vision_config)
+        # self.vision_tower = AutoModel.from_config(config.vision_config)
+        self.vision_tower = CLIPVisionModel(config.vision_config)
 
         self.multi_modal_projector = LlavaMultiModalProjector(config)
         self.vocab_size = config.text_config.vocab_size
-        self.language_model = AutoModelForCausalLM.from_config(
-            config.text_config, attn_implementation=config._attn_implementation
-        )
+
+        # self.language_model = AutoModelForCausalLM.from_config(
+        #     config.text_config, attn_implementation=config._attn_implementation
+        # )
+        # config.text_config._attn_implementation = "flash_attention_2"
+        self.language_model = LlamaForCausalLM(config.text_config)
+
         self.pad_token_id = self.config.pad_token_id if self.config.pad_token_id is not None else -1
         self.post_init()
 
@@ -309,18 +321,18 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
         text_to_overwrite = new_token_positions[batch_indices, non_image_indices]
 
         # 3. Create the full embedding, already padded to the maximum position
+        # import pdb; pdb.set_trace()
         final_embedding = mint.zeros(
-            batch_size, max_embed_dim, embed_dim, dtype=inputs_embeds.dtype,
+            (batch_size, int(max_embed_dim), embed_dim), dtype=inputs_embeds.dtype,
         )
         final_attention_mask = mint.zeros(
-            batch_size, max_embed_dim, dtype=attention_mask.dtype, device=inputs_embeds.device
+            (batch_size, int(max_embed_dim)), dtype=attention_mask.dtype,
         )
         if labels is not None:
             final_labels = mint.full(
-                (batch_size, max_embed_dim), self.config.ignore_index, dtype=input_ids.dtype,
+                (batch_size, int(max_embed_dim)), self.config.ignore_index, dtype=input_ids.dtype,
             )
         # In case the Vision model or the Language model has been offloaded to CPU, we need to manually
-        # set the corresponding tensors into their correct target device.
         batch_indices, non_image_indices, text_to_overwrite = (
             batch_indices,
             non_image_indices,
@@ -336,7 +348,7 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
 
         # 5. Fill the embeddings corresponding to the images. Anything that is not `text_positions` needs filling (#29835)
         image_to_overwrite = mint.full(
-            (batch_size, max_embed_dim), True, dtype=ms.bool_,
+            (batch_size, int(max_embed_dim)), True, dtype=ms.bool_,
         )
         image_to_overwrite[batch_indices, text_to_overwrite] = False
         # FIXME: check logical and
@@ -436,9 +448,11 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
 
             # 2. Merge text and images
             if pixel_values is not None and input_ids.shape[1] != 1:
-                image_outputs = self.vision_tower(pixel_values, output_hidden_states=True)
+                image_outputs = self.vision_tower(pixel_values, output_hidden_states=True, return_dict=False)
                 # this is not memory efficient at all (output_hidden_states=True) will save all the hidden stated.
-                selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
+                # import pdb; pdb.set_trace()
+                # selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
+                selected_image_feature = image_outputs[2][vision_feature_layer]
 
                 if vision_feature_select_strategy == "default":
                     selected_image_feature = selected_image_feature[:, 1:]
