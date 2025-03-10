@@ -51,7 +51,7 @@ def test():
         with no_init_parameters():
             config = LlavaConfig.from_pretrained(model_path, mindspore_dtype=ms.float16)
             config.text_config._attn_implementation = "flash_attention_2"
-            model = LlavaForConditionalGeneration(config=config)
+            model = LlavaForConditionalGeneration.from_pretrained(model_path, text_config=config.text_config)
         outputs = model(
             input_ids=inputs["input_ids"],
             pixel_values=inputs["pixel_values"],
@@ -60,9 +60,9 @@ def test():
             output_hidden_states=True,
             return_dict=True,
         )
-        # import pdb; pdb.set_trace()
         print("num hidden state: ", len(outputs.hidden_states[-1]))
         print("last hidden state: ", outputs.hidden_states[-1].shape)
+        import pdb; pdb.set_trace()
     else:
         config = LlavaConfig.from_pretrained(model_path, mindspore_dtype=ms.float16)
 
