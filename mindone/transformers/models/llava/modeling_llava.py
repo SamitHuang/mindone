@@ -22,7 +22,7 @@ import torch.utils.checkpoint
 from mindspore import nn
 from mindspore import mint, ops
 
-from ... import PreTrainedModel
+from ...modeling_utils import MSPreTrainedModel as PreTrainedModel
 from ...activations import ACT2FN
 from ...cache_utils import Cache
 from ...modeling_outputs import ModelOutput
