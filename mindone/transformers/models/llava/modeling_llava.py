@@ -20,7 +20,7 @@ from typing import List, Optional, Tuple, Union
 import mindspore as ms
 from mindspore.common import initializer as init
 from mindspore import nn
-from mindspore import mint, ops
+from mindspore import mint, ops, Tensor
 
 from ...modeling_utils import MSPreTrainedModel as PreTrainedModel
 from ...activations import ACT2FN
@@ -297,11 +297,12 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
         self.config.text_config.vocab_size = model_embeds.num_embeddings
         self.vocab_size = model_embeds.num_embeddings
         return model_embeds
+    
 
     def _merge_input_ids_with_image_features(self, image_features, inputs_embeds, input_ids, attention_mask, labels):
         num_images, num_image_patches, embed_dim = image_features.shape
         batch_size, sequence_length = input_ids.shape
-        left_padding = not mint.sum(input_ids[:, -1] == ms.tensor(self.pad_token_id))
+        left_padding = not (mint.sum(input_ids[:, -1] == ms.tensor(self.pad_token_id)))
         # 1. Create a mask to know where special image tokens are
         special_image_token_mask = input_ids == self.config.image_token_index
         num_special_image_tokens = mint.sum(special_image_token_mask, dim=-1)
@@ -317,7 +318,7 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
         new_token_positions = mint.cumsum((special_image_token_mask * (num_image_patches - 1) + 1), -1) - 1
         nb_image_pad = max_embed_dim - 1 - new_token_positions[:, -1]
         if left_padding:
-            new_token_positions += nb_image_pad[:, None]  # offset for left padding
+            new_token_positions = new_token_positions + nb_image_pad[:, None]  # offset for left padding
         text_to_overwrite = new_token_positions[batch_indices, non_image_indices]
 
         # 3. Create the full embedding, already padded to the maximum position
@@ -341,6 +342,7 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
 
         # 4. Fill the embeddings based on the mask. If we have ["hey" "<image>", "how", "are"]
         # we need to index copy on [0, 577, 578, 579] for the text and [1:576] for the image features
+        # FIXME: this slicing can be slow
         final_embedding[batch_indices, text_to_overwrite] = inputs_embeds[batch_indices, non_image_indices]
         final_attention_mask[batch_indices, text_to_overwrite] = attention_mask[batch_indices, non_image_indices]
         if labels is not None:
@@ -351,17 +353,20 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
             (batch_size, int(max_embed_dim)), True, dtype=ms.bool_,
         )
         image_to_overwrite[batch_indices, text_to_overwrite] = False
-        # FIXME: check logical and
-        image_to_overwrite = image_to_overwrite & (mint.cumsum(image_to_overwrite, dim=-1) - 1 >= nb_image_pad[:, None])
+        # FIXME: compare llava-next's impl. format
+        image_to_overwrite = ops.logical_and(image_to_overwrite, (mint.cumsum(image_to_overwrite, dim=-1) - 1 >= nb_image_pad[:, None]))
 
-        if image_to_overwrite.sum() != image_features.shape[:-1].numel():
+        # import pdb; pdb.set_trace()
+        # if image_to_overwrite.sum() != image_features.shape[:-1].numel():
+        if image_to_overwrite.sum() != (image_features.shape[0] * image_features.shape[1]):
             raise ValueError(
                 f"The input provided to the model are wrong. The number of image tokens is {torch.sum(special_image_token_mask)} while"
                 f" the number of image given to the model is {num_images}. This prevents correct indexing and breaks batch generation."
             )
 
         final_embedding[image_to_overwrite] = image_features.contiguous().reshape(-1, embed_dim)
-        final_attention_mask |= image_to_overwrite
+        final_attention_mask = ops.logical_or(final_attention_mask, image_to_overwrite)
+
         position_ids = (final_attention_mask.cumsum(-1) - 1).masked_fill_((final_attention_mask == 0), 1)
 
         # 6. Mask out the embedding at padding positions, as we later use the past_key_value value to determine the non-attended tokens.
@@ -448,6 +453,7 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
 
             # 2. Merge text and images
             if pixel_values is not None and input_ids.shape[1] != 1:
+                # import pdb; pdb.set_trace()
                 image_outputs = self.vision_tower(pixel_values, output_hidden_states=True, return_dict=False)
                 # this is not memory efficient at all (output_hidden_states=True) will save all the hidden stated.
                 # import pdb; pdb.set_trace()
@@ -477,6 +483,8 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
                 first_layer_past_key_value = past_key_values[0][0][:, :, :, 0]
 
                 # Sum all dimensions of head_dim (-2) to avoid random errors such as: https://github.com/huggingface/transformers/pull/28032#issuecomment-1863691941
+                # FIXME: more efficient way
+                # batch_index, non_attended_tokens = mint.nonzero((first_layer_past_key_value.float().sum(-2) == 0).to(ms.int16))
                 batch_index, non_attended_tokens = mint.where(first_layer_past_key_value.float().sum(-2) == 0)
 
                 # Get the target length

@@ -25,8 +25,8 @@ from mindone.transformers.models.llava import LlavaForConditionalGeneration
 from transformers import AutoProcessor
 
 def test():
-    # model_path = 'ckpts/llava-llama-3-8b-v1_1-transformers'
-    model_path = 'ckpts/llava_tiny'
+    model_path = 'ckpts/llava-llama-3-8b-v1_1-transformers'
+    # model_path = 'ckpts/llava_tiny'
     processor = AutoProcessor.from_pretrained(model_path)
     
     # run
@@ -42,11 +42,12 @@ def test():
     
     # inputs .to(ms.float16)
 
-    # TODO: check mixed precision setting, to(float16) may not be what we want
-    debug = True
-    if debug:
+    # FIXME: support mixed precision setting, to(float16) may not be what we want
+    feature_only = True
+    if feature_only:
         with no_init_parameters():
             config = LlavaConfig.from_pretrained(model_path, mindspore_dtype=ms.float16)
+            config.text_config._attn_implementation = "flash_attention_2"
             model = LlavaForConditionalGeneration(config=config)
         outputs = model(
             input_ids=inputs['input_ids'], pixel_values=inputs['pixel_values'], attention_mask=inputs['attention_mask'],
@@ -54,10 +55,14 @@ def test():
             output_hidden_states=True,
             return_dict=True,
             )
-        import pdb; pdb.set_trace()
-        print(outputs)
+        # import pdb; pdb.set_trace()
+        print('num hidden state: ', len(outputs.hidden_states[-1]))
+        print('last hidden state: ', outputs.hidden_states[-1].shape)
     else:
-        model = LlavaForConditionalGeneration.from_pretrained(config=config, mindspore_dtype=float16)
+        config = LlavaConfig.from_pretrained(model_path, mindspore_dtype=ms.float16)
+
+        # FIXME: fail to set llama FA
+        model = LlavaForConditionalGeneration.from_pretrained(model_path, use_flash_attention_2=True, mindspore_dtype=ms.float16)
 
         output = model.generate(**inputs, max_new_tokens=200, do_sample=False)
         print(processor.decode(output[0][2:], skip_special_tokens=True))
