@@ -1,1 +1,1 @@
-from .modeling_llava import LlavaPreTrainedModel, LlavaForConditionalGeneration
+from .modeling_llava import LlavaForConditionalGeneration, LlavaPreTrainedModel

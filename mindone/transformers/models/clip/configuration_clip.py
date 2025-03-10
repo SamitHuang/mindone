@@ -15,13 +15,10 @@
 """CLIP model configuration"""
 
 import os
-from collections import OrderedDict
-from typing import TYPE_CHECKING, Any, Mapping, Optional, Union
-
+from typing import Union
 
 from transformers.configuration_utils import PretrainedConfig
 from transformers.utils import logging
-
 
 logger = logging.get_logger(__name__)
 
@@ -400,5 +397,3 @@ class CLIPConfig(PretrainedConfig):
         """
 
         return cls(text_config=text_config.to_dict(), vision_config=vision_config.to_dict(), **kwargs)
-
-

@@ -15,13 +15,13 @@
 """ MindSpore CLIP model."""
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple, Union
-import numpy as np
 
+import numpy as np
 from transformers.models.clip.configuration_clip import CLIPConfig, CLIPTextConfig, CLIPVisionConfig
 from transformers.utils import ModelOutput, logging
 
 import mindspore as ms
-from mindspore import nn, ops, mint
+from mindspore import mint, nn, ops
 
 from ...activations import ACT2FN
 from ...modeling_attn_mask_utils import _create_4d_causal_attention_mask, _prepare_4d_attention_mask
@@ -159,7 +159,9 @@ class CLIPVisionEmbeddings(nn.Cell):
         self.image_size = config.image_size
         self.patch_size = config.patch_size
         # self.class_embedding = ms.Parameter(ops.randn(self.embed_dim), name="class_embedding")
-        self.class_embedding = ms.Parameter(ms.tensor(np.random.normal(size=self.embed_dim).astype(np.float32)), name="class_embedding")
+        self.class_embedding = ms.Parameter(
+            ms.tensor(np.random.normal(size=self.embed_dim).astype(np.float32)), name="class_embedding"
+        )
 
         self.patch_embedding = mint.nn.Conv2d(
             in_channels=config.num_channels,

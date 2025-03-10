@@ -64,7 +64,7 @@ from .utils.import_utils import is_flash_attn_2_available, is_sdpa_available
 if is_safetensors_available():
     from safetensors import safe_open
 
-    from mindone.safetensors.mindspore import load_file as safe_load_file
+    # from mindone.safetensors.mindspore import load_file as safe_load_file
     from mindone.safetensors.mindspore import save_file as safe_save_file
 
 logger = logging.get_logger(__name__)

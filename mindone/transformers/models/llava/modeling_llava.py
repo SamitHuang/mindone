@@ -17,31 +17,27 @@
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
-import mindspore as ms
-from mindspore.common import initializer as init
-from mindspore import nn
-from mindspore import mint, ops, Tensor
-
-from ...modeling_utils import MSPreTrainedModel as PreTrainedModel
-from ...activations import ACT2FN
-from ...cache_utils import Cache
-from ...modeling_outputs import ModelOutput
 from transformers.utils import (
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
     logging,
     replace_return_docstrings,
 )
-# from transformers.models.auto import AutoModel, AutoModelForCausalLM
-from ..auto import AutoModel
-from ..auto import AutoModelForCausalLM
 
-from ..clip.configuration_clip import CLIPVisionConfig
+import mindspore as ms
+from mindspore import mint, nn, ops
+from mindspore.common import initializer as init
+
+from ...activations import ACT2FN
+from ...cache_utils import Cache
+from ...modeling_outputs import ModelOutput
+from ...modeling_utils import MSPreTrainedModel as PreTrainedModel
+
+# from ..auto import AutoModel, AutoModelForCausalLM
+# from ..clip.configuration_clip import CLIPVisionConfig
 from ..clip.modeling_clip import CLIPVisionModel
 from ..llama.modeling_llama import LlamaForCausalLM
-
 from .configuration_llava import LlavaConfig
-
 
 logger = logging.get_logger(__name__)
 
@@ -297,7 +293,6 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
         self.config.text_config.vocab_size = model_embeds.num_embeddings
         self.vocab_size = model_embeds.num_embeddings
         return model_embeds
-    
 
     def _merge_input_ids_with_image_features(self, image_features, inputs_embeds, input_ids, attention_mask, labels):
         num_images, num_image_patches, embed_dim = image_features.shape
@@ -322,16 +317,19 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
         text_to_overwrite = new_token_positions[batch_indices, non_image_indices]
 
         # 3. Create the full embedding, already padded to the maximum position
-        # import pdb; pdb.set_trace()
         final_embedding = mint.zeros(
-            (batch_size, int(max_embed_dim), embed_dim), dtype=inputs_embeds.dtype,
+            (batch_size, int(max_embed_dim), embed_dim),
+            dtype=inputs_embeds.dtype,
         )
         final_attention_mask = mint.zeros(
-            (batch_size, int(max_embed_dim)), dtype=attention_mask.dtype,
+            (batch_size, int(max_embed_dim)),
+            dtype=attention_mask.dtype,
         )
         if labels is not None:
             final_labels = mint.full(
-                (batch_size, int(max_embed_dim)), self.config.ignore_index, dtype=input_ids.dtype,
+                (batch_size, int(max_embed_dim)),
+                self.config.ignore_index,
+                dtype=input_ids.dtype,
             )
         # In case the Vision model or the Language model has been offloaded to CPU, we need to manually
         batch_indices, non_image_indices, text_to_overwrite = (
@@ -350,17 +348,19 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
 
         # 5. Fill the embeddings corresponding to the images. Anything that is not `text_positions` needs filling (#29835)
         image_to_overwrite = mint.full(
-            (batch_size, int(max_embed_dim)), True, dtype=ms.bool_,
+            (batch_size, int(max_embed_dim)),
+            True,
+            dtype=ms.bool_,
         )
         image_to_overwrite[batch_indices, text_to_overwrite] = False
         # FIXME: compare llava-next's impl. format
-        image_to_overwrite = ops.logical_and(image_to_overwrite, (mint.cumsum(image_to_overwrite, dim=-1) - 1 >= nb_image_pad[:, None]))
+        image_to_overwrite = ops.logical_and(
+            image_to_overwrite, (mint.cumsum(image_to_overwrite, dim=-1) - 1 >= nb_image_pad[:, None])
+        )
 
-        # import pdb; pdb.set_trace()
-        # if image_to_overwrite.sum() != image_features.shape[:-1].numel():
         if image_to_overwrite.sum() != (image_features.shape[0] * image_features.shape[1]):
             raise ValueError(
-                f"The input provided to the model are wrong. The number of image tokens is {torch.sum(special_image_token_mask)} while"
+                f"The input provided to the model are wrong. The number of image tokens is {ops.sum(special_image_token_mask)} while"
                 f" the number of image given to the model is {num_images}. This prevents correct indexing and breaks batch generation."
             )
 
@@ -431,7 +431,7 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
         "USER:  \nWhat's the content of the image? ASSISTANT: The image features a busy city street with a stop sign prominently displayed"
         ```"""
 
-        assert use_cache==False, 'kv cache is not implemented'
+        assert not use_cache, "kv cache is not implemented"
 
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
@@ -453,10 +453,8 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
 
             # 2. Merge text and images
             if pixel_values is not None and input_ids.shape[1] != 1:
-                # import pdb; pdb.set_trace()
                 image_outputs = self.vision_tower(pixel_values, output_hidden_states=True, return_dict=False)
                 # this is not memory efficient at all (output_hidden_states=True) will save all the hidden stated.
-                # import pdb; pdb.set_trace()
                 # selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
                 selected_image_feature = image_outputs[2][vision_feature_layer]
 
@@ -482,7 +480,8 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
                 # that are set to 0
                 first_layer_past_key_value = past_key_values[0][0][:, :, :, 0]
 
-                # Sum all dimensions of head_dim (-2) to avoid random errors such as: https://github.com/huggingface/transformers/pull/28032#issuecomment-1863691941
+                # Sum all dimensions of head_dim (-2) to avoid random errors such as:
+                # https://github.com/huggingface/transformers/pull/28032#issuecomment-1863691941
                 # FIXME: more efficient way
                 # batch_index, non_attended_tokens = mint.nonzero((first_layer_past_key_value.float().sum(-2) == 0).to(ms.int16))
                 batch_index, non_attended_tokens = mint.where(first_layer_past_key_value.float().sum(-2) == 0)
@@ -533,9 +532,7 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
                 shift_logits = logits[..., :-1, :].contiguous()
                 shift_labels = labels[..., 1:].contiguous()
             # Flatten the tokens
-            loss = self.loss_fct(
-                shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
-            )
+            loss = self.loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
 
         if not return_dict:
             output = (logits,) + outputs[1:]
