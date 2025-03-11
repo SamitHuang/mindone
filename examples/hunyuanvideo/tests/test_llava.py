@@ -49,8 +49,12 @@ def test():
 
     feature_only = False
     config = LlavaConfig.from_pretrained(model_path)
-    config.text_config._attn_implementation = "flash_attention_2"
+    # config.text_config._attn_implementation = "flash_attention_2"
+    config.text_config._attn_implementation = "eager"
     model = LlavaForConditionalGeneration.from_pretrained(model_path, text_config=config.text_config)
+    
+    # to avoid: Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+    model.generation_config.pad_token_id = processor.tokenizer.pad_token_id
 
     if dtype != ms.float32:
         set_model_param_dtype(model, dtype=dtype)
@@ -66,10 +70,11 @@ def test():
         )
         print("num hidden state: ", len(outputs.hidden_states[-1]))
         print("last hidden state: ", outputs.hidden_states[-1].shape)
+        np.save("tests/llava_ftr_fp16.npy", outputs.hidden_states[-1].asnumpy())
         # import pdb; pdb.set_trace()
     else:
-        output = model.generate(**inputs, max_new_tokens=200 + 824, do_sample=False, use_cache=False)
-
+        output = model.generate(**inputs, max_new_tokens=200, do_sample=False, use_cache=False)
+        # output = model.generate(**inputs, max_new_tokens=200, do_sample=False, use_cache=True)
         print(processor.decode(output[0][2:], skip_special_tokens=True))
 
 
