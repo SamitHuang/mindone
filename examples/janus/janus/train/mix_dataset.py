@@ -2,7 +2,7 @@ import bisect
 
 import mindspore as ms
 import numpy as np
-from mindspore.dataset import WeightedRandomSampler
+from mindspore.dataset import WeightedRandomSampler, DistributedSampler
 
 from janus.models import VLChatProcessor
 from janus.train.t2i_dataset import TextImageDataset
@@ -43,7 +43,7 @@ class  MixDataset:
         if dataset_idx == 0:
             image = np.zeros(self.default_image_shape, np.float32)
             image_seq_mask = np.zeros((self.max_token_length), dtype=np.bool)
-            ret += (image, image_seq_mask)
+            ret += (image_seq_mask, image)
 
         return ret
 
@@ -53,12 +53,12 @@ class  MixDataset:
 
 def create_mix_dataloader(
                           vl_chat_processor,
-                          t2i_csv_path="datasets/jade/csvfile/image_text.csv",
-                          t2i_data_dir="./",
+                          t2i_csv_path="./datasets/jade/csvfile/image_text_en.csv",
+                          t2i_data_dir="./datasets",
                           text_dataset_name="pubmedqa",
-                          text_data_dir="datasets/PubMedQA",
+                          text_data_dir="./datasets/PubMedQA",
                           vqa_dataset_name="medical-vqa",
-                          vqa_data_dir="rbojia/medical-vqa",
+                          vqa_data_dir="./datasets/medical-vqa",
                           max_token_length=1024,
                           image_size=384,
                           null_prompt_prob=0.0,
@@ -67,11 +67,11 @@ def create_mix_dataloader(
                           rank=0,
                           rank_size=1,
                           num_samples=100,
-                          sample_ratios=(5, 4, 1)):
+                          sample_ratios=(1, 5, 4)):
 
     dataset_text = TextDataset(
-        dataset_name="pubmedqa",
-        data_dir="datasets/PubMedQA",
+        dataset_name=text_dataset_name,
+        data_dir=text_data_dir,
         vl_chat_processor=vl_chat_processor,
         max_token_length=max_token_length,
         num_samples=num_samples,
@@ -95,7 +95,7 @@ def create_mix_dataloader(
         num_samples=num_samples,
     )
 
-    datasets =  [dataset_text, dataset_t2i, dataset_vqa]
+    datasets =  [dataset_text, dataset_vqa, dataset_t2i]  # keep the right order
     mix_dataset = MixDataset(datasets=datasets,
                              default_image_shape=(1, 3, image_size, image_size),
                              max_token_length=max_token_length)
@@ -106,17 +106,15 @@ def create_mix_dataloader(
         weight = sample_ratios[i] * len(mix_dataset) / len(datasets[i])
         sample_weights += [weight] * len(datasets[i])
 
-    sampler = WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights), replacement=True)
+    sampler = DistributedSampler(num_shards=rank_size, shard_id=rank, shuffle=False)
+    sampler.add_child(WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights), replacement=True))
 
     dataloader = ms.dataset.GeneratorDataset(
         source=mix_dataset,
         sampler=sampler,
         column_names=["task_type", "input_ids", "labels", "attention_mask", "image_seq_mask", "image"],
-        shuffle=False,
         num_parallel_workers=num_parallel_workers,
         python_multiprocessing=True,
-        num_shards=rank_size,
-        shard_id=rank,
     )
 
     dataloader = dataloader.batch(batch_size, drop_remainder=True)
@@ -126,7 +124,7 @@ def create_mix_dataloader(
 if __name__ == "__main__":
     pretrain_model_path = "/mnt/disk2/fredhong/hf_ckpts/Janus-Pro-1B"
     vl_chat_processor = VLChatProcessor.from_pretrained(pretrain_model_path)
-    dataloader = create_mix_dataloader(vl_chat_processor)
+    dataloader = create_mix_dataloader(vl_chat_processor, batch_size=2)
     for data in dataloader.create_dict_iterator():
         print(data)
         break
