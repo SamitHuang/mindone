@@ -122,7 +122,7 @@ def create_mix_dataloader(
     return dataloader
 
 if __name__ == "__main__":
-    pretrain_model_path = "/mnt/disk2/fredhong/hf_ckpts/Janus-Pro-1B"
+    pretrain_model_path = "./ckpts/Janus-Pro-1B"
     vl_chat_processor = VLChatProcessor.from_pretrained(pretrain_model_path)
     dataloader = create_mix_dataloader(vl_chat_processor, batch_size=2)
     for data in dataloader.create_dict_iterator():
