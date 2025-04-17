@@ -26,7 +26,12 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union
 # Build the list of all image processors
 from transformers import PretrainedConfig
 from transformers.dynamic_module_utils import get_class_from_dynamic_module, resolve_trust_remote_code
-from transformers.utils import CONFIG_NAME, get_file_from_repo
+#  get_file_from_repo is a deprecated API!!
+try:
+    from transformers.utils import CONFIG_NAME, get_file_from_repo
+except:
+    from transformers.utils import CONFIG_NAME
+    from transformers.utils import cached_file as  get_file_from_repo
 
 from ...image_processing_utils import BaseImageProcessor, ImageProcessingMixin
 from ...image_processing_utils_fast import BaseImageProcessorFast

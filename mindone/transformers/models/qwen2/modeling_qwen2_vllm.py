@@ -355,7 +355,7 @@ QWEN2_ATTENTION_CLASSES = {
 
 
 class Qwen2DecoderLayer(nn.Cell):
-    def __init__(self, config: Qwen2Config, layer_idx: int):
+    def __init__(self, config: Qwen2Config, layer_idx: int, attn_class=None):
         super().__init__()
         self.hidden_size = config.hidden_size
 
@@ -364,7 +364,10 @@ class Qwen2DecoderLayer(nn.Cell):
                 f"Sliding Window Attention is enabled but not implemented for `{config._attn_implementation}`; "
                 "unexpected results may be encountered."
             )
-        self.self_attn = QWEN2_ATTENTION_CLASSES[config._attn_implementation](config, layer_idx)
+        if attn_class is None:
+            self.self_attn = QWEN2_ATTENTION_CLASSES[config._attn_implementation](config, layer_idx)
+        else:
+            self.self_attn = attn_class
 
         self.mlp = Qwen2MLP(config)
         self.input_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -555,14 +558,15 @@ class Qwen2Model(Qwen2PreTrainedModel):
         config: Qwen2Config
     """
 
-    def __init__(self, config: Qwen2Config):
+    def __init__(self, config: Qwen2Config, attn_class = None):
+        # attn_class: self attn class, expect Attention from vllm
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=self.padding_idx)
         self.layers = nn.CellList(
-            [Qwen2DecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
+            [Qwen2DecoderLayer(config, layer_idx, attn_class=attn_class) for layer_idx in range(config.num_hidden_layers)]
         )
         self._attn_implementation = config._attn_implementation
         self.norm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)

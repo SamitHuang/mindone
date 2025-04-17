@@ -20,6 +20,7 @@
 """Mindspore Qwen2 model."""
 
 from typing import List, Optional, Tuple, Union
+import numpy as np
 
 from transformers import Qwen2Config, logging
 
@@ -85,7 +86,7 @@ def _prepare_4d_causal_attention_mask_with_cache_position(
         causal_mask = ops.full((sequence_length, target_length), fill_value=min_dtype, dtype=dtype)
         if sequence_length != 1:
             causal_mask = ops.triu(causal_mask, diagonal=1)
-        causal_mask *= ops.arange(target_length) > cache_position.reshape(-1, 1)
+        causal_mask *= mint.arange(target_length) > cache_position.reshape(-1, 1)
         causal_mask = causal_mask[None, None, :, :].broadcast_to((batch_size, 1, -1, -1))
         if attention_mask is not None:
             # causal_mask = causal_mask  # copy to contiguous memory for in-place edit
@@ -117,7 +118,7 @@ class Qwen2RMSNorm(nn.Cell):
         Qwen2RMSNorm is equivalent to T5LayerNorm
         """
         super().__init__()
-        self.weight = Parameter(ops.ones(hidden_size))
+        self.weight = Parameter(ms.tensor(np.ones(hidden_size), dtype=ms.float32))
         self.variance_epsilon = eps
 
     def construct(self, hidden_states):
@@ -139,21 +140,29 @@ class Qwen2RotaryEmbedding(nn.Cell):
         self.dim = dim
         self.max_position_embeddings = max_position_embeddings
         self.base = base
-        inv_freq = 1.0 / (self.base ** (ops.arange(0, self.dim, 2, dtype=ms.int64).float() / self.dim))
+        # inv_freq = 1.0 / (self.base ** (ops.arange(0, self.dim, 2, dtype=ms.int64).float() / self.dim))
+        # inv_freq = 1.0 / (self.base ** (mint.arange(0, self.dim, 2, dtype=ms.int64).float() / self.dim))
+        inv_freq = 1.0 / (self.base ** (np.arange(0, self.dim, 2) / self.dim))
         self.inv_freq = inv_freq
 
         # Build here to make `torch.jit.trace` work.
         self._set_cos_sin_cache(seq_len=max_position_embeddings, device=None, dtype=ms.float32)
 
+
     def _set_cos_sin_cache(self, seq_len, device, dtype):
         self.max_seq_len_cached = seq_len
-        t = ops.arange(self.max_seq_len_cached, dtype=ms.int64).type_as(self.inv_freq)
+        t = np.arange(self.max_seq_len_cached).astype(np.float32)
 
-        freqs = ops.outer(t, self.inv_freq)
+        freqs = np.outer(t, self.inv_freq)
         # Different from paper, but it uses a different permutation in order to obtain the same calculation
-        emb = ops.cat((freqs, freqs), axis=-1)
-        self.cos_cached = emb.cos().to(dtype)
-        self.sin_cached = emb.sin().to(dtype)
+        emb = np.concatenate((freqs, freqs), axis=-1)
+        self.cos_cached = np.cos(emb)
+        self.sin_cached = np.sin(emb)
+
+        self.inv_freq = ms.tensor(self.inv_freq, dtype=dtype)
+        self.cos_cached = ms.tensor(self.cos_cached)
+        self.sin_cached = ms.tensor(self.sin_cached)
+
 
     def construct(self, x, seq_len=None):
         # x: [bs, num_attention_heads, seq_len, head_size]
@@ -611,7 +620,7 @@ class Qwen2Model(Qwen2PreTrainedModel):
 
         if cache_position is None:
             past_seen_tokens = get_seq_length(past_key_values) if past_key_values is not None else 0
-            cache_position = ops.arange(past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1])
+            cache_position = mint.arange(past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1])
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
@@ -895,7 +904,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel):
         input_length = position_ids.shape[-1] if position_ids is not None else input_ids.shape[-1]
 
         if cache_position is None:
-            cache_position = ops.arange(past_length, past_length + input_length)
+            cache_position = mint.arange(past_length, past_length + input_length)
         elif use_cache:
             if input_length < cache_position.shape[0]:
                 assert cache_position.shape[0] == attention_mask.shape[-1]
@@ -988,7 +997,7 @@ class Qwen2ForSequenceClassification(Qwen2PreTrainedModel):
             else:
                 sequence_lengths = -1
 
-        pooled_logits = logits[ops.arange(batch_size), sequence_lengths]
+        pooled_logits = logits[mint.arange(batch_size), sequence_lengths]
 
         loss = None
         if labels is not None:
