@@ -924,7 +924,8 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
             slot_mapping,
             batch_valid_length,
         )
-
+    
+    @ms.jit(dynamic=1)
     def construct(
         self,
         input_ids: ms.Tensor = None,
