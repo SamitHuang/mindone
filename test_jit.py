@@ -5,7 +5,8 @@ from mindspore import tensor
 
 ms.set_context(mode=1)
 
-model_name = "/home/hyx/models/Qwen/Qwen2.5-0.5B-Instruct"
+# model_name = "/home/hyx/models/Qwen/Qwen2.5-0.5B-Instruct"
+model_name = "Qwen/Qwen2.5-0.5B-Instruct"
 model = AutoModelForCausalLM.from_pretrained(model_name)
 # model = ms.jit(model.construct, dynamic=1)
 # compiled_model = torch.compile(model, dynamic=True)
