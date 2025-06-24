@@ -24,6 +24,7 @@ from functools import partial
 from typing import Callable, Dict, Final, List, Literal, Optional, Sequence, Set, Tuple, Type, Union
 
 import numpy as np
+from safetensors import safe_open
 
 import mindspore as ms
 from mindspore import Parameter, Tensor, mint, nn, ops
@@ -393,8 +394,8 @@ class VisionTransformer(nn.Cell):
                     # special: weight (pt) - > embedding_table (ms)
                     if "embedding.weight" in p:
                         new_pname = new_pname.replace("embedding.weight", "embedding.embedding_table")
-                    elif "norm" in p:
-                        new_pname = new_pname.replace("weight", "gamma").replace("bias", "beta")
+                    # elif "norm" in p:
+                    #    new_pname = new_pname.replace("weight", "gamma").replace("bias", "beta")
 
                     sd[new_pname] = sd.pop(p)
 
@@ -410,7 +411,25 @@ class VisionTransformer(nn.Cell):
 
         elif ckpt_path.endswith(".ckpt"):
             parameter_dict = ms.load_checkpoint(ckpt_path)
-        else:
+        elif ckpt_path.endswith(".safetensors"):
+            '''
+            with safe_open(ckpt_path, framework="pt", device="cpu") as f:
+                for key in f.keys():
+                    pt_tensor = f.get_tensor(key)
+                    np_val = pt_tensor.detach().numpy().astype(np.float32)
+                    parameter_dict[key] = ms.Parameter(ms.Tensor(np_val, dtype=param_dtype))
+            '''
+            parameter_dict = ms.load_checkpoint(ckpt_path, format='safetensors')
+            pnames = list(parameter_dict.keys())
+            # checkpoint from timm/ViT-SO400M-14-SigLIP-384
+            for p in pnames:
+                if "visual." not in p:
+                    # exclude text transformers
+                    parameter_dict.pop(p)
+                else:
+                    new_pname = p.replace("visual.trunk.", "")
+                    parameter_dict[new_pname] = parameter_dict.pop(p)
+        else: 
             raise ValueError("Unsupported checkpoint format")
 
         param_not_load, ckpt_not_load = ms.load_param_into_net(self, parameter_dict, strict_load=True)
@@ -606,6 +625,17 @@ SigLIP_MODEL_CONFIG = {
         "global_pool": "map",
         "use_checkpoint": False,
     },
+    # refer to timm/models/vision_transformers.py#3633
+    "vit_so400m_patch14_siglip_384": {
+        "image_size": 336,
+        "patch_size": 14,
+        "width": 1152, # embed_dim
+        "layers": 27, # depth
+        "heads": 16,
+        "mlp_ratio": 3.7362,
+        "global_pool": "map",
+        "use_checkpoint": False,
+    }
 }
 
 
