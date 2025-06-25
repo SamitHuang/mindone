@@ -16,7 +16,7 @@ from utils import diff_res
 np.random.seed(42)
 
 
-def test(dtype=ms.bfloat16):
+def test(dtype=ms.float32):
     # ckpt_path = "/home/hyx/models/Janus-Pro-1B/pytorch_model.bin" 
     # model_name: str = "siglip_large_patch16_384"
 
@@ -34,38 +34,40 @@ def test(dtype=ms.bfloat16):
         # import pdb; pdb.set_trace()
         input_tensor = ms.Tensor(input_tensor).to(dtype)
    
-    gt_path =  "./image_forward_outs.npy"
-    if os.path.exists(gt_path):
-        gt_tensor = np.load()
-        print(f"gt tensor dtype is {gt_tensor.dtype}")
+    torch_path =  "./image_forward_torch.npy"
+    if os.path.exists(torch_path):
+        torch_tensor = np.load(torch_path)
+        print(f"gt tensor dtype is {torch_tensor.dtype}")
     else:
-        gt_tensor = None 
+        torch_tensor = None
 
 
     select_layer: int = -1
     vision_tower = create_siglip_vit(
         model_name,
         select_layer=select_layer,
+        ignore_head=False,
     )
     vision_tower.load_from_checkpoint(ckpt_path)
 
     print(f"dtype conversion is using with {dtype}")
 
+    # # if dtype != ms.float32:
+    # #     set_model_param_dtype(vision_tower, dtype=dtype, keep_norm_fp32=False)
     # if dtype != ms.float32:
-    #     set_model_param_dtype(vision_tower, dtype=dtype, keep_norm_fp32=False)
-    if dtype != ms.float32:
-        amp.auto_mixed_precision(vision_tower, amp_level="O2", dtype=dtype)
+    #     amp.auto_mixed_precision(vision_tower, amp_level="O2", dtype=dtype)
 
     # cal & eval
     out = vision_tower(input_tensor)
     out = out.to(ms.float32).asnumpy()
+    np.save("./image_tensore.mindspore.npy", out)
 
     # assert np.allclose(out, gt_tensor), f"recal result is not closed to gt!, out:{out.shape}\n{out}\ngt:{gt_tensor.shape}\n{gt_tensor}"
 
-    if gt_tensor is None:
+    if torch_tensor is None:
         print('out shape: ', out.shape)
     else:
-        diff = diff_res(out, gt_tensor)
+        diff = diff_res(out, torch_tensor)
         print(diff)
         print("test finish")
 
