@@ -627,7 +627,7 @@ SigLIP_MODEL_CONFIG = {
     },
     # refer to timm/models/vision_transformers.py#3633
     "vit_so400m_patch14_siglip_384": {
-        "image_size": 336,
+        "image_size": 384,
         "patch_size": 14,
         "width": 1152, # embed_dim
         "layers": 27, # depth
