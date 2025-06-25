@@ -19,8 +19,9 @@ Simple usage in code:
 from mindone.models.siglip_vit import create_model
 
 model = create_model(
-    model_name,
+    model_name="vit_so400m_patch14_siglip_384",
     param_dtype=ms.bfloat16,
+    ckpt_path="/path/to/timm/ViT-SO400M-14-SigLIP-384/open_clip_model.safetensors",
 )
 
 ```
