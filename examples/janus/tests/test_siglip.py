@@ -15,11 +15,8 @@ from utils import diff_res
 
 np.random.seed(42)
 
-
 def test(dtype=ms.float32):
-    # ckpt_path = "/home/hyx/models/Janus-Pro-1B/pytorch_model.bin" 
-    # model_name: str = "siglip_large_patch16_384"
-
+    # /home/andy/models/ViT-SO400M-14-SigLIP-384/open_clip_model.safetensors
     ckpt_path = "/home/hyx/models/timm/ViT-SO400M-14-SigLIP-384/open_clip_model.safetensors" 
     model_name = "vit_so400m_patch14_siglip_384"
 
@@ -31,7 +28,6 @@ def test(dtype=ms.float32):
         # random tensor
         shape = (1, 3, 384, 384)
         input_tensor = np.random.normal(size=shape).astype(np.float32)
-        # import pdb; pdb.set_trace()
         input_tensor = ms.Tensor(input_tensor).to(dtype)
    
     torch_path =  "./image_forward_torch.npy"
@@ -40,7 +36,6 @@ def test(dtype=ms.float32):
         print(f"gt tensor dtype is {torch_tensor.dtype}")
     else:
         torch_tensor = None
-
 
     select_layer: int = -1
     vision_tower = create_siglip_vit(
@@ -51,11 +46,6 @@ def test(dtype=ms.float32):
     vision_tower.load_from_checkpoint(ckpt_path)
 
     print(f"dtype conversion is using with {dtype}")
-
-    # # if dtype != ms.float32:
-    # #     set_model_param_dtype(vision_tower, dtype=dtype, keep_norm_fp32=False)
-    # if dtype != ms.float32:
-    #     amp.auto_mixed_precision(vision_tower, amp_level="O2", dtype=dtype)
 
     # cal & eval
     out = vision_tower(input_tensor)
@@ -70,7 +60,6 @@ def test(dtype=ms.float32):
         diff = diff_res(out, torch_tensor)
         print(diff)
         print("test finish")
-
 
 if __name__ == "__main__":
     # ms.set_context(device_id=7, mode=1, pynative_synchronize=True)
