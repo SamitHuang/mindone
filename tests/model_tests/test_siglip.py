@@ -6,7 +6,7 @@ import mindspore as ms
 from mindspore import Tensor, amp
 
 from mindone.models.siglip_vit import create_model
-from utils import diff_res
+from compare import calc_res
 
 np.random.seed(42)
 
@@ -50,7 +50,7 @@ def test(dtype=ms.bfloat16, pt_inp="siglip_inp.npy", pt_out="siglip_out.npy"):
     if gt_tensor is None:
         print('out shape: ', out.shape)
     else:
-        diff = diff_res(out, gt_tensor)
+        diff = calc_res(out, gt_tensor)
         print(diff)
         print("test finish")
 
