@@ -697,7 +697,7 @@ def create_model(
     
     # torch_dtype in transformers
     if param_dtype != ms.float32:
-        set_model_param_dtype(model, dtype=param_dtype, keep_norm_fp32=True)
+        set_model_param_dtype(model, dtype=param_dtype, keep_norm_fp32=keep_norm_fp32)
     
     # torch autocast
     if amp_level is not None: 
