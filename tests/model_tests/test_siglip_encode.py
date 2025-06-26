@@ -25,23 +25,36 @@ class SigLIPVisionEncoder(nn.Cell):
         self.model_name = "vit_so400m_patch14_siglip_384"
         self.num_layers = 26 
         self.image_size = 448
+        self.patch_size = 14
         self.select_layers = [14, 18, 22, 26]
 
         self.vit = create_model(self.model_name, param_dtype=dtype,
             image_size=self.image_size,
             layers=self.num_layers,
+			keep_norm_fp32=True,
+			amp_level="O2",
             )
 
         # substitude patch embedding
-        # TODO: set hyper-param in PatchEmbed, e.g. image_size, patch_size
-        # set hyper param for pos_embed, e.g. seq_length
         '''
-        self.vit.patch_embed = PatchEmbed(config, dtype=dtype)
-        self.vit.pos_embed = ms.Parameter(
-            mint.empty(
-                1, vision_config.seq_length, vision_config.hidden_size, dtype=dtype
-            )
-        )
+        In training code, pos_embed is defined as:
+        self.num_patches_per_dim_h = self.img_h // self.patch_size
+        self.num_patches_per_dim_w = self.img_w // self.patch_size
+        self.num_patches = self.num_patches_per_dim_h * self.num_patches_per_dim_w
+        self.seq_length = self.num_patches
+        self.position_embeddings = torch.nn.Embedding(self.seq_length, self.visual_hidden_size)
+
+        which means seq_length is determined by patch_size and image_size
+
+        PatchEmbed is defined as:
+			self.conv1 = torch.nn.Conv2d(
+				in_channels=3,
+				out_channels=self.visual_hidden_size,
+				kernel_size=self.patch_size,
+				stride=self.patch_size,
+				bias=True,
+				padding='valid'
+			)
         '''
 
         # remove unused layers
@@ -100,8 +113,7 @@ def test(dtype=ms.bfloat16):
     input_tensor = ms.Tensor(input_tensor).to(dtype)
     
     out = model(input_tensor)
-    import pdb; pdb.set_trace()
-    print(out.hidden_states.shape)
+    print(out.last_hidden_state.shape)
 
 if __name__ == "__main__":
     ms.set_context(mode=1)

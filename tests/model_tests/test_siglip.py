@@ -37,8 +37,10 @@ def test(dtype=ms.bfloat16, pt_inp="siglip_inp.npy", pt_out="siglip_out.npy"):
     model = create_model(
         model_name,
         select_layer=select_layer,
-        param_dtype=dtype,
         ckpt_path=ckpt_path,
+        param_dtype=dtype,
+		keep_norm_fp32=True,
+		amp_level="O2",
     )
 
     # cal & eval

@@ -313,10 +313,12 @@ class VisionTransformer(nn.Cell):
         )
         num_patches = self.patch_embed.num_patches
 
+
         self.cls_token = Parameter(mint.zeros(1, 1, embed_dim)) if class_token else None
         self.reg_token = Parameter(mint.zeros(1, reg_tokens, embed_dim)) if reg_tokens else None
         embed_len = num_patches if no_embed_class else num_patches + self.num_prefix_tokens
-        # self.pos_embed = Parameter(mint.randn(1, embed_len, embed_dim) * 0.02) # doesn't support graph mode
+
+        # print("DEBUG--: seq_length=embed_len={embed_len}")
         self.pos_embed = Parameter(
             ms.Tensor(np.random.normal(size=(1, embed_len, embed_dim)).astype(np.float32) * 0.02)
         )
@@ -631,7 +633,7 @@ SigLIP_MODEL_CONFIG = {
     "vit_so400m_patch14_siglip_384": {
         "image_size": 384,
         "patch_size": 14,
-        "width": 1152, # embed_dim
+        "width": 1152, # embed_dim, hidden_size
         "layers": 27, # depth
         "heads": 16,
         "mlp_ratio": 3.7362,
@@ -647,6 +649,7 @@ def create_model(
     layers: int = None,
     select_layer: int = -1,
     param_dtype = ms.float32,
+	keep_norm_fp32 = True,
     amp_level: str = None,
     ckpt_path: str = None,
     **kwargs,
@@ -656,9 +659,11 @@ def create_model(
         model_name: model name
         image_size: image size, if None, use the default value in SigLIP_MODEL_CONFIG[model_name] 
         layers: number of transformer blocks, if None, use the default value in SigLIP_MODEL_CONFIG[model_name] 
-
-
+		param_dtype: parameter dtype: ms.bfloat16 or ms.float32
+		keep_norm_fp32: if True, LayerNorm weight and bias will be kept fp32
+		amp_level: only valid if param_dtype != ms.float32, value can be None or "O2"
     '''
+
     assert model_name in SigLIP_MODEL_CONFIG.keys(), f"model name should be in {SigLIP_MODEL_CONFIG.keys()}"
 
     vision_cfg = SigLIPVisionCfg(**SigLIP_MODEL_CONFIG[model_name])
@@ -674,7 +679,7 @@ def create_model(
         layers = min(vision_cfg.layers, select_layer)
 
     model = VisionTransformer(
-        img_size=image_size,
+        img_size=vision_cfg.image_size,
         patch_size=vision_cfg.patch_size,
         embed_dim=vision_cfg.width,
         depth=layers,
@@ -692,7 +697,7 @@ def create_model(
     
     # torch_dtype in transformers
     if param_dtype != ms.float32:
-        set_model_param_dtype(model, dtype=param_dtype, keep_norm_fp32=False)
+        set_model_param_dtype(model, dtype=param_dtype, keep_norm_fp32=True)
     
     # torch autocast
     if amp_level is not None: 
