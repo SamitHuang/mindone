@@ -297,6 +297,8 @@ class VisionTransformer(nn.Cell):
         self.dynamic_img_size = dynamic_img_size
         self.grad_checkpointing = False
         self.ignore_head = ignore_head
+        self.patch_size = patch_size
+        self.embed_dim = embed_dim
 
         embed_args = {}
         if dynamic_img_size:
@@ -312,13 +314,13 @@ class VisionTransformer(nn.Cell):
             **embed_args,
         )
         num_patches = self.patch_embed.num_patches
+        self.seq_length = num_patches
 
 
         self.cls_token = Parameter(mint.zeros(1, 1, embed_dim)) if class_token else None
         self.reg_token = Parameter(mint.zeros(1, reg_tokens, embed_dim)) if reg_tokens else None
         embed_len = num_patches if no_embed_class else num_patches + self.num_prefix_tokens
 
-        # print("DEBUG--: seq_length=embed_len={embed_len}")
         self.pos_embed = Parameter(
             ms.Tensor(np.random.normal(size=(1, embed_len, embed_dim)).astype(np.float32) * 0.02)
         )
@@ -369,18 +371,8 @@ class VisionTransformer(nn.Cell):
         self.head_drop = nn.Dropout(p=drop_rate)
         self.head = mint.nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-        # if weight_init != "skip":
-        #     self.init_weights(weight_init)
 
-    # def init_weights(self, mode: Literal["jax", "jax_nlhb", "moco", ""] = "") -> None:
-    #     assert mode in ("jax", "jax_nlhb", "moco", "")
-    #     # head_bias = -math.log(self.num_classes) if "nlhb" in mode else 0.0
-    #     trunc_normal_(self.pos_embed, std=0.02)
-    #     if self.cls_token is not None:
-    #         nn.init.normal_(self.cls_token, std=1e-6)
-    #     named_apply(init_weights_vit_timm, self)
-
-    def load_from_checkpoint(self, ckpt_path):
+    def load_from_checkpoint(self, ckpt_path, add_prefix=""):
         # mainly used in unit test
         parameter_dict = dict()
         if ckpt_path.endswith(".bin"):
@@ -416,23 +408,49 @@ class VisionTransformer(nn.Cell):
         elif ckpt_path.endswith(".ckpt"):
             parameter_dict = ms.load_checkpoint(ckpt_path)
         elif ckpt_path.endswith(".safetensors"):
-            '''
-            with safe_open(ckpt_path, framework="pt", device="cpu") as f:
-                for key in f.keys():
-                    pt_tensor = f.get_tensor(key)
-                    np_val = pt_tensor.detach().numpy().astype(np.float32)
-                    parameter_dict[key] = ms.Parameter(ms.Tensor(np_val, dtype=param_dtype))
-            '''
             parameter_dict = ms.load_checkpoint(ckpt_path, format='safetensors')
             pnames = list(parameter_dict.keys())
-            # checkpoint from timm/ViT-SO400M-14-SigLIP-384
-            for p in pnames:
-                if "visual." not in p:
-                    # exclude text transformers
-                    parameter_dict.pop(p)
-                else:
-                    new_pname = p.replace("visual.trunk.", "")
-                    parameter_dict[new_pname] = parameter_dict.pop(p)
+            is_from_texthawk = pnames[0].startswith("vision_model.")
+
+            if is_from_texthawk:
+                print("D--: load param from texthawk")
+                prefix = "vision_model.encoder.vit." 
+                for p in pnames:
+                    if prefix not in p:
+                        parameter_dict.pop(p)
+                    else: 
+                        # name refine
+                        new_pname = p.replace(prefix, "")
+                        # if "vit.pos_embed.weight" in p:
+                        #     new_pname = new_pname.replace(".weight", "")
+                        
+                        # FIXME: due to we change patch_embed externally, patch_embed weight name is 'pos_embed.weight' rather than 'vit.pos_embed.weight'
+                        if not "vit.pos_embed.weight" in p:
+                            new_pname = add_prefix + new_pname
+
+                        # value shaping
+                        weight  = parameter_dict.pop(p)
+                        if "vit.patch_embed.proj.weight" in p:
+                            # in conversion script: value = value.permute(0, 2, 3, 1).flatten(1).clone()
+                            # torch conv weight (cout, cin, h, w) -> (cout, h, w, cin) -> (cout, h*w*cin)
+                            # revert: value.reshape(cout, h, w, cin).permute(0, 3, 1, 2)
+                            weight = ops.reshape(weight, (self.embed_dim, self.patch_size, self.patch_size, 3))  #
+                            weight = ops.transpose(weight, (0, 3, 1, 2))
+                            parameter_dict[new_pname] = ms.Parameter(weight, name=new_pname)
+                            print("D--: ", new_pname, parameter_dict[new_pname].dtype)
+                            print(parameter_dict[new_pname] )
+                        else:
+                            parameter_dict[new_pname] = weight
+
+            else:
+                # checkpoint from timm/ViT-SO400M-14-SigLIP-384
+                for p in pnames:
+                    if "visual." not in p:
+                        # exclude text transformers
+                        parameter_dict.pop(p)
+                    else:
+                        new_pname = p.replace("visual.trunk.", "")
+                        parameter_dict[new_pname] = parameter_dict.pop(p)
         else: 
             raise ValueError("Unsupported checkpoint format")
 
@@ -445,6 +463,8 @@ class VisionTransformer(nn.Cell):
             print(
                 "Ckpt params not load: {}, Total ckpt params not loaded: {}".format(ckpt_not_load, len(ckpt_not_load))
             )
+        import pdb; pdb.set_trace()
+        assert len(ckpt_not_load) == 0, f"These vision parameters from checkpoint are NOT loaded. Please check.\n {ckpt_not_load}"
         print("finish loading ckpt siglip")
 
     def no_weight_decay(self) -> Set:
@@ -649,7 +669,7 @@ def create_model(
     layers: int = None,
     select_layer: int = -1,
     param_dtype = ms.float32,
-	keep_norm_fp32 = True,
+	keep_norm_fp32 = False,
     amp_level: str = None,
     ckpt_path: str = None,
     **kwargs,
@@ -691,10 +711,6 @@ def create_model(
         weight_init=kwargs.get("weight_init", "skip"),
         num_classes=0,
     )
-
-    if ckpt_path is not None:
-        model.load_from_checkpoint(ckpt_path)
-    
     # torch_dtype in transformers
     if param_dtype != ms.float32:
         set_model_param_dtype(model, dtype=param_dtype, keep_norm_fp32=keep_norm_fp32)
@@ -702,5 +718,8 @@ def create_model(
     # torch autocast
     if amp_level is not None: 
         amp.auto_mixed_precision(model, amp_level=amp_level, dtype=param_dtype)
+    
+    if ckpt_path is not None:
+        model.load_from_checkpoint(ckpt_path)
 
     return model

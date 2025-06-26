@@ -1,3 +1,4 @@
+import pickle
 import numpy as np
 
 import mindspore as ms
@@ -33,12 +34,20 @@ def calc_diff(ms_val, pt_val, eps=1e-8, relax=False):
     return dict(mae=mae, max_ae=max_ae, mre=mre, max_re=max_re)
 
 
+def read_pickle_value(pkl_path):
+    with open(pkl_path, "rb") as fp:
+        data = pickle.load(fp)    
+        assert len(data.keys())==1, 'cannot pick more than one value'
+        name = list(data.keys())[0]
+        pkl_val = data[name]
+    return pkl_val
+
+
 def print_diff(ms_val, gt_data_fp):
     if gt_data_fp.endswith("pkl"):
-        with open(gt_data_fp, "rb") as fp:
-            
+        pta_val = read_pickle_value(gt_data_fp)
     else:
         pta_val = np.load(pt_np)
-    res = calc_diff(ms_val, pta_val)
+    res = calc_diff(ms_val, pta_val, relax=True)
     print(res)
     return res, pta_val
