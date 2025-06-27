@@ -35,6 +35,7 @@ from mindone.transformers.mindspore_adapter.attention import scaled_dot_product_
 
 from .utils import set_model_param_dtype
 from .timm import (
+    QuickGELUActivation,
     AttentionPoolLatent,
     DropPath,
     LayerType,
@@ -135,7 +136,11 @@ class Attention(nn.Cell):
         else:
             q = q * self.scale
             attn = ops.bmm(q, k.transpose(0, 1, 3, 2))
+            # FIXME: texthawk use softmax fp32
+            
+            # attn = ops.softmax(attn.to(ms.float32), axis=-1).to(q.dtype)
             attn = ops.softmax(attn, axis=-1)
+
             attn = self.attn_drop(attn)
             x = ops.bmm(attn, v)
 
@@ -172,7 +177,7 @@ class Block(nn.Cell):
         attn_drop: float = 0.0,
         init_values: Optional[float] = None,
         drop_path: float = 0.0,
-        act_layer: nn.Cell = nn.GELU,
+        act_layer: nn.Cell = mint.nn.GELU,
         norm_layer: nn.Cell = LayerNorm,
         mlp_layer: nn.Cell = Mlp,
     ) -> None:
@@ -191,10 +196,12 @@ class Block(nn.Cell):
         self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         self.norm2 = norm_layer([dim])
+        # FIXME: Temp fix: texthawk use QuickGELU for MLP act
         self.mlp = mlp_layer(
             in_features=dim,
             hidden_features=int(dim * mlp_ratio),
-            act_layer=act_layer,
+            # act_layer=act_layer,
+            act_layer=QuickGELUActivation,
             drop=proj_drop,
         )
         self.ls2 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
@@ -284,7 +291,7 @@ class VisionTransformer(nn.Cell):
         use_fc_norm = global_pool == "avg" if fc_norm is None else fc_norm
 
         norm_layer = partial(LayerNorm, eps=1e-6)
-        act_layer = nn.GELU
+        act_layer = mint.nn.GELU
 
         self.num_classes = num_classes
         self.global_pool = global_pool
@@ -463,7 +470,6 @@ class VisionTransformer(nn.Cell):
             print(
                 "Ckpt params not load: {}, Total ckpt params not loaded: {}".format(ckpt_not_load, len(ckpt_not_load))
             )
-        import pdb; pdb.set_trace()
         assert len(ckpt_not_load) == 0, f"These vision parameters from checkpoint are NOT loaded. Please check.\n {ckpt_not_load}"
         print("finish loading ckpt siglip")
 

@@ -85,6 +85,15 @@ def trunc_normal_tf_(tensor, mean=0.0, std=1.0, a=-2.0, b=2.0):
     return tensor
 
 
+class QuickGELUActivation(nn.Cell):
+    """
+    Applies GELU approximation that is fast but somewhat inaccurate. See: https://github.com/hendrycks/GELUs
+    """
+
+    def construct(self, input: ms.Tensor) -> ms.Tensor:
+        return input * mint.sigmoid(1.702 * input)
+
+
 class AttentionPoolLatent(nn.Cell):
     """Attention pooling w/ latent query"""
 
@@ -135,7 +144,12 @@ class AttentionPoolLatent(nn.Cell):
         self.proj_drop = nn.Dropout(p=drop)
 
         self.norm = norm_layer([out_features]) if norm_layer is not None else nn.Identity()
-        self.mlp = Mlp(embed_dim, int(embed_dim * mlp_ratio))
+        print("D---: Temp chagne to quick gelu!!")
+        # FIXME: texthawk use quick gelu
+        self.mlp = Mlp(embed_dim, 
+                    int(embed_dim * mlp_ratio),
+                    act_layer=QuickGELUActivation,
+                    )
 
         self.init_weights()
 
@@ -238,7 +252,7 @@ class Mlp(nn.Cell):
         in_features,
         hidden_features=None,
         out_features=None,
-        act_layer=nn.GELU,
+        act_layer=mint.nn.GELU,
         norm_layer=None,
         bias=True,
         drop=0.0,
@@ -253,6 +267,7 @@ class Mlp(nn.Cell):
 
         self.fc1 = linear_layer(in_features, hidden_features, bias=bias[0])
         self.act = act_layer()
+        print("D---: Temp chagne to quick gelu!!")
         self.drop1 = nn.Dropout(p=drop_probs[0])
         self.norm = norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
         self.fc2 = linear_layer(hidden_features, out_features, bias=bias[1])

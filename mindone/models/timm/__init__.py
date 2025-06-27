@@ -1,4 +1,5 @@
 from .modules import (
+    QuickGELUActivation,
     AttentionPoolLatent,
     DropPath,
     LayerType,

@@ -17,6 +17,16 @@ num_query_group: 16
 ffn_hidden_size: 4304
 """
 
+
+class QuickGELUActivation(nn.Cell):
+    """
+    Applies GELU approximation that is fast but somewhat inaccurate. See: https://github.com/hendrycks/GELUs
+    """
+
+    def construct(self, input: ms.Tensor) -> ms.Tensor:
+        return input * mint.sigmoid(1.702 * input)
+
+
 class SigLIPVisionEncoder(nn.Cell):
 
     def __init__(self, dtype: ms.Type = ms.float32) -> None:
@@ -44,6 +54,9 @@ class SigLIPVisionEncoder(nn.Cell):
         self.position_ids = mint.arange(self.vit.seq_length).expand((1, -1))  # TODO: expand? 
         # TODO: the param name dosen't include "vit." prefix in mindspore. May fail to load.
         self.vit.pos_embed = mint.nn.Embedding(self.vit.seq_length, self.vit.embed_dim, dtype=dtype)
+        
+        # del self.vit.mlp.act
+        # self.vit.mlp.act = QuickGELUActivation
 
         # remove unused post layernorm and head
         del self.vit.norm
@@ -58,7 +71,6 @@ class SigLIPVisionEncoder(nn.Cell):
     def construct(self, x: ms.Tensor, *args, **kwargs):
         # return self.vit(x, *args, **kwargs)
 
-        import pdb; pdb.set_trace()
         x = self.vit.patch_embed(x)  # mre = 0, by pta.reshape(5, 1152, 1024)
         # the following two operations are done in timm siglipvit patch_embed
         # x = x.reshape(x.shape[0], x.shape[1], -1)  # [batch, hidden_size, grid ** 2]
@@ -78,6 +90,7 @@ class SigLIPVisionEncoder(nn.Cell):
             self.intermediates = list()  # TODO: this output is not used in inference, can be removed
         encoder_states = ()
         
+        import pdb; pdb.set_trace()
         for layer_id, layer in enumerate(self.vit.blocks):
             # TODO: check compute steps in block in megatron
             hidden_states = layer(hidden_states)
