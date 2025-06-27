@@ -29,7 +29,7 @@ class SigLIPVisionEncoder(nn.Cell):
         self.num_layers = 26 
         self.image_size = 448
         self.patch_size = 14
-        self.select_layers = [14, 18, 22, 26]
+        self.selected_layers = [14, 18, 22, 26]
 
         self.vit = create_model(self.model_name, param_dtype=dtype,
             image_size=self.image_size,
@@ -68,10 +68,34 @@ class SigLIPVisionEncoder(nn.Cell):
         x = x + self.vit.pos_embed(self.position_ids)
         # contiguous() call required as 'permute' can sparsify the tensor and this breaks pipelining
         # x = x.permute(1, 0, 2).contiguous()  # [b, s, h] -> [s, b, h],
-
-        x = self.vit.blocks(x)
         
-        return x
+        # TODO: should parse selected_layers to the block
+        # x = self.vit.blocks(x)
+        
+        # Mimic megatron VisionTransformerBlock forward pass
+        hidden_states = x  # pre_process=True
+        if self.selected_layers is not None: # self.take_indices in megatron 
+            self.intermediates = list()  # TODO: this output is not used in inference, can be removed
+        encoder_states = ()
+        
+        for layer_id, layer in enumerate(self.vit.blocks):
+            # TODO: check compute steps in block in megatron
+            hidden_states = layer(hidden_states)
+
+            # since intermediates is not used, can comment out
+            # if (self.selected_layers is not None) and ((layer_id + 1) in self.selected_layers):
+            #     ln_hs = self.vit.final_layernorm(hidden_states)
+            #     self.intermediates.append(ln_hs)
+
+            encoder_states = encoder_states + (hidden_states, )
+        import pdb; pdb.set_trace()
+        hidden_states = encoder_states[-2]  # why take -2?
+        
+        # since selected_layers is not None, it's not run.
+        # if self.selected_layers is None:  # and self.post_proces; not used in inference?
+        #     hidden_states = self.final_layernorm(hidden_states)
+        
+        return hidden_states
 
 
 def test(dtype=ms.bfloat16, gt_inp=None, gt_out=None):
