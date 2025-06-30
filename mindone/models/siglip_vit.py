@@ -22,6 +22,7 @@
 from dataclasses import dataclass
 from functools import partial
 from typing import Callable, Dict, Final, List, Literal, Optional, Sequence, Set, Tuple, Type, Union
+import math
 
 import numpy as np
 from safetensors import safe_open
@@ -29,7 +30,8 @@ from safetensors import safe_open
 import mindspore as ms
 from mindspore import Parameter, Tensor, mint, nn, ops
 from mindspore.mint.nn import LayerNorm
-from mindspore import amp
+#from mindspore import amp
+from mindone.utils.amp import auto_mixed_precision
 
 from mindone.transformers.mindspore_adapter.attention import scaled_dot_product_attention
 
@@ -93,6 +95,8 @@ def init_weights_vit_timm(module: nn.Cell, name: str = "") -> None:
         module.init_weights()
 
 
+from mindformers.modules.layers import Linear as MF_Linear
+
 class Attention(nn.Cell):
     fused_attn: Final[bool]
 
@@ -113,38 +117,93 @@ class Attention(nn.Cell):
         self.scale = self.head_dim**-0.5
         # self.fused_attn = use_fused_attn()
         self.fused_attn = True
+        
+        # default in timm: qqqq kkkk vvv 
+        # self.qkv = mint.nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.qkv = nn.Dense(dim, dim * 3, has_bias=qkv_bias)
+        
+        # TODO: try to change re-arrange map? 
+        # self.qkv.weight = nn.Parameter(self.qkv.weight.reshape(3, 16, 72, 1152).permute(1, 0, 2, 3).reshape(-1, 1152)).to(target_device, dtype=target_dtype)
+        # self.qkv.bias = nn.Parameter(self.qkv.bias.reshape(3, 16, 72).permute(1, 0, 2).reshape(-1)).to(target_device, dtype=target_dtype)
 
-        self.qkv = mint.nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.q_norm = norm_layer([self.head_dim]) if qk_norm else nn.Identity()
         self.k_norm = norm_layer([self.head_dim]) if qk_norm else nn.Identity()
         self.attn_drop = nn.Dropout(p=attn_drop)
-        self.proj = mint.nn.Linear(dim, dim)
+        # self.proj = mint.nn.Linear(dim, dim)
+        self.proj = nn.Dense(dim, dim)
+
         self.proj_drop = nn.Dropout(p=proj_drop) if proj_drop > 0.0 else nn.Identity()
 
+        self.use_fa = True
+
     def construct(self, x: Tensor) -> Tensor:
+        # N - seq len
         B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv.unbind(0)
-        q, k = self.q_norm(q), self.k_norm(k)
+        # DEBUG texthawk: num_heads 16, head_dim 72 
+        # Linear projection
 
-        if self.fused_attn:
-            x = scaled_dot_product_attention(
-                q,
-                k,
-                v,
-            )
-        else:
-            q = q * self.scale
-            attn = ops.bmm(q, k.transpose(0, 1, 3, 2))
-            # FIXME: texthawk use softmax fp32
+        # print("D--: qkv projection input error: ")
+        # from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/features_self_attn/module_siglip_block_0_layer_0_self-attn_before_qkv.pkl")
+
+        # (B S H) -> (B S H*3), qqkkvv
+        qkv = self.qkv(x)
+        
+        if not self.use_fa: 
+            # (B S H*3) -> (B S 3 num_head head_dim) -> (3 B num_head S head_dim) = (3 B 16 1024 72)  # => BNSH format 
+            qkv = qkv.reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            q, k, v = qkv.unbind(0)  # (B num_heads S head_dim)
             
-            # attn = ops.softmax(attn.to(ms.float32), axis=-1).to(q.dtype)
-            attn = ops.softmax(attn, axis=-1)
+            # train infer save merged_qkv:  (S B H*3), qkvqkv 
+            # train infer save query:  (S B num_heads head_dim), 4K: (1024, 5, 16, 72)
+            print("D--: q k v error after qkv projection: ")
+            from compare import print_diff; diff, pta_val = print_diff(q.asnumpy().transpose(2,0,1,3), "/home/hyx/models/texthawk_vision/features_self_attn/module_siglip_block_0_layer_0_self-attn_query.pkl")
+            from compare import print_diff; diff, pta_val = print_diff(k.asnumpy().transpose(2,0,1,3), "/home/hyx/models/texthawk_vision/features_self_attn/module_siglip_block_0_layer_0_self-attn_key.pkl")
+            from compare import print_diff; diff, pta_val = print_diff(v.asnumpy().transpose(2,0,1,3), "/home/hyx/models/texthawk_vision/features_self_attn/module_siglip_block_0_layer_0_self-attn_value.pkl")
+            # import pdb; pdb.set_trace()
+        else:
+            # (B S 3H) -> (S B 3H) ->  (S B 3 H)
+            q, k, v = qkv.transpose((1, 0, 2)).reshape(N, B, 3, self.num_heads * self.head_dim).unbind(2)
 
-            attn = self.attn_drop(attn)
-            x = ops.bmm(attn, v)
+        q, k = self.q_norm(q), self.k_norm(k)  # identity
+            
+        # in training infer: (S B num_heads head_dim) -> (SBH) format, and use torch_npu.npu_fusion_attention
+        #  ==> 4K: q: (1024 5 1152) 
+        #  profile 8K data: (1024 33 144) ==> num_heads 16 -> 2
+        
+        # here: BNSD format
+        # TODO: use SBH format and ms flash attn score API to compute it
+        # refer to: mindspeed_mm\attention_patches\dot_product_attention_qwen2vl.py
+        if self.use_fa: 
+            x = ms.ops.flash_attention_score(
+                q, k, v, self.num_heads, input_layout='SBH', scalar_value=1.0 / math.sqrt(self.head_dim),
+                )
+            x = x.transpose(1, 0, 2) # SBH -> BSH
+        else:
+            if self.fused_attn:
+                x = scaled_dot_product_attention(
+                    q,
+                    k,
+                    v,
+                )
+            else:
+                q = q * self.scale
+                # attn = ops.bmm(q, k.transpose(0, 1, 3, 2))
+                attn = q @ k.transpose(0, 1, 3, 2)
 
-        x = x.transpose(0, 2, 1, 3).reshape(B, N, C)
+                attn = attn.to(ms.float32)
+                attn = mint.softmax(attn, dim=-1).to(q.dtype)
+
+                attn = self.attn_drop(attn)
+                # x = ops.bmm(attn, v)
+                x = attn @ v
+            # B N S D -> B S N D -> B S H
+            x = x.transpose(0, 2, 1, 3).reshape(B, N, C)
+        '''
+        print("D--: x error after dot product attn: ")
+        from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/features_self_attn/module_siglip_block_0_layer_0_self-attn_attn_output.pkl")
+        import pdb; pdb.set_trace()
+        '''
+
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
@@ -197,19 +256,65 @@ class Block(nn.Cell):
 
         self.norm2 = norm_layer([dim])
         # FIXME: Temp fix: texthawk use QuickGELU for MLP act
+        print("D--: act layer: ", act_layer)
         self.mlp = mlp_layer(
             in_features=dim,
             hidden_features=int(dim * mlp_ratio),
-            # act_layer=act_layer,
-            act_layer=QuickGELUActivation,
+            act_layer=act_layer,
             drop=proj_drop,
         )
         self.ls2 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         self.drop_path2 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
     def construct(self, x: Tensor) -> Tensor:
-        x = x + self.drop_path1(self.ls1(self.attn(self.norm1(x))))
-        x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
+        # x = x + self.drop_path1(self.ls1(self.attn(self.norm1(x))))
+        # x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
+        h = self.norm1(x)
+        # after_input_layernorm.pkl mre 0
+        
+        h = self.attn(h)
+        h = self.ls1(h)
+        x = x + self.drop_path1(h)
+
+        # import pdb; pdb.set_trace() 
+        # print("D--: x error after out projction + bias + residual: ")
+        # from compare import read_pickle_value, print_diff
+        # print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/features_full/texthawk_ds_features_gt_full/module_siglip_block_0_layer_0_before_pre_mlp_layernorm.pkl") 
+        # import pdb; pdb.set_trace()
+
+        # before_pre_mlp_layernorm.pkl, mre 0.001
+        h = self.norm2(x)
+        # after_pre_mlp_layernorm.pkl, mre 0.019
+        
+        # DEBUGGING
+        '''
+        import pdb; pdb.set_trace()
+        force_input = "/home/hyx/models/texthawk_vision/features_full/texthawk_ds_features_gt_full/module_siglip_block_0_layer_0_after_pre_mlp_layernorm.pkl" 
+        from compare import read_pickle_value, print_diff
+        h = ms.Tensor(read_pickle_value(force_input).transpose(1,0,2))
+        print_diff(h.asnumpy().transpose(1,0,2), force_input)
+
+        force_input_x = "/home/hyx/models/texthawk_vision/features_full/texthawk_ds_features_gt_full/module_siglip_block_0_layer_0_before_pre_mlp_layernorm.pkl" 
+        x = ms.Tensor(read_pickle_value(force_input_x).transpose(1,0,2))
+        print_diff(x.asnumpy().transpose(1,0,2), force_input_x)
+        print("x and h are set to the same as training input")
+        '''
+
+        h = self.mlp(h)
+        
+        ''' 
+        ref_output = "/home/hyx/models/texthawk_vision/features_full/texthawk_ds_features_gt_full/module_siglip_block_0_layer_0_after_mlp.pkl"   # seems it's not matching!
+        print_diff(h.asnumpy().transpose(1,0,2), ref_output)
+        '''
+
+        h = self.ls2(h)
+        x = x + self.drop_path2(h)
+
+        # before_return.pkl, mre 0.037
+
+        # ref_output = "/home/hyx/models/texthawk_vision/features_full/texthawk_ds_features_gt_full/module_siglip_block_0_layer_0_before_return.pkl" 
+        # print_diff(x.asnumpy().transpose(1,0,2), ref_output)
+        # import pdb; pdb.set_trace()
 
         return x
 
@@ -291,7 +396,6 @@ class VisionTransformer(nn.Cell):
         use_fc_norm = global_pool == "avg" if fc_norm is None else fc_norm
 
         norm_layer = partial(LayerNorm, eps=1e-6)
-        act_layer = mint.nn.GELU
 
         self.num_classes = num_classes
         self.global_pool = global_pool
@@ -364,6 +468,7 @@ class VisionTransformer(nn.Cell):
         self.norm = norm_layer([embed_dim]) if not use_fc_norm else nn.Identity()
 
         # Classifier Head
+        # DEBUG: not used in texthawk
         if global_pool == "map":
             AttentionPoolLatent.init_weights = init_weights
             self.attn_pool = AttentionPoolLatent(
@@ -371,6 +476,7 @@ class VisionTransformer(nn.Cell):
                 num_heads=num_heads,
                 mlp_ratio=mlp_ratio,
                 norm_layer=norm_layer,
+                act_layer=act_layer,
             )
         else:
             self.attn_pool = None
@@ -379,7 +485,7 @@ class VisionTransformer(nn.Cell):
         self.head = mint.nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
 
-    def load_from_checkpoint(self, ckpt_path, add_prefix=""):
+    def load_from_checkpoint(self, ckpt_path, add_prefix="", amp_level=None):
         # mainly used in unit test
         parameter_dict = dict()
         if ckpt_path.endswith(".bin"):
@@ -434,6 +540,10 @@ class VisionTransformer(nn.Cell):
                         # FIXME: due to we change patch_embed externally, patch_embed weight name is 'pos_embed.weight' rather than 'vit.pos_embed.weight'
                         if not "vit.pos_embed.weight" in p:
                             new_pname = add_prefix + new_pname
+                        # FIXME: somehow, using auto_mixed_precision to set LayerNorm in fp32 will add _backbone to the param name...
+                        if "norm" in new_pname and amp_level is not None:
+                            new_pname = new_pname.replace(".bias", "._backbone.bias")
+                            new_pname = new_pname.replace(".weight", "._backbone.weight")
 
                         # value shaping
                         weight  = parameter_dict.pop(p)
@@ -589,6 +699,7 @@ class VisionTransformer(nn.Cell):
 
         x = self.blocks(x)
 
+        import pdb; pdb.set_trace()
         x = self.norm(x)
         return x
 
@@ -674,6 +785,7 @@ def create_model(
     image_size: int = None,
     layers: int = None,
     select_layer: int = -1,
+    act_layer = mint.nn.GELU,
     param_dtype = ms.float32,
 	keep_norm_fp32 = False,
     amp_level: str = None,
@@ -703,7 +815,7 @@ def create_model(
         layers = min(vision_cfg.layers, vision_cfg.layers + select_layer + 1)
     else:
         layers = min(vision_cfg.layers, select_layer)
-
+    
     model = VisionTransformer(
         img_size=vision_cfg.image_size,
         patch_size=vision_cfg.patch_size,
@@ -716,16 +828,20 @@ def create_model(
         ignore_head=kwargs.get("ignore_head", True),
         weight_init=kwargs.get("weight_init", "skip"),
         num_classes=0,
+        act_layer=act_layer,
     )
+
+    if ckpt_path is not None:
+        model.load_from_checkpoint(ckpt_path, amp_level=amp_level)
+        
     # torch_dtype in transformers
     if param_dtype != ms.float32:
         set_model_param_dtype(model, dtype=param_dtype, keep_norm_fp32=keep_norm_fp32)
     
     # torch autocast
     if amp_level is not None: 
-        amp.auto_mixed_precision(model, amp_level=amp_level, dtype=param_dtype)
+        ms.amp.custom_mixed_precision(model, dtype=param_dtype,
+            black_list=[mint.nn.GroupNorm, mint.nn.LayerNorm])
     
-    if ckpt_path is not None:
-        model.load_from_checkpoint(ckpt_path)
 
     return model

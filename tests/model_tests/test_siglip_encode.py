@@ -4,6 +4,7 @@ import numpy as np
 from functools import partial
 from mindspore import nn, mint
 from mindone.models.siglip_vit import create_model
+from mindone.models.timm import QuickGELUActivation 
 from types import SimpleNamespace
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
@@ -29,7 +30,7 @@ class QuickGELUActivation(nn.Cell):
 
 class SigLIPVisionEncoder(nn.Cell):
 
-    def __init__(self, dtype: ms.Type = ms.float32) -> None:
+    def __init__(self, dtype: ms.Type = ms.float32, amp_level="O2") -> None:
         super().__init__()
 
         ckpt_path = '/home/hyx/models/texthawk_vision/DS_Texthawk_0622_align_resume_iter10000pytorch_model.safetensors'
@@ -40,12 +41,16 @@ class SigLIPVisionEncoder(nn.Cell):
         self.image_size = 448
         self.patch_size = 14
         self.selected_layers = [14, 18, 22, 26]
-
-        self.vit = create_model(self.model_name, param_dtype=dtype,
+        self.act_layer = QuickGELUActivation
+        
+        self.vit = create_model(
+            self.model_name,
+            param_dtype=dtype,
             image_size=self.image_size,
             layers=self.num_layers,
 			keep_norm_fp32=False,
-			amp_level="O2",
+			amp_level=amp_level,
+            act_layer=self.act_layer,
             )
         
         del self.vit.pos_embed 
@@ -65,7 +70,7 @@ class SigLIPVisionEncoder(nn.Cell):
         del self.vit.head_drop
         del self.vit.head
 
-        self.vit.load_from_checkpoint(ckpt_path, add_prefix="vit.")
+        self.vit.load_from_checkpoint(ckpt_path, add_prefix="vit.", amp_level=amp_level)
 
     # TODO: support attention_mask=None
     def construct(self, x: ms.Tensor, *args, **kwargs):
@@ -90,19 +95,23 @@ class SigLIPVisionEncoder(nn.Cell):
             self.intermediates = list()  # TODO: this output is not used in inference, can be removed
         encoder_states = ()
         
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         for layer_id, layer in enumerate(self.vit.blocks):
             # TODO: check compute steps in block in megatron
             hidden_states = layer(hidden_states)
 
+            # import pdb; pdb.set_trace()
             # since intermediates is not used, can comment out
             # if (self.selected_layers is not None) and ((layer_id + 1) in self.selected_layers):
             #     ln_hs = self.vit.final_layernorm(hidden_states)
             #     self.intermediates.append(ln_hs)
 
             encoder_states = encoder_states + (hidden_states, )
+        # hidden_states = encoder_states[-2]  # why take -2?
+        hidden_states = encoder_states[-1]
+
+        from compare import print_diff; diff, pta_val = print_diff(encoder_states[-1].asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/features/after_siglip_decoder_0_index_0.pkl")
         import pdb; pdb.set_trace()
-        hidden_states = encoder_states[-2]  # why take -2?
         
         # since selected_layers is not None, it's not run.
         # if self.selected_layers is None:  # and self.post_proces; not used in inference?

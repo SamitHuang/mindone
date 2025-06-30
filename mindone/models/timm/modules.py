@@ -113,6 +113,7 @@ class AttentionPoolLatent(nn.Cell):
         pool_type: str = "token",
         norm_layer: Optional[nn.Cell] = None,
         drop: float = 0.0,
+        act_layer: nn.Cell=mint.nn.GELU,
     ):
         super().__init__()
         embed_dim = embed_dim or in_features
@@ -144,11 +145,11 @@ class AttentionPoolLatent(nn.Cell):
         self.proj_drop = nn.Dropout(p=drop)
 
         self.norm = norm_layer([out_features]) if norm_layer is not None else nn.Identity()
-        print("D---: Temp chagne to quick gelu!!")
         # FIXME: texthawk use quick gelu
+        print("D--: act layer: ", act_layer)
         self.mlp = Mlp(embed_dim, 
                     int(embed_dim * mlp_ratio),
-                    act_layer=QuickGELUActivation,
+                    act_layer=act_layer,
                     )
 
         self.init_weights()
@@ -172,13 +173,16 @@ class AttentionPoolLatent(nn.Cell):
         k, v = kv.unbind(0)
 
         q, k = self.q_norm(q), self.k_norm(k)
-
+        
         if self.fused_attn:
             x = scaled_dot_product_attention(q, k, v)
         else:
             q = q * self.scale
             attn = q @ k.transpose(-2, -1)
-            attn = attn.softmax(dim=-1)
+
+            # FIXME: texthawk use softmax fp32
+            attn = ops.softmax(attn.to(ms.float32), axis=-1).to(q.dtype)
+
             x = attn @ v
         x = x.transpose((0, 2, 1, 3)).reshape(B, self.latent_len, C)
         x = self.proj(x)
@@ -241,6 +245,36 @@ def _ntuple(n):
 to_2tuple = _ntuple(2)
 
 
+from mindspore.ops.auto_generate import MatMulExt, Transpose
+from mindspore.common.initializer import initializer, HeUniform, Uniform
+from mindspore.ops import operations as P
+
+from mindformers.modules.layers import Linear as MF_Linear
+
+class MyLinear(nn.Cell):
+    def __init__(self, input_size, output_size, has_bias=True):
+        super(MyLinear, self).__init__()
+
+        weight_shape = (output_size, input_size)  # transpose_b = True
+        self.weight = ms.Parameter(initializer('normal', weight_shape), name='weight')
+        if has_bias:
+            self.bias = ms.Parameter(initializer('zeros', (output_size,)), name='bias')
+        else:
+            self.bias = None
+
+        # self.matmul = MatMulExt()   # TODO: there are multiple kinds of matmul op. Try mint.matmul, ops.matmul, bmm, etc
+        self.matmul = ms.mint.matmul
+        self.transpose = Transpose()
+        
+    def construct(self, input):
+        # refer to: megatron\core\tensor_parallel\layers.py
+        output = self.matmul(input, self.transpose(self.weight, (1,0)))
+        if self.bias is not None:
+            output = output + self.bias
+
+        return output
+
+
 class Mlp(nn.Cell):
     """MLP as used in Vision Transformer, MLP-Mixer and related networks
 
@@ -263,17 +297,27 @@ class Mlp(nn.Cell):
         hidden_features = hidden_features or in_features
         bias = to_2tuple(bias)
         drop_probs = to_2tuple(drop)
-        linear_layer = partial(mint.nn.Conv2d, kernel_size=1) if use_conv else mint.nn.Linear
+        # linear_layer = partial(mint.nn.Conv2d, kernel_size=1) if use_conv else mint.nn.Linear
+        if use_conv:
+            linear_layer = partial(mint.nn.Conv2d, kernel_size=1) 
+        else:
+            # linear_layer = partial(mint.nn.Linear, bias=bias[0]) 
+            linear_layer = partial(nn.Dense, has_bias=bias[0]) 
+            # linear_layer = partial(MyLinear, has_bias=bias[0]) 
+            # linear_layer = partial(MF_Linear, has_bias=bias[0]) 
+            # linear_layer = partial(MF_Linear, use_gmm=True, transpose_b=False, has_bias=bias[0]) 
 
-        self.fc1 = linear_layer(in_features, hidden_features, bias=bias[0])
+
+        self.fc1 = linear_layer(in_features, hidden_features) # , bias=bias[0])
         self.act = act_layer()
-        print("D---: Temp chagne to quick gelu!!")
+        print("D--: act layer: ", self.act)
         self.drop1 = nn.Dropout(p=drop_probs[0])
         self.norm = norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
-        self.fc2 = linear_layer(hidden_features, out_features, bias=bias[1])
+        self.fc2 = linear_layer(hidden_features, out_features) # , bias=bias[1])
         self.drop2 = nn.Dropout(p=drop_probs[1])
 
     def construct(self, x):
+        # import pdb; pdb.set_trace()
         x = self.fc1(x)
         x = self.act(x)
         x = self.drop1(x)
