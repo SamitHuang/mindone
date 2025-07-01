@@ -15,6 +15,8 @@ from mindone.transformers.mindspore_adapter.attention import scaled_dot_product_
 logger = logging.getLogger("")
 LayerType = Union[str, Callable, Type[nn.Cell]]
 
+HACK_DEBUG = False
+
 
 def no_grad_trunc_normal_(tensor, mean, std, a, b):
     # Cut & paste from PyTorch official master until it's in a few official releases - RW
@@ -91,7 +93,8 @@ class QuickGELUActivation(nn.Cell):
     """
 
     def construct(self, input: ms.Tensor) -> ms.Tensor:
-        return input * mint.sigmoid(1.702 * input)
+        # return input * mint.sigmoid(1.702 * input)
+        return input * mint.nn.functional.sigmoid(1.702 * input)
 
 
 class AttentionPoolLatent(nn.Cell):
@@ -146,7 +149,7 @@ class AttentionPoolLatent(nn.Cell):
 
         self.norm = norm_layer([out_features]) if norm_layer is not None else nn.Identity()
         # FIXME: texthawk use quick gelu
-        print("D--: act layer: ", act_layer)
+        # print("D--: act layer: ", act_layer)
         self.mlp = Mlp(embed_dim, 
                     int(embed_dim * mlp_ratio),
                     act_layer=act_layer,
@@ -317,13 +320,39 @@ class Mlp(nn.Cell):
         self.drop2 = nn.Dropout(p=drop_probs[1])
 
     def construct(self, x):
-        # import pdb; pdb.set_trace()
-        x = self.fc1(x)
+        
+        if HACK_DEBUG: 
+            print("D--: force to overwrite mlp input") 
+            force_input = "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250630/module_siglip_block_0_layer_0_after_pre_mlp_layernorm.pkl"
+            from compare import read_pickle_value, print_diff
+            x = ms.Tensor(read_pickle_value(force_input).transpose(1,0,2))
+            diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), force_input)
+        
+            # TODO: training code: intermediate_parallel, bias_parallel = self.linear_fc1(hidden_states); bias is added later; to align, we may use matmul() + bias
+            # x = self.fc1(x)
+            # x = mint.matmul(x, self.fc1.weight.transpose((1,0)))  # 3e-8
+            x = ops.matmul(x, self.fc1.weight.transpose((1,0)))  # 3e-8
+
+            print("D--: mlp fc1 error")
+            from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250630/module_siglip_block_0_layer_0_mlp_fc1_output.pkl")
+            import pdb; pdb.set_trace()
+
+            x = x + self.fc1.bias
+        else:
+            x = self.fc1(x)
+
         x = self.act(x)
+
+        
+        if HACK_DEBUG: 
+            print("D--: mlp fc1-act error")
+            from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250630/module_siglip_block_0_layer_0_mlp_after_act.pkl")
+
         x = self.drop1(x)
         x = self.norm(x)
         x = self.fc2(x)
         x = self.drop2(x)
+
         return x
 
 
