@@ -50,7 +50,8 @@ class SigLIPVisionEncoder(nn.Cell):
         self.position_ids = mint.arange(self.vit.seq_length).expand((1, -1))
 
         # TODO: the param name dosen't include "vit." prefix in mindspore. May fail to load.
-        # self.vit.pos_embed = mint.nn.Embedding(self.vit.seq_length, self.vit.embed_dim, dtype=dtype)
+        del self.vit.pos_embed
+        self.vit.pos_embed = mint.nn.Embedding(self.vit.seq_length, self.vit.embed_dim, dtype=dtype)
         
         # remove unused post layernorm and head
         del self.vit.norm
@@ -59,7 +60,7 @@ class SigLIPVisionEncoder(nn.Cell):
         del self.vit.head_drop
         del self.vit.head
 
-        # self.vit.load_from_checkpoint(ckpt_path, add_prefix="vit.", amp_level=amp_level)
+        self.vit.load_from_checkpoint(ckpt_path, add_prefix="vit.", amp_level=amp_level)
 
     def construct_v2(self, x: ms.Tensor, ):
 
@@ -106,13 +107,12 @@ class SigLIPVisionEncoder(nn.Cell):
 
 
     def construct(self, x, output_hidden_states=False, return_dict=True):
-        '''
+
         print("D--: force to overwrite mlp input") 
-        force_input = "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250630/module_siglip_block_0_layer_0_after_pre_mlp_layernorm.pkl"
+        force_input = "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250630/before_conv1_rank_0_index_0.pkl"
         from compare import read_pickle_value, print_diff
-        x = ms.Tensor(read_pickle_value(force_input).transpose(1,0,2))
-        diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), force_input)
-        '''
+        x = ms.Tensor(read_pickle_value(force_input))
+        diff, pta_val = print_diff(x.asnumpy(), force_input)
 
         x = self.vit.patch_embed(x)  # mre = 0, by pta.reshape(5, 1152, 1024)
         # the following two operations are done in timm siglipvit patch_embed
@@ -132,8 +132,8 @@ class SigLIPVisionEncoder(nn.Cell):
                 hidden_states = hidden_states + (x,)
             x = block(x)
 
-        # from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/features/after_siglip_decoder_0_index_0.pkl")
-        # import pdb; pdb.set_trace()
+        from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/features/after_siglip_decoder_0_index_0.pkl")
+        import pdb; pdb.set_trace()
 
         if return_dict:
             output = SimpleNamespace()

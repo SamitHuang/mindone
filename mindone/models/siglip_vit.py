@@ -268,7 +268,7 @@ class Block(nn.Cell):
 
         self.norm2 = norm_layer([dim])
         # FIXME: Temp fix: texthawk use QuickGELU for MLP act
-        print("D--: act layer: ", act_layer)
+        # print("D--: act layer: ", act_layer)
         self.mlp = mlp_layer(
             in_features=dim,
             hidden_features=int(dim * mlp_ratio),
@@ -449,12 +449,10 @@ class VisionTransformer(nn.Cell):
         self.cls_token = Parameter(mint.zeros(1, 1, embed_dim)) if class_token else None
         self.reg_token = Parameter(mint.zeros(1, reg_tokens, embed_dim)) if reg_tokens else None
         embed_len = num_patches if no_embed_class else num_patches + self.num_prefix_tokens
-        '''
         self.pos_embed = Parameter(
             ms.Tensor(np.random.normal(size=(1, embed_len, embed_dim)).astype(np.float32) * 0.02)
         )
-        '''
-        self.pos_embed = mint.nn.Embedding(embed_len, embed_dim, dtype=ms.float32)
+        # self.pos_embed = mint.nn.Embedding(embed_len, embed_dim, dtype=ms.float32)
 
         self.pos_drop = nn.Dropout(p=pos_drop_rate)
         if patch_drop_rate > 0:

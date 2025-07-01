@@ -313,7 +313,7 @@ class Mlp(nn.Cell):
 
         self.fc1 = linear_layer(in_features, hidden_features) # , bias=bias[0])
         self.act = act_layer()
-        print("D--: act layer: ", self.act)
+        # print("D--: act layer: ", self.act)
         self.drop1 = nn.Dropout(p=drop_probs[0])
         self.norm = norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
         self.fc2 = linear_layer(hidden_features, out_features) # , bias=bias[1])
