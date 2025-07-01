@@ -107,12 +107,13 @@ class SigLIPVisionEncoder(nn.Cell):
 
 
     def construct(self, x, output_hidden_states=False, return_dict=True):
-
+        '''
         print("D--: force to overwrite mlp input") 
         force_input = "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250630/before_conv1_rank_0_index_0.pkl"
         from compare import read_pickle_value, print_diff
         x = ms.Tensor(read_pickle_value(force_input))
         diff, pta_val = print_diff(x.asnumpy(), force_input)
+        '''
 
         x = self.vit.patch_embed(x)  # mre = 0, by pta.reshape(5, 1152, 1024)
         # the following two operations are done in timm siglipvit patch_embed
@@ -132,8 +133,8 @@ class SigLIPVisionEncoder(nn.Cell):
                 hidden_states = hidden_states + (x,)
             x = block(x)
 
-        from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/features/after_siglip_decoder_0_index_0.pkl")
-        import pdb; pdb.set_trace()
+        # from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/features/after_siglip_decoder_0_index_0.pkl")
+        # import pdb; pdb.set_trace()
 
         if return_dict:
             output = SimpleNamespace()
@@ -178,7 +179,6 @@ def test(dtype=ms.bfloat16, gt_inp=None, gt_out=None, profile=True):
                 prof.step()
     else:
         out = model(input_tensor)
-
 
     # print(out.last_hidden_state.shape)
     # print(out.shape)

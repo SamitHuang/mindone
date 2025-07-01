@@ -546,20 +546,19 @@ class VisionTransformer(nn.Cell):
 
             if is_from_texthawk:
                 print("D--: load param from texthawk")
-                prefix = "vision_model.encoder.vit." 
+                prefix = "vision_model.encoder.vit."   # vision model prefix in param dict
                 for p in pnames:
-                    if prefix not in p:
+                    if not p.startswith(prefix):
                         parameter_dict.pop(p)
                     else: 
-                        # name refine
                         new_pname = p.replace(prefix, "")
-                        # if "vit.pos_embed.weight" in p:
-                        #     new_pname = new_pname.replace(".weight", "")
                         
-                        # FIXME: due to we change patch_embed externally, patch_embed weight name is 'pos_embed.weight' rather than 'vit.pos_embed.weight'
+                        # name mapping for pos embed. Skip add 'vit.' to pos_embed weight in param dict. Due to we replace pos_embed outside SigLIPViT, pos_embed weight name in the network is 'pos_embed.weight', NOT 'vit.pos_embed.weight'. 
                         if not "vit.pos_embed.weight" in p:
                             new_pname = add_prefix + new_pname
-                        # FIXME: somehow, using auto_mixed_precision to set LayerNorm in fp32 will add _backbone to the param name...
+
+                        # name mapping for LayerNorm when amp is enabled
+                        # NOTE: using auto_mixed_precision to set LayerNorm in fp32, it will add '_backbone' to the param name...
                         if "norm" in new_pname and amp_level is not None:
                             new_pname = new_pname.replace(".bias", "._backbone.bias")
                             new_pname = new_pname.replace(".weight", "._backbone.weight")
@@ -573,8 +572,6 @@ class VisionTransformer(nn.Cell):
                             weight = ops.reshape(weight, (self.embed_dim, self.patch_size, self.patch_size, 3))  #
                             weight = ops.transpose(weight, (0, 3, 1, 2))
                             parameter_dict[new_pname] = ms.Parameter(weight, name=new_pname)
-                            print("D--: ", new_pname, parameter_dict[new_pname].dtype)
-                            print(parameter_dict[new_pname] )
                         else:
                             parameter_dict[new_pname] = weight
 
