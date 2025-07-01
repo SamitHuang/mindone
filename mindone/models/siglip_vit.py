@@ -182,11 +182,18 @@ class Attention(nn.Cell):
         # here: BNSD format
         # TODO: use SBH format and ms flash attn score API to compute it
         # refer to: mindspeed_mm\attention_patches\dot_product_attention_qwen2vl.py
+        format = 'SBH'  # optimal: SBH
         if self.use_fa: 
+            if format == 'BSH':
+                q = q.transpose(1, 0, 2)
+                k = k.transpose(1, 0, 2)
+                v = v.transpose(1, 0, 2)
+
             x = ms.ops.flash_attention_score(
-                q, k, v, self.num_heads, input_layout='SBH', scalar_value=1.0 / math.sqrt(self.head_dim),
+                q, k, v, self.num_heads, input_layout=format, scalar_value=1.0 / math.sqrt(self.head_dim),
                 )
-            x = x.transpose(1, 0, 2) # SBH -> BSH
+            if not format == 'BSH':
+                x = x.transpose(1, 0, 2) # SBH -> BSH
         else:
             if self.fused_attn:
                 x = scaled_dot_product_attention(
