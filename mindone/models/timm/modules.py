@@ -9,7 +9,7 @@ from typing import Callable, List, Optional, Tuple, Type, Union
 
 import mindspore as ms
 from mindspore import Parameter, Tensor, mint, nn, ops
-
+from mindspore.ops.auto_generate.gen_ops_prim import MatMulExt
 from mindone.transformers.mindspore_adapter.attention import scaled_dot_product_attention
 
 logger = logging.getLogger("")
@@ -313,7 +313,6 @@ class Mlp(nn.Cell):
 
         self.fc1 = linear_layer(in_features, hidden_features) # , bias=bias[0])
         self.act = act_layer()
-        # print("D--: act layer: ", self.act)
         self.drop1 = nn.Dropout(p=drop_probs[0])
         self.norm = norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
         self.fc2 = linear_layer(hidden_features, out_features) # , bias=bias[1])
@@ -323,7 +322,7 @@ class Mlp(nn.Cell):
         
         if HACK_DEBUG: 
             print("D--: force to overwrite mlp input") 
-            force_input = "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250630/module_siglip_block_0_layer_0_after_pre_mlp_layernorm.pkl"
+            force_input = "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250701/module_siglip_block_0_layer_0_after_pre_mlp_layernorm.pkl"
             from compare import read_pickle_value, print_diff
             x = ms.Tensor(read_pickle_value(force_input).transpose(1,0,2))
             diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), force_input)
@@ -331,10 +330,11 @@ class Mlp(nn.Cell):
             # TODO: training code: intermediate_parallel, bias_parallel = self.linear_fc1(hidden_states); bias is added later; to align, we may use matmul() + bias
             # x = self.fc1(x)
             # x = mint.matmul(x, self.fc1.weight.transpose((1,0)))  # 3e-8
-            x = ops.matmul(x, self.fc1.weight.transpose((1,0)))  # 3e-8
+            # x = ops.matmul(x, self.fc1.weight.transpose((1,0)))  # 3e-8
+            x = MatMulExt()(x, self.fc1.weight.transpose((1,0)))  # 3e-8
 
             print("D--: mlp fc1 error")
-            from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250630/module_siglip_block_0_layer_0_mlp_fc1_output.pkl")
+            from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250701/module_siglip_block_0_layer_0_mlp_fc1_output.pkl")
             import pdb; pdb.set_trace()
 
             x = x + self.fc1.bias
@@ -346,11 +346,14 @@ class Mlp(nn.Cell):
         
         if HACK_DEBUG: 
             print("D--: mlp fc1-act error")
-            from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250630/module_siglip_block_0_layer_0_mlp_after_act.pkl")
+            from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250701/module_siglip_block_0_layer_0_mlp_after_act.pkl")
 
         x = self.drop1(x)
         x = self.norm(x)
-        x = self.fc2(x)
+
+        # x = self.fc2(x)
+        x = MatMulExt()(x, self.fc2.weight.transpose((1,0))) + self.fc2.bias
+
         x = self.drop2(x)
 
         return x

@@ -5,7 +5,7 @@ import mindspore as ms
 
 
 # def calc_diff(ms_val, pt_val, eps=1e-8, relax=False):
-def calc_diff(ms_val, pt_val, eps=1e-5, relax=True):
+def calc_diff(ms_val, pt_val, eps=1e-5, relax=False):
     if isinstance(ms_val, ms.Tensor):
         ms_val = ms_val.asnumpy()
 
@@ -52,7 +52,7 @@ def print_diff(ms_val, gt_data_fp):
         pta_val = read_pickle_value(gt_data_fp)
     else:
         pta_val = np.load(gt_data_fp)
-    res = calc_diff(ms_val, pta_val, relax=True)
+    res = calc_diff(ms_val, pta_val, relax=False)
     print(res)
     return res, pta_val
 

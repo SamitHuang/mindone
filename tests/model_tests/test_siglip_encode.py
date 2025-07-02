@@ -20,6 +20,10 @@ num_query_group: 16
 ffn_hidden_size: 4304
 """
 
+DEBUG_PREFIX = "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250701"
+# DEBUG_PREFIX = "/home/zhy/_xiaoyi/_data_syh/texthawk_ds_gt"
+
+
 
 class SigLIPVisionEncoder(nn.Cell):
 
@@ -107,12 +111,6 @@ class SigLIPVisionEncoder(nn.Cell):
 
 
     def construct(self, x, output_hidden_states=False, return_dict=True):
-        # print("D--: force to overwrite mlp input") 
-        # force_input = "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250630/before_conv1_rank_0_index_0.pkl"
-        # from compare import read_pickle_value, print_diff
-        # x = ms.Tensor(read_pickle_value(force_input))
-        # diff, pta_val = print_diff(x.asnumpy(), force_input)
-
         x = self.vit.patch_embed(x)  # mre = 0, by pta.reshape(5, 1152, 1024)
         # the following two operations are done in timm siglipvit patch_embed
         # x = x.reshape(x.shape[0], x.shape[1], -1)  # [batch, hidden_size, grid ** 2]
@@ -126,16 +124,17 @@ class SigLIPVisionEncoder(nn.Cell):
         else:
             hidden_states = None
 
-        for block in self.vit.blocks:
+        for idx, block in enumerate(self.vit.blocks):
             if output_hidden_states:
                 hidden_states = hidden_states + (x,)
             x = block(x)
+            print(f"D--: block {idx} output error: ")
+            from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), f"/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250701/module_siglip_block_0_layer_{idx}_before_return.pkl")
 
         if output_hidden_states:
             hidden_states = hidden_states + (x,)
 
-        # from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/features/after_siglip_decoder_0_index_0.pkl")
-        # import pdb; pdb.set_trace()
+        # from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250701/after_siglip_decoder_0_index_0.pkl")
 
         if return_dict:
             output = SimpleNamespace()
@@ -149,7 +148,9 @@ class SigLIPVisionEncoder(nn.Cell):
         return (x,) 
 
 def test(dtype=ms.bfloat16, gt_inp=None, gt_out=None, profile=True):
-    model = SigLIPVisionEncoder(dtype=dtype)
+    model = SigLIPVisionEncoder(dtype=dtype) # , amp_level=None)
+
+    model.set_train(mode=True)
     
     if gt_inp is None: 
         shape = (1, 3, 448, 448)
@@ -157,37 +158,43 @@ def test(dtype=ms.bfloat16, gt_inp=None, gt_out=None, profile=True):
         input_tensor = ms.Tensor(input_tensor).to(dtype)
     else:
         with open(gt_inp, "rb") as fp:
-            value = pickle.load(fp)['all_images']
+            dat = pickle.load(fp)
+            value = dat['pixel_values']
         input_tensor = ms.Tensor(value).to(dtype)
     
     if profile: 
         # 配置可扩展参数
-        experimental_config = mindspore.profiler._ExperimentalConfig(
-                            profiler_level=ProfilerLevel.Level0,
-                            aic_metrics=AicoreMetrics.AiCoreNone,
-                            l2_cache=False,
-                            mstx=False,
-                            data_simplification=False) 
         # 初始化profile
-        with ms.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.NPU],
-                                        schedule=ms.profiler.schedule(wait=1, warmup=1, active=2,
-                                                repeat=1, skip_first=1),
-                                        on_trace_ready=ms.profiler.tensorboard_trace_handler("./data"),
-                                        profile_memory=False,
-                                        experimental_config=experimental_config) as prof:
-            for i in range(10):
-                out = model(input_tensor)
-                prof.step()
+        profiler = ms.Profiler(start_profile=False,
+                            activities=[ProfilerActivity.CPU, ProfilerActivity.NPU],
+                            with_stack=True,
+                            profiler_level=ProfilerLevel.Level1,
+                            # schedule=ms.profiler.schedule(wait=0, warmup=0, active=2,
+                            # repeat=1, skip_first=1),
+                            # on_trace_ready=ms.profiler.tensorboard_trace_handler("./data"),
+                            # profile_memory=False,
+                            )
+        profiler.start()
+
+        out = model(input_tensor, output_hidden_states=True)
+
+        profiler.stop()
+        profiler.analyse()
+
+
     else:
-        out = model(input_tensor)
+        out = model(input_tensor, output_hidden_states=True)
 
     # print(out.last_hidden_state.shape)
     # print(out.shape)
 
 if __name__ == "__main__":
     ms.set_context(mode=1)
+    mindspore.set_deterministic(True)
+    ms.set_context(pynative_synchronize=True)
+
     test(
-        gt_inp="/home/hyx/models/texthawk_vision/features/before_siglip_rank_0_index_0.pkl",
-        gt_out="/home/hyx/models/texthawk_vision/features/after_siglip_decoder_0_index_0.pkl",
+        gt_inp=DEBUG_PREFIX + "/before_conv1_rank_0_index_0.pkl",
+        gt_out=DEBUG_PREFIX + "/after_siglip_decoder_0_index_0.pkl",
         profile=False,
     )

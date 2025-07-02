@@ -32,7 +32,7 @@ from mindspore import Parameter, Tensor, mint, nn, ops
 from mindspore.mint.nn import LayerNorm
 #from mindspore import amp
 from mindone.utils.amp import auto_mixed_precision
-
+from mindspore.ops.auto_generate.gen_ops_prim import MatMulExt
 from mindone.transformers.mindspore_adapter.attention import scaled_dot_product_attention
 
 from .utils import set_model_param_dtype
@@ -48,7 +48,10 @@ from .timm import (
     resample_abs_pos_embed,
 )
 
-HACK_DEBUG = False
+HACK_DEBUG = False 
+DEBUG_PREFIX = "/home/hyx/models/texthawk_vision/texthawk_ds_feature_gt_20250701"
+# DEBUG_PREFIX = "/home/zhy/_xiaoyi/_data_syh/texthawk_ds_gt"
+
 
 def trunc_normal_(tensor, mean=0.0, std=1.0, a=-2.0, b=2.0):
     # type: (Tensor, float, float, float, float) -> Tensor
@@ -116,8 +119,6 @@ class Attention(nn.Cell):
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
         self.scale = self.head_dim**-0.5
-        # self.fused_attn = use_fused_attn()
-        self.fused_attn = True
         
         # default in timm: qqqq kkkk vvv 
         # self.qkv = mint.nn.Linear(dim, dim * 3, bias=qkv_bias)
@@ -140,38 +141,25 @@ class Attention(nn.Cell):
         self.use_fa = True
 
     def construct(self, x: Tensor) -> Tensor:
+        # x shape: B S H
+
         # N - seq len
         B, N, C = x.shape
-        # DEBUG texthawk: num_heads 16, head_dim 72 
-        # Linear projection
         if HACK_DEBUG:
             print("D--: qkv projection input error: ")
-            from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/features_self_attn/module_siglip_block_0_layer_0_self-attn_before_qkv.pkl")
+            from compare import print_diff; diff, pta_val = print_diff(x.numpy().transpose(1,0,2), DEBUG_PREFIX+"/module_siglip_block_0_layer_0_self-attn_before_qkv.pkl")
 
         # (B S H) -> (B S H*3), qqkkvv
-        qkv = self.qkv(x)
+        # qkv = self.qkv(x)
         # qkv = mint.matmul(x, self.qkv.weight.transpose(1, 0)) + self.qkv.bias
+        qkv = MatMulExt()(x, self.qkv.weight.transpose((1, 0))) + self.qkv.bias
         
-        if not self.use_fa: 
-            # (B S H*3) -> (B S 3 num_head head_dim) -> (3 B num_head S head_dim) = (3 B 16 1024 72)  # => BNSH format 
-            qkv = qkv.reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-            q, k, v = qkv.unbind(0)  # (B num_heads S head_dim)
-            
-            # train infer save merged_qkv:  (S B H*3), qkvqkv 
-            # train infer save query:  (S B num_heads head_dim), 4K: (1024, 5, 16, 72)
-            if HACK_DEBUG:
-                print("D--: q k v error after qkv projection: ")
-                from compare import print_diff; diff, pta_val = print_diff(q.asnumpy().transpose(2,0,1,3), "/home/hyx/models/texthawk_vision/features_self_attn/module_siglip_block_0_layer_0_self-attn_query.pkl")
-                from compare import print_diff; diff, pta_val = print_diff(k.asnumpy().transpose(2,0,1,3), "/home/hyx/models/texthawk_vision/features_self_attn/module_siglip_block_0_layer_0_self-attn_key.pkl")
-                from compare import print_diff; diff, pta_val = print_diff(v.asnumpy().transpose(2,0,1,3), "/home/hyx/models/texthawk_vision/features_self_attn/module_siglip_block_0_layer_0_self-attn_value.pkl")
-                # import pdb; pdb.set_trace()
-        else:
-            # (B S 3H) -> (S B 3H) ->  (S B 3 H) -> 3 (S B H)
-            q, k, v = qkv.transpose((1, 0, 2)).reshape(N, B, 3, self.num_heads * self.head_dim).unbind(2)
+        # (B S 3H) -> (S B 3H) ->  (S B 3 H) -> 3 (S B H)
+        q, k, v = qkv.transpose((1, 0, 2)).reshape(N, B, 3, self.num_heads * self.head_dim).unbind(2)
 
-            if HACK_DEBUG:
-                print("D--: q k v error after qkv projection: ")
-                from compare import print_diff; diff, pta_val = print_diff(q.asnumpy().reshape(N, B, self.num_heads, self.head_dim), "/home/hyx/models/texthawk_vision/features_self_attn/module_siglip_block_0_layer_0_self-attn_query.pkl")
+        if HACK_DEBUG:
+            print("D--: q k v error after qkv projection: ")
+            from compare import print_diff; diff, pta_val = print_diff(q.numpy().reshape(N, B, self.num_heads, self.head_dim), DEBUG_PREFIX+"/module_siglip_block_0_layer_0_self-attn_query.pkl")
 
         q, k = self.q_norm(q), self.k_norm(k)  # identity
             
@@ -179,52 +167,31 @@ class Attention(nn.Cell):
         #  ==> 4K: q: (1024 5 1152) 
         #  profile 8K data: (1024 33 144) ==> num_heads 16 -> 2
         
-        # here: BNSD format
-        # TODO: use SBH format and ms flash attn score API to compute it
-        # refer to: mindspeed_mm\attention_patches\dot_product_attention_qwen2vl.py
-        format = 'SBH'  # optimal: SBH
-        if self.use_fa: 
-            if format == 'BSH':
-                q = q.transpose(1, 0, 2)
-                k = k.transpose(1, 0, 2)
-                v = v.transpose(1, 0, 2)
-
-            x = ms.ops.flash_attention_score(
-                q, k, v, self.num_heads, input_layout=format, scalar_value=1.0 / math.sqrt(self.head_dim),
-                )
-            if not format == 'BSH':
-                x = x.transpose(1, 0, 2) # SBH -> BSH
-        else:
-            if self.fused_attn:
-                x = scaled_dot_product_attention(
-                    q,
-                    k,
-                    v,
-                )
-            else:
-                q = q * self.scale
-                # attn = ops.bmm(q, k.transpose(0, 1, 3, 2))
-                attn = q @ k.transpose(0, 1, 3, 2)
-
-                attn = attn.to(ms.float32)
-                attn = mint.softmax(attn, dim=-1).to(q.dtype)
-
-                attn = self.attn_drop(attn)
-                # x = ops.bmm(attn, v)
-                x = attn @ v
-            # B N S D -> B S N D -> B S H
-            x = x.transpose(0, 2, 1, 3).reshape(B, N, C)
+        x = ms.ops.flash_attention_score(
+            q, k, v, self.num_heads, input_layout="SBH", scalar_value=1.0 / math.sqrt(self.head_dim),
+            )
 
         if HACK_DEBUG:
             print("D--: x error after dot product attn: ")
-            from compare import print_diff; diff, pta_val = print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/features_self_attn/module_siglip_block_0_layer_0_self-attn_attn_output.pkl")
+            from compare import print_diff; diff, pta_val = print_diff(x.numpy(), DEBUG_PREFIX+"/module_siglip_block_0_layer_0_self-attn_attn_output.pkl")
+
+        # prev: x: BSH -> (BS, H) x (H, H_out)
+        # cur: x shape: SBH --> (SB, H) x (H, H_out)
+        x = mint.matmul(x, self.proj.weight.transpose(1, 0)) 
+        # BSH vs SBH: mae: 1e-9
+       
+        # x: (S B H_in), w: (H_out, Hin) -> (H_out * 2, H_in)
+        if HACK_DEBUG:
+            print("D--: error after out proj matmul:  ")
+            from compare import print_diff; diff, pta_val = print_diff(x.numpy(), DEBUG_PREFIX+"/module_siglip_block_0_layer_0_after_self_attention.pkl")
             import pdb; pdb.set_trace()
-
-        x = self.proj(x)
-        # x = mint.matmul(x, self.proj.weight.transpose(1, 0))
-        # x = x + self.proj.bias
-
+        
+        x = x + self.proj.bias
         x = self.proj_drop(x)
+        
+        # SBH -> BSH 
+        x = x.transpose(1, 0, 2)
+
         return x
 
 
@@ -292,21 +259,18 @@ class Block(nn.Cell):
             import pdb; pdb.set_trace()
             from compare import read_pickle_value, print_diff
             print("D--: Block input error: ")
-            print_diff(x.asnumpy().transpose(1,0,2), f"/home/hyx/models/texthawk_vision/features_full/texthawk_ds_features_gt_full/module_siglip_block_0_layer_0_before_input_layernorm.pkl") 
+            print_diff(x.numpy().transpose(1,0,2), DEBUG_PREFIX+"/module_siglip_block_0_layer_0_before_input_layernorm.pkl") 
 
-        # x = x + self.drop_path1(self.ls1(self.attn(self.norm1(x))))
-        # x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
         h = self.norm1(x)
-        # after_input_layernorm.pkl mre 0
         
         h = self.attn(h)
+
         h = self.ls1(h)
         x = x + self.drop_path1(h)
 
         if HACK_DEBUG: 
-            # import pdb; pdb.set_trace() 
             print("D--: x error after out projction + bias + residual: ")
-            print_diff(x.asnumpy().transpose(1,0,2), "/home/hyx/models/texthawk_vision/features_full/texthawk_ds_features_gt_full/module_siglip_block_0_layer_0_before_pre_mlp_layernorm.pkl") 
+            print_diff(x.numpy().transpose(1,0,2), DEBUG_PREFIX+"/module_siglip_block_0_layer_0_before_pre_mlp_layernorm.pkl") 
             import pdb; pdb.set_trace()
 
         # before_pre_mlp_layernorm.pkl, mre 0.001
@@ -316,29 +280,26 @@ class Block(nn.Cell):
         # DEBUGGING
         '''
         import pdb; pdb.set_trace()
-        force_input = "/home/hyx/models/texthawk_vision/features_full/texthawk_ds_features_gt_full/module_siglip_block_0_layer_0_after_pre_mlp_layernorm.pkl" 
+        force_input = DEBUG_PREFIX+"/module_siglip_block_0_layer_0_after_pre_mlp_layernorm.pkl" 
         from compare import read_pickle_value, print_diff
         h = ms.Tensor(read_pickle_value(force_input).transpose(1,0,2))
-        print_diff(h.asnumpy().transpose(1,0,2), force_input)
+        print_diff(h.numpy().transpose(1,0,2), force_input)
 
-        force_input_x = "/home/hyx/models/texthawk_vision/features_full/texthawk_ds_features_gt_full/module_siglip_block_0_layer_0_before_pre_mlp_layernorm.pkl" 
+        force_input_x = DEBUG_PREFIX + "/module_siglip_block_0_layer_0_before_pre_mlp_layernorm.pkl" 
         x = ms.Tensor(read_pickle_value(force_input_x).transpose(1,0,2))
-        print_diff(x.asnumpy().transpose(1,0,2), force_input_x)
+        print_diff(x.numpy().transpose(1,0,2), force_input_x)
         print("x and h are set to the same as training input")
         '''
 
         h = self.mlp(h)
-        
 
         h = self.ls2(h)
         x = x + self.drop_path2(h)
 
-        # before_return.pkl, mre 0.037
-
         if HACK_DEBUG: 
             print("D--: x error after norm, mlp, residual ")
-            ref_output = "/home/hyx/models/texthawk_vision/features_full/texthawk_ds_features_gt_full/module_siglip_block_0_layer_0_before_return.pkl" 
-            print_diff(x.asnumpy().transpose(1,0,2), ref_output)
+            ref_output = DEBUG_PREFIX + "/module_siglip_block_0_layer_0_before_return.pkl" 
+            print_diff(x.numpy().transpose(1,0,2), ref_output)
             import pdb; pdb.set_trace()
 
         return x
