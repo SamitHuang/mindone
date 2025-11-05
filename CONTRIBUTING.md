@@ -3,6 +3,8 @@
 Contributions are welcome, and they are greatly appreciated! Every little bit
 helps, and credit will always be given.
 
+https://docs.google.com/document/d/1urvDvVFhPs3-l9p_wxASYuoRTv56Xo5JGoRYnwK_ta0/edit?tab=t.d58b6vt3l0fd
+
 ## Contributor License Agreement
 
 It's required to sign CLA before your first code submission to MindONE community.
